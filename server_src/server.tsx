@@ -6,12 +6,6 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "POST") {
-    if (req.headers.get("content-type") === "application/json") {
-      console.log(await new Response(req.body).json());
-    }
-  }
-
   const path = new URL(req.url).pathname;
   const filePath = path === "/" ? "./dist/index.html" : `./dist/${path}`;
 
