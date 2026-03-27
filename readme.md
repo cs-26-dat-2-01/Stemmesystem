@@ -55,7 +55,7 @@ Offical environment setup documentation can be found at
 
 ### Helix Editor
 
-The folloling config can be used to configure the Deno LSP for Helix.
+The following config can be used to configure the Deno LSP for Helix.
 
 ```toml
 [[language]]
