@@ -1,86 +1,79 @@
 # Stemmesystem udviklet til brug i Ungdommens Naturfaglige Forening
 
 ## Building
+
 The project uses Deno tasks to configure the various build options
 
-| `deno task {option}`  | Description |
-| :---    |    :--- | 
-| dev     | Uses Vite as a dev server to provide hot-reloading while developing. | 
-| build   | Uses Vite to bundle the web app to `./dist`. |
-| preview | Uses Vite to build the project and serve it from `./dist` using a dev server. |
-| prod    | Runs the production server and serves the content in `./dist`. |
-| lint    | Uses ESLint to lint the project. | 
+| `deno task {option}` | Description                                                                   |
+| :------------------- | :---------------------------------------------------------------------------- |
+| dev                  | Uses Vite as a dev server to provide hot-reloading while developing.          |
+| build                | Uses Vite to bundle the web app to `./dist`.                                  |
+| preview              | Uses Vite to build the project and serve it from `./dist` using a dev server. |
+| prod                 | Runs the production server and serves the content in `./dist`.                |
+| lint                 | Uses ESLint to lint the project.                                              |
 
-# React + TypeScript + Vite
+## Editior Configuration
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+To work on the project the
+[Deno CLI](https://docs.deno.com/runtime/getting_started/installation/) tool
+will need to be installed, this can be done as shown below.
 
-Currently, two official plugins are available:
+**Linux/MacOS**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```shell
+curl -fsSL https://deno.land/install.sh | sh
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+**Windows**:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```powershell
+irm https://deno.land/install.ps1 | iex
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Offical eviroment setup docs can be found at
+[Deno - Set up your environment](https://docs.deno.com/runtime/getting_started/setup_your_environment/).
+
+### VS Code Specfic
+
+1. Install the
+   [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
+   for VS code.
+
+2. Add the following to `.vscode/settings.json`
+
+```json
+{
+  "deno.enable": true,
+  "deno.lint": true,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "denoland.vscode-deno",
+
+  // Disable built-in JavaScript and TypeScript validation since Deno provides its own.
+  "js/ts.validate.enabled": false
+}
+```
+
+### Helix Editor
+
+The folloling config can be used to configure the Deno LSP for Helix.
+
+```toml
+[[language]]
+name = "typescript"
+roots = ["deno.json", "deno.jsonc", "package.json"]
+file-types = ["ts", "tsx"]
+auto-format = true
+language-servers = ["deno-lsp"]
+
+[[language]]
+name = "javascript"
+roots = ["deno.json", "deno.jsonc", "package.json"]
+file-types = ["js", "jsx"]
+auto-format = true
+language-servers = ["deno-lsp"]
+
+[language-server.deno-lsp]
+command = "deno"
+args = ["lsp"]
+config.deno.enable = true
 ```
