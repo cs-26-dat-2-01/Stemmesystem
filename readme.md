@@ -3,13 +3,13 @@
 ## Building
 The project uses Deno tasks to configure the various build options
 
-Deno tasks
-  - dev &nbsp; : Uses vite as a dev server to provide hot-reloading while developing.
-  - build &nbsp; : Uses vite to bundle the web app to `./dist`
-  - preview &nbsp; : Uses vite to build the project and serve it from `./dist` using a dev server
-  - prod &nbsp; : Runs the production server and serves the content in `./dist`
-  - lint &nbsp; : Uses eslint to lint the project.
-   
+| `deno task {command}`  | Description |
+| :---    |    ---: | 
+| dev     | Uses Vite as a dev server to provide hot-reloading while developing. | 
+| build   | Uses Vite to bundle the web app to `./dist` |
+| preview | Uses Vite to build the project and serve it from `./dist` using a dev server |
+| prod    | Runs the production server and serves the content in `./dist` |
+| lint    | Uses ESLint to lint the project. | 
 
 # React + TypeScript + Vite
 
