@@ -1,5 +1,16 @@
 # Stemmesystem udviklet til brug i Ungdommens Naturfaglige Forening
 
+## Building
+The project uses Deno tasks to configure the various build options
+
+Deno tasks
+  - dev     : Uses vite as a dev server to provide hot-reloading while developing.
+  - build   : Uses vite to bundle the web app to `./dist`
+  - preview : Uses vite to build the project and serve it from `./dist` using a dev server
+  - prod    : Runs the production server and serves the content in `./dist`
+  - lint    : Uses eslint to lint the project.
+   
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
