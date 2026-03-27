@@ -4,7 +4,7 @@
 The project uses Deno tasks to configure the various build options
 
 | `deno task {command}`  | Description |
-| :---    |    ---: | 
+| ---:    |    :--- | 
 | dev     | Uses Vite as a dev server to provide hot-reloading while developing. | 
 | build   | Uses Vite to bundle the web app to `./dist` |
 | preview | Uses Vite to build the project and serve it from `./dist` using a dev server |
