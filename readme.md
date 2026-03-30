@@ -39,7 +39,7 @@ Offical environment setup documentation can be found at
    [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
    for VS code.
 
-2. Add the following to `.vscode/settings.json`
+2. Add the following to the local workspace settings file at: `.vscode/settings.json`
 
 ```json
 {
