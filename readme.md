@@ -33,7 +33,7 @@ irm https://deno.land/install.ps1 | iex
 Offical environment setup documentation can be found at
 [Deno - Set up your environment](https://docs.deno.com/runtime/getting_started/setup_your_environment/).
 
-### VS Code Specfic
+### VS Code
 
 1. Install the
    [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
