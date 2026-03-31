@@ -30,7 +30,7 @@ curl -fsSL https://deno.land/install.sh | sh
 irm https://deno.land/install.ps1 | iex
 ```
 
-Offical environment setup documentation can be found at
+Official environment setup documentation can be found at
 [Deno - Set up your environment](https://docs.deno.com/runtime/getting_started/setup_your_environment/).
 
 ### VS Code
