@@ -1,0 +1,13 @@
+{
+  "nodeModulesDir": "auto",
+  "exclude": [
+    "node_modules",
+    "dist"
+  ],
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "deno.ns", "esnext"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "allowJs": true
+  }
+}
