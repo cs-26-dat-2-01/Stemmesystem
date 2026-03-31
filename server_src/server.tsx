@@ -16,8 +16,8 @@ Deno.serve(async (req) => {
 
     return new Response(file, {
       headers: {
-        "content-type": contentType,
-        "Cache-Control": "public, max-age=31536000, immutable",
+        "content-type": contentType
+        // "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
   } catch {
