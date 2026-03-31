@@ -12,7 +12,7 @@ The project uses Deno tasks to configure the various build options
 | prod                 | Runs the production server and serves the content in `./dist`.                |
 | lint                 | Uses ESLint to lint the project.                                              |
 
-## Editior Configuration
+## Editor Configuration
 
 To work on the project the
 [Deno CLI](https://docs.deno.com/runtime/getting_started/installation/) tool
