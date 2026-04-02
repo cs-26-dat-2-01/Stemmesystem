@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "prod": "tsc -b && vite build && deno run --no-prompt --allow-net --allow-read=./dist --watch ./server_src/server.ts"
+    "prod": "tsc -b && vite build && deno run --no-prompt --allow-net --allow-read=./dist,./server_src/users_db.json --watch ./server_src/server.ts"
   },
   "dependencies": {
     "react": "^19.2.4",
