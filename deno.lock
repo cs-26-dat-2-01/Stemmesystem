@@ -2,6 +2,7 @@
   "version": "5",
   "specifiers": {
     "jsr:@hono/hono@^4.12.9": "4.12.9",
+    "jsr:@panva/jose@^6.2.2": "6.2.2",
     "npm:@eslint/js@^9.39.4": "9.39.4",
     "npm:@types/node@^24.12.0": "24.12.0",
     "npm:@types/react-dom@^19.2.3": "19.2.3_@types+react@19.2.14",
@@ -11,6 +12,7 @@
     "npm:eslint-plugin-react-refresh@~0.5.2": "0.5.2_eslint@9.39.4",
     "npm:eslint@^9.39.4": "9.39.4",
     "npm:globals@^17.4.0": "17.4.0",
+    "npm:jose@5.9.6": "5.9.6",
     "npm:react-dom@^19.2.4": "19.2.4_react@19.2.4",
     "npm:react@^19.2.4": "19.2.4",
     "npm:typescript-eslint@^8.57.2": "8.57.2_eslint@9.39.4_typescript@5.9.3",
@@ -20,6 +22,9 @@
   "jsr": {
     "@hono/hono@4.12.9": {
       "integrity": "53c2b0a721c1d782e6a347ad5bf15a3235ff624b98859c21f779b7ee2f5e040e"
+    },
+    "@panva/jose@6.2.2": {
+      "integrity": "bfe1178a9d2f53effa5ee6c1786b6534a39690b03969472b3ad690600d8898ec"
     }
   },
   "npm": {
@@ -813,6 +818,9 @@
     "isexe@2.0.0": {
       "integrity": "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="
     },
+    "jose@5.9.6": {
+      "integrity": "sha512-AMlnetc9+CV9asI19zHmrgS/WYsWUwCn2R7RzlbJWD7F9eWYUTGyBmU9o6PxngtLGOiDGPRu+Uc4fhKzbpteZQ=="
+    },
     "js-tokens@4.0.0": {
       "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="
     },
@@ -1193,7 +1201,8 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@hono/hono@^4.12.9"
+      "jsr:@hono/hono@^4.12.9",
+      "jsr:@panva/jose@^6.2.2"
     ],
     "packageJson": {
       "dependencies": [

@@ -23,6 +23,14 @@ function App() {
     },
   ];
 
+  fetch("http://localhost:8000/api/dinosaur", {
+    method: "GET",
+    headers: {
+      "Authorization": "Bearer FAKE_JWT_TOKEN",
+      "Content-Type": "application/json",
+    },
+  });
+
   // React is just JavaScript functions that return HTML.
   // We can then inline JavaScript to create a loop inside the HTML,
   // such that each entry from the list above is used to create a new object in HTML.
@@ -36,6 +44,7 @@ function App() {
           <span>{block.name}!!!</span>
         </div>
       ))}
+      <text></text>
     </>
   );
 }
