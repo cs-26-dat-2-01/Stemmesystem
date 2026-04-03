@@ -4,12 +4,6 @@ import LoginPage from "./pages/LoginPage.tsx";
 import OverviewPage from "./pages/OverviewPage.tsx";
 
 function App() {
-  useEffect(() => {
-    fetch("http://localhost:8000/api/dinosaur", {
-      method: "GET",
-    });
-  }, []);
-
   const [isUserLoggedIn, setLogInState] = useState<boolean>(() => {
     return localStorage.getItem("isUserLogedIn") === "true";
   });

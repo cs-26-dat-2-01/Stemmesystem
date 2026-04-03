@@ -13,7 +13,7 @@ const MIME_TYPES: Record<string, string> = {
 const TOKEN_EXPIRE_TIME = 43200; // Defined in seconds.
 
 // https://docs.deno.com/examples/creating_and_verifying_jwt/
-const secret = new TextEncoder().encode("secret-that-no-one-knows");
+const secret = new TextEncoder().encode("secret-that-no-one-knows"); // Todo: Store secret better than in code here.
 
 async function createJWT(payload: JWTPayload): Promise<string> {
   const jwt = await new SignJWT(payload)
@@ -35,12 +35,6 @@ async function verifyJWT(token: string): Promise<JWTPayload | null> {
     return null;
   }
 }
-
-const token = await createJWT({ userId: 123, username: "john" });
-console.log("Created JWT:", token);
-
-const verifiedPayload = await verifyJWT(token);
-console.log("Verified Payload:", verifiedPayload);
 
 /**
  * Checks if a incomming request has a vaild JWT in its "Authorization" header.
@@ -65,7 +59,7 @@ async function hasVaildJWT(
       fn();
     }
   } else {
-    console.log("No auth token found");
+    console.log("No auth token found"); // Todo: make better system for logs.
   }
 
   return c.body("Lack of vaild authentication credentials.", {
@@ -77,7 +71,7 @@ const router = new Hono();
 
 router.get("/login", async (c) => {
   const data = JSON.parse(
-    await Deno.readTextFile("./server_src/users_db.json"),
+    await Deno.readTextFile("./server_src/users_db.json"), // Todo: cache this file instead on reading on every login.
   );
   const username = c.req.header("Username");
   const password = c.req.header("Password");

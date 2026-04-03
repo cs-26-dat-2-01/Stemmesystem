@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import "./OverviewPage.css";
 
 // This is the main entry point of the app
@@ -23,13 +24,11 @@ function OverviewPage() {
     },
   ];
 
-  fetch("http://localhost:8000/api/dinosaur", {
-    method: "GET",
-    headers: {
-      "Authorization": "Bearer FAKE_JWT_TOKEN",
-      "Content-Type": "application/json",
-    },
-  });
+  useEffect(() => {
+    fetch("http://localhost:8000/api/dinosaur", {
+      method: "GET",
+    });
+  }, []);
 
   // React is just JavaScript functions that return HTML.
   // We can then inline JavaScript to create a loop inside the HTML,
