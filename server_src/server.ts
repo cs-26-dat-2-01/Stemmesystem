@@ -1,7 +1,7 @@
 import { Context, Hono } from "@hono/hono";
 import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
 import { BlankEnv, BlankInput } from "@hono/hono/types";
-import { isErrored } from "node:stream";
+import { setCookie } from "@hono/hono/cookie";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -10,6 +10,8 @@ const MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
 };
 
+const TOKEN_EXPIRE_TIME = 43200; // Defined in seconds.
+
 // https://docs.deno.com/examples/creating_and_verifying_jwt/
 const secret = new TextEncoder().encode("secret-that-no-one-knows");
 
@@ -17,7 +19,7 @@ async function createJWT(payload: JWTPayload): Promise<string> {
   const jwt = await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("1h")
+    .setExpirationTime(TOKEN_EXPIRE_TIME + "sec")
     .sign(secret);
 
   return jwt;
@@ -52,19 +54,23 @@ async function hasVaildJWT(
   fn: () => void,
 ) {
   // Retrive the JWT token.
-  const auth_token = c.req.header("Authorization");
+  let auth_token = c.req.header("Cookie"); // Note: We dont need to directly check if the cookie is vaild as the JWT it self contains expiry info.
 
   if (typeof auth_token === "string") {
-    if (await verifyJWT(auth_token)) {
+    auth_token = auth_token.slice(auth_token.indexOf("=") + 1); // Remove name part of cookie.
+
+    const verifiedPayload = await verifyJWT(auth_token);
+    console.log("Verified Payload:", verifiedPayload);
+    if (verifiedPayload) {
       fn();
     }
   } else {
     console.log("No auth token found");
   }
 
-  // If no JWT token was found or that the JWT is invaild redirect to login
-  // so that the user may retrive a new JWT token.
-  // return c.redirect("/login", 303);
+  return c.body("Lack of vaild authentication credentials.", {
+    status: 401,
+  });
 }
 
 const router = new Hono();
@@ -80,9 +86,8 @@ router.get("/login", async (c) => {
     const user = data.users[i];
 
     if (user === undefined) {
-      break;
+      break; // If user is undefined we reached the end of users db
     } else {
-      // console.log(user);
       if (password == user.password && username == user.username) {
         const token = await createJWT({
           userId: user.id,
@@ -90,12 +95,32 @@ router.get("/login", async (c) => {
         });
         console.log("Created JWT:", token);
 
-        return c.body("login successful", 200, {
-          "JWT": token,
+        const verifiedPayload = await verifyJWT(token);
+        console.log("Verified Payload:", verifiedPayload);
+
+        // https://workos.com/blog/secure-jwt-storage
+        setCookie(c, "JWT", token, {
+          secure: true,
+          httpOnly: true,
+          sameSite: "Strict",
+          maxAge: TOKEN_EXPIRE_TIME,
         });
+
+        return c.body("login successful", 200);
       }
     }
   }
+
+  return c.body("Login incorrect", 400);
+});
+
+router.get("/api/:a", (c) => {
+  return hasVaildJWT(c, () => {
+    const a = c.req.param("a");
+    console.log("Hit: " + a);
+
+    return new Response("Parameters: " + a);
+  });
 });
 
 router.get("/", async (c) => {
@@ -124,14 +149,6 @@ router.get("/assets/*", async (c) => {
   } catch {
     return new Response("Not Found", { status: 404 });
   }
-});
-
-router.get("/api/:a", (c) => {
-  const a = c.req.param("a");
-  console.log("Hit: " + a);
-
-  console.log("Authorization: " + c.req.header("Authorization"));
-  return new Response("Parameters: " + a);
 });
 
 Deno.serve(router.fetch);

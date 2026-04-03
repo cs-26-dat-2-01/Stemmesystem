@@ -7,10 +7,6 @@ function App() {
   useEffect(() => {
     fetch("http://localhost:8000/api/dinosaur", {
       method: "GET",
-      headers: {
-        "Authorization": "Bearer FAKE_JWT_TOKEN",
-        "Content-Type": "application/json",
-      },
     });
   }, []);
 
