@@ -1,7 +1,8 @@
-import { Context, Hono } from "@hono/hono";
-import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
-import { BlankEnv, BlankInput } from "@hono/hono/types";
+import { Hono } from "@hono/hono";
 import { setCookie } from "@hono/hono/cookie";
+import { closeDB, getUserFromDB } from "./database.ts";
+import { createJWT, hasVaildJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
+import * as argon2 from "npm:argon2@0.44.0";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -10,89 +11,30 @@ const MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
 };
 
-const TOKEN_EXPIRE_TIME = 43200; // Defined in seconds.
-
-// https://docs.deno.com/examples/creating_and_verifying_jwt/
-const secret = new TextEncoder().encode("secret-that-no-one-knows"); // Todo: Store secret better than in code here.
-
-async function createJWT(payload: JWTPayload): Promise<string> {
-  const jwt = await new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(TOKEN_EXPIRE_TIME + "sec")
-    .sign(secret);
-
-  return jwt;
-}
-
-async function verifyJWT(token: string): Promise<JWTPayload | null> {
-  try {
-    const { payload } = await jwtVerify(token, secret);
-    console.log("JWT is valid:", payload);
-    return payload;
-  } catch (error) {
-    console.error("Invalid JWT:", error);
-    return null;
-  }
-}
-
-/**
- * Checks if a incomming request has a vaild JWT in its "Authorization" header.
- * If no vaild JWT is found it redirects to login page.
- *
- * @param c   - The context given by Hono for the request
- * @param fn  - The logic encasulated in a function run on vaild JWT.
- */
-async function hasVaildJWT(
-  c: Context<BlankEnv, "/", BlankInput>,
-  fn: () => void,
-) {
-  // Retrive the JWT token.
-  let auth_token = c.req.header("Cookie"); // Note: We dont need to directly check if the cookie is vaild as the JWT it self contains expiry info.
-
-  if (typeof auth_token === "string") {
-    auth_token = auth_token.slice(auth_token.indexOf("=") + 1); // Remove name part of cookie.
-
-    const verifiedPayload = await verifyJWT(auth_token);
-    console.log("Verified Payload:", verifiedPayload);
-    if (verifiedPayload) {
-      fn();
-    }
-  } else {
-    console.log("No auth token found"); // Todo: make better system for logs.
-  }
-
-  return c.body("Lack of vaild authentication credentials.", {
-    status: 401,
-  });
-}
-
 const router = new Hono();
 
+// Create a JWT if a user provide a username and password which is stored in the users database.
 router.get("/login", async (c) => {
-  const data = JSON.parse(
-    await Deno.readTextFile("./server_src/users_db.json"), // Todo: cache this file instead on reading on every login.
-  );
-  const username = c.req.header("Username");
-  const password = c.req.header("Password");
+  const username: string = c.req.header("Username") ?? "";
+  const password: string = c.req.header("Password") ?? "";
 
-  for (let i = 0;; i++) {
-    const user = data.users[i];
-
-    if (user === undefined) {
-      break; // If user is undefined we reached the end of users db
-    } else {
-      if (password == user.password && username == user.username) {
+  const user = getUserFromDB(username);
+  if (
+    user?.httpStatusCode === 200 &&
+    typeof user.user?.passwordHash === "string"
+  ) {
+    // https://github.com/ranisalt/node-argon2
+    try {
+      if (await argon2.verify(user.user?.passwordHash, password)) {
+        // Password matched, then a JWT token is created.
         const token = await createJWT({
-          userId: user.id,
-          username: user.username,
+          userId: user.user?.id,
+          username: user.user?.username,
         });
         console.log("Created JWT:", token);
 
-        const verifiedPayload = await verifyJWT(token);
-        console.log("Verified Payload:", verifiedPayload);
-
         // https://workos.com/blog/secure-jwt-storage
+        // Store the JWT token in an HTTP-cookie which will be sent to the client.
         setCookie(c, "JWT", token, {
           secure: true,
           httpOnly: true,
@@ -101,8 +43,14 @@ router.get("/login", async (c) => {
         });
 
         return c.body("login successful", 200);
+      } else {
+        // password did not match
       }
+    } catch (err) {
+      // internal failure
     }
+  } else if (user?.httpStatusCode === 500) {
+    return c.body("Internal Server Error", user.httpStatusCode);
   }
 
   return c.body("Login incorrect", 400);
@@ -113,7 +61,7 @@ router.get("/api/:a", (c) => {
     const a = c.req.param("a");
     console.log("Hit: " + a);
 
-    return new Response("Parameters: " + a);
+    return c.body("Parameters: " + a);
   });
 });
 
@@ -126,7 +74,7 @@ router.get("/assets/*", async (c) => {
   const path = new URL(c.req.url).pathname;
 
   // Sanitize URL path as only the directory "dist" is the only directory to be publicly served.
-  // Deno premisions should also catch any attempts to reach any top level directory outside of "dist"
+  // Deno permissions should also catch any attempts to reach any top level directory outside of "dist"
   const filePath = `./dist/${path}`;
 
   try {
@@ -146,3 +94,4 @@ router.get("/assets/*", async (c) => {
 });
 
 Deno.serve(router.fetch);
+// closeDB(); // Figure out where to actually close this.

@@ -13,5 +13,11 @@
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.12.9",
     "@panva/jose": "jsr:@panva/jose@^6.2.2"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"],
+      "include": ["camelcase"]
+    }
   }
 }

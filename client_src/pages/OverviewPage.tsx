@@ -2,9 +2,9 @@ import { useEffect } from "react";
 import "./OverviewPage.css";
 
 // This is the main entry point of the app
-// Currently it is configured to showcase how to create declaritive UI with react.
+// Currently it is configured to showcase how to create declarative UI with react.
 function OverviewPage() {
-  // We can declare a list of variables, containg stuff we want rendered to the screen.
+  // We can declare a list of variables, containing stuff we want rendered to the screen.
   const blocks = [
     {
       id: 1,
@@ -33,7 +33,7 @@ function OverviewPage() {
   // React is just JavaScript functions that return HTML.
   // We can then inline JavaScript to create a loop inside the HTML,
   // such that each entry from the list above is used to create a new object in HTML.
-  // In this way we can write declaritvie reusable UI components.
+  // In this way we can write declarative reusable UI components.
   return (
     <>
       {blocks.map((block) => (
