@@ -2,6 +2,9 @@
 // https://nodejs.org/api/sqlite.html#sqlite
 
 import { DatabaseSync } from "node:sqlite";
+
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#password-hashing-algorithms
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 import * as argon2 from "npm:argon2@0.44.0";
 
 interface User {

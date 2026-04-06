@@ -4,6 +4,8 @@ import { closeDB, getUserFromDB } from "./database.ts";
 import { createJWT, hasVaildJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
 import * as argon2 from "npm:argon2@0.44.0";
 
+const VERSION = { x: 0, y: 0, z: 0 };
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
