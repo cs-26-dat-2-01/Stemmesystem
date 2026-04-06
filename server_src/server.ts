@@ -31,13 +31,21 @@ router.get("/login", async (c) => {
           userId: user.user?.id,
           username: user.user?.username,
         });
-        console.log("Created JWT:", token);
+        console.log("Created JWT:", token, "for user:", user.user?.username);
 
         // https://workos.com/blog/secure-jwt-storage
         // Store the JWT token in an HTTP-cookie which will be sent to the client.
         setCookie(c, "JWT", token, {
           secure: true,
           httpOnly: true,
+          sameSite: "Strict",
+          maxAge: TOKEN_EXPIRE_TIME,
+        });
+
+        // This cookie is not secret and is used for browser logic only.
+        setCookie(c, "isLoggedIn", "true", {
+          secure: true,
+          httpOnly: false, // Has to be accessible by scripts.
           sameSite: "Strict",
           maxAge: TOKEN_EXPIRE_TIME,
         });
@@ -56,12 +64,19 @@ router.get("/login", async (c) => {
   return c.body("Login incorrect", 400);
 });
 
-router.get("/api/:a", (c) => {
+// https://semver.org/
+router.get("/api/:version", (c) => {
   return hasVaildJWT(c, () => {
-    const a = c.req.param("a");
-    console.log("Hit: " + a);
+    const versionStr = c.req.param("version");
+    const [x, y, z] = versionStr.split(".");
 
-    return c.body("Parameters: " + a);
+    const response = {
+      version: `${x}.${y}.${z}`,
+    };
+
+    return c.body(JSON.stringify(response), 200, {
+      "Content-Type": "application/json",
+    });
   });
 });
 
@@ -82,14 +97,14 @@ router.get("/assets/*", async (c) => {
     const extension = filePath.substring(filePath.lastIndexOf("."));
     const contentType = MIME_TYPES[extension] || "text/plain";
 
-    return new Response(file, {
+    return c.body(file, {
       headers: {
         "content-type": contentType,
         // "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
   } catch {
-    return new Response("Not Found", { status: 404 });
+    return c.body("Not Found", { status: 404 });
   }
 });
 

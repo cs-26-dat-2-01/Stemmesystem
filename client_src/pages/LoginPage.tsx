@@ -1,12 +1,12 @@
 import React from "react";
 import "./LoginPage.css";
+import { getCookie } from "../App.tsx";
 
 type LoginPageProps = {
-  isUserLogedIn: boolean;
-  changeLogInState: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsLoggedIn: React.Dispatch<React.SetStateAction<string | undefined>>;
 };
 
-function LoginPage({ changeLogInState }: LoginPageProps) {
+function LoginPage({ setIsLoggedIn }: LoginPageProps) {
   let username: string;
   let password: string;
 
@@ -31,7 +31,7 @@ function LoginPage({ changeLogInState }: LoginPageProps) {
     });
     console.log(res);
     if (res.status == 200) {
-      changeLogInState(true);
+      setIsLoggedIn(getCookie("isLoggedIn"));
     } else {
       console.log("login failed with code: " + res.status);
     }

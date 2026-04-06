@@ -55,21 +55,21 @@ for (const row of rows) {
  * @param username used that will be looked up and fetched from the db.
  */
 export function getUserFromDB(username: string) {
-  const userRecord = DB.prepare(
+  const sqlResult = DB.prepare(
     "SELECT id, username, passwordHash FROM users WHERE username = (?)",
   ).get(username);
 
   // To-do: this either needs a rewrite for better error handling on wrong type and or it needs extensive testing.
   // Convert the SQL row to an object in TypeScript.
-  if (typeof userRecord != "undefined") {
+  if (typeof sqlResult != "undefined") {
     const user: User = {
-      id: typeof userRecord.id != "number" ? undefined : userRecord.id,
-      username: typeof userRecord.username != "string"
+      id: typeof sqlResult.id != "number" ? undefined : sqlResult.id,
+      username: typeof sqlResult.username != "string"
         ? undefined
-        : userRecord.username,
-      passwordHash: typeof userRecord.passwordHash != "string"
+        : sqlResult.username,
+      passwordHash: typeof sqlResult.passwordHash != "string"
         ? undefined
-        : userRecord.passwordHash,
+        : sqlResult.passwordHash,
     };
 
     // Check that the user object got correctly created.
@@ -89,6 +89,42 @@ export function getUserFromDB(username: string) {
       httpStatusCode: 200,
     };
   }
+}
+
+/**
+ * Creates a new user in the database.
+ * On duplicate entry a username no entry is added and the query is ignored.
+ *
+ * @param username of the user going to be created.
+ * @param password of the user going to be created.
+ */
+export async function addUserToDB(username: string, password: string) {
+  try {
+    // https://github.com/ranisalt/node-argon2
+    DB.prepare(
+      `
+    INSERT INTO users (username, passwordHash)
+    VALUES (?, ?)
+    ON CONFLICT(username) DO NOTHING
+  `,
+    ).run(username, await argon2.hash(password));
+  } catch (err) {
+    //...
+  }
+  console.log("Added user:", username);
+}
+
+/**
+ * Deletes a user entry from the database.
+ *
+ * @param username of the user going to be deleted from the database
+ */
+export function deleteUserFromDB(username: string) {
+  const sqlResult = DB.prepare(
+    "DELETE FROM users WHERE username = (?)",
+  ).get(username);
+
+  console.log("Deleted user:", sqlResult);
 }
 
 /**

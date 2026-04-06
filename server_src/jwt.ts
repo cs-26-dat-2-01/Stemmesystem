@@ -2,6 +2,17 @@ import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
 import { Context } from "@hono/hono";
 import { BlankEnv, BlankInput } from "@hono/hono/types";
 
+const getCookie = (name: string, cookies: string): string | undefined => {
+  const value = `; ${cookies}`;
+  const parts = value.split(`; ${name}=`);
+
+  if (parts.length === 2) {
+    return parts.pop()?.split(";").shift();
+  }
+
+  return undefined;
+};
+
 // https://docs.deno.com/examples/creating_and_verifying_jwt/
 const serverSecret = new TextEncoder().encode("secret-that-no-one-knows"); // To-do: Store secret better than in code here.
 export const TOKEN_EXPIRE_TIME = 43200; // Defined in seconds.
@@ -51,11 +62,13 @@ export async function hasVaildJWT(
   fn: () => void,
 ) {
   // Retrieve the JWT token.
-  let authToken = c.req.header("Cookie"); // Note: We don't need to directly check if the cookie is valid as the JWT itself contains expiry info.
+  const cookies = c.req.header("Cookie");
+  const jwtCookie = getCookie("JWT", cookies != undefined ? cookies : ""); // Note: We don't need to directly check if the cookie is valid as the JWT itself contains expiry info.
+  console.log("jwtCookie:", jwtCookie);
 
-  if (typeof authToken === "string") {
-    authToken = authToken.slice(authToken.indexOf("=") + 1); // Remove name part of cookie.
-    const verifiedPayload = await verifyJWT(authToken);
+  if (typeof jwtCookie === "string") {
+    const jwt = jwtCookie.slice(jwtCookie.indexOf("=") + 1); // Remove name part of cookie.
+    const verifiedPayload = await verifyJWT(jwt);
     if (verifiedPayload) {
       return fn();
     }
