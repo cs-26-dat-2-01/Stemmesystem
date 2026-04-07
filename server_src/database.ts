@@ -123,7 +123,7 @@ export async function addUserToDB(username: string, password: string) {
 export function deleteUserFromDB(username: string) {
   const sqlResult = DB.prepare(
     "DELETE FROM users WHERE username = (?)",
-  ).get(username);
+  ).run(username);
 
   logger.info(`Deleted user from database with username: {{${username}}}`);
 }
