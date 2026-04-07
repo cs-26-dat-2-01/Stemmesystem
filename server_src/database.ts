@@ -125,7 +125,7 @@ export async function addUserToDB(username: string, password: string) {
 export function deleteUserFromDB(username: string) {
   const sqlResult = DB.prepare(
     "DELETE FROM users WHERE username = (?)",
-  ).get(username);
+  ).run(username);
 
   console.log("Deleted user:", sqlResult);
 }
