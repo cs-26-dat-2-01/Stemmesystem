@@ -1,5 +1,9 @@
 # Stemmesystem udviklet til brug i Ungdommens Naturfaglige Forening
 
+## Versioning
+
+The program uses [Semantic Versioning](https://semver.org/)
+
 ## Building
 
 The project uses Deno tasks to configure the various build options
@@ -39,7 +43,8 @@ Official environment setup documentation can be found at
    [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
    for VS code.
 
-2. Add the following to the local workspace settings file at: `.vscode/settings.json`
+2. Add the following to the local workspace settings file at:
+   `.vscode/settings.json`
 
 ```json
 {
