@@ -38,6 +38,14 @@ To download necessary build and dev dependencies run:
 deno install
 ```
 
+The program require certain environment variables set for the program in a file
+named `.env`, an example is shown below:
+
+```
+JWT_SERVER_SECRET="secret-that-only-server-knows-and-no-one-else!"
+ADMIN_USER_PASSWORD="test"
+```
+
 ### Deno Tasks
 
 The project uses Deno tasks to configure the various build options

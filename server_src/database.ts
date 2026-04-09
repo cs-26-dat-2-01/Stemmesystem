@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#password-hashing-algorithms
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 import * as argon2 from "npm:argon2@0.44.0";
+import { env } from "./secret_handling.ts";
 
 // --- Import the LogTape config --------------------
 import "./logtape_config.ts";
@@ -37,7 +38,7 @@ DB.exec(
 // To-do: Let this be controlled by a config somewhere else or environment variable.
 try {
   // https://github.com/ranisalt/node-argon2
-  const adminPassword = await argon2.hash("1234");
+  const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD);
   DB.prepare(
     `
     INSERT INTO users (username, passwordHash)
@@ -121,7 +122,7 @@ export async function addUserToDB(username: string, password: string) {
  * @param username of the user going to be deleted from the database
  */
 export function deleteUserFromDB(username: string) {
-  const sqlResult = DB.prepare(
+  const _sqlResult = DB.prepare(
     "DELETE FROM users WHERE username = (?)",
   ).run(username);
 

@@ -1,7 +1,7 @@
 import { Hono } from "@hono/hono";
 import { setCookie } from "@hono/hono/cookie";
 import { getUserFromDB } from "./database.ts";
-import { createJWT, hasVaildJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
+import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
 import * as argon2 from "npm:argon2@0.44.0";
 
 // --- Import the LogTape config --------------------
@@ -22,9 +22,11 @@ const MIME_TYPES: Record<string, string> = {
 const router = new Hono();
 
 // Create a JWT if a user provide a username and password which exists in the users database.
-router.get("/login", async (c) => {
-  const username: string = c.req.header("Username") ?? "";
-  const password: string = c.req.header("Password") ?? "";
+router.post("/login", async (c) => {
+  const userCredentials = await c.req.json();
+
+  const username: string = userCredentials.username;
+  const password: string = userCredentials.password;
 
   const user = getUserFromDB(username);
 
@@ -33,14 +35,14 @@ router.get("/login", async (c) => {
     typeof user.user?.passwordHash === "string"
   ) {
     logger.debug(
-      `{{id: ${user.user.id}, username: ${user.user.username}}} succesfully retrived from database.`,
+      `{{id: ${user.user.id}, username: "${user.user.username}"}} succesfully retrived from database.`,
     );
 
     // Handle errors from argon2
     try { // https://github.com/ranisalt/node-argon2
       if (await argon2.verify(user.user?.passwordHash, password)) { // Password matched, then a JWT token is created.
         logger.debug(
-          `Succesfully matched user provided password with database for user: {{id: ${user.user.id}, ${user.user.username}}}`,
+          `Succesfully matched user provided password with database for user: {{id: ${user.user.id}, username: "${user.user.username}"}}`,
         );
 
         const token = await createJWT({
@@ -65,26 +67,26 @@ router.get("/login", async (c) => {
           maxAge: TOKEN_EXPIRE_TIME,
         });
         logger.info(
-          `Succesfully created JWT for user: {{id: ${user.user.id}, ${user.user.username}}}`,
+          `Succesfully created JWT for user: {{id: ${user.user.id}, username: "${user.user.username}"}}`,
         );
 
         return c.body("login successful", 200);
       } else { // password did not match
         logger.info(
-          `Password did not match for user: {{id: ${user.user.id}, ${user.user.username}}}`,
+          `Password did not match for user: {{id: ${user.user.id}, username: "${user.user.username}"}}`,
         );
       }
     } catch (err) { /* internal failure */ }
-  } else if (user?.httpStatusCode === 500) {
-    return c.body("Internal Server Error", user.httpStatusCode);
+  } else if (user?.httpStatusCode === 400) {
+    return c.body(`${user.errorMsg}`);
   }
 
-  return c.body("Login incorrect", 400);
+  return c.body("Login incorrect", 401);
 });
 
 // https://semver.org/
-router.get("/api/:version", (c) => {
-  return hasVaildJWT(c, () => {
+router.get("/api/:version", async (c) => {
+  return await hasValidJWT(c, () => {
     const versionStr = c.req.param("version");
     const [x, y, z] = versionStr.split(".");
 
@@ -99,8 +101,12 @@ router.get("/api/:version", (c) => {
 });
 
 router.get("/", async (c) => {
-  const file = await Deno.readFile("./dist/index.html");
-  return c.body(file);
+  try {
+    const file = await Deno.readFile("./dist/index.html");
+    return c.body(file);
+  } catch {
+    return c.body("Not Found", { status: 404 });
+  }
 });
 
 router.get("/assets/*", async (c) => {
@@ -109,6 +115,7 @@ router.get("/assets/*", async (c) => {
   // Sanitize URL path as only the directory "dist" is the only directory to be publicly served.
   // Deno permissions should also catch any attempts to reach any top level directory outside of "dist"
   const filePath = `./dist/${path}`;
+  logger.trace(`router.get("/assets/*", ...) resovled to path: ${filePath}`);
 
   try {
     const file = await Deno.readFile(filePath);

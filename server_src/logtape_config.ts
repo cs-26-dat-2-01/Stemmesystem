@@ -30,6 +30,6 @@ await configure({
       lowestLevel: "warning",
       sinks: ["console"],
     }, // https://logtape.org/manual/categories#meta-logger
-    { category: "server-backend", lowestLevel: "debug", sinks: ["console"] },
+    { category: "server-backend", lowestLevel: "trace", sinks: ["console"] },
   ],
 });

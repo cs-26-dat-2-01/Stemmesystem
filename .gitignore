@@ -25,6 +25,7 @@ dist-ssr
 
 # Misc
 /.trash
+.env
 
 # Database
 server_src/users.db
