@@ -19,16 +19,17 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
   }
 
   async function handleLogin() {
-    console.log("Username: ", username);
-    console.log("Password: ", password);
-
     const res = await fetch("http://localhost:8000/login", {
-      method: "GET",
+      method: "POST",
+      body: JSON.stringify({
+        username: username,
+        password: password,
+      }),
       headers: {
-        "Username": username,
-        "Password": password,
+        "Content-Type": "application/json",
       },
     });
+
     console.log(res);
     if (res.status == 200) {
       setIsLoggedIn(getCookie("isLoggedIn"));

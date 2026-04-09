@@ -4,7 +4,49 @@
 
 The program uses [Semantic Versioning](https://semver.org/)
 
-## Building
+## Building & Contributing
+
+This sections contains the documentation for how to set up a build and
+development environment for contributing to the project.
+
+### Install Deno
+
+To work on the project the
+[Deno CLI](https://docs.deno.com/runtime/getting_started/installation/) tool
+will need to be installed, this can be done as shown below.
+
+**Linux/macOS:**
+
+```shell
+curl -fsSL https://deno.land/install.sh | sh
+```
+
+**Windows:**
+
+```powershell
+irm https://deno.land/install.ps1 | iex
+```
+
+Official environment setup documentation can be found at
+[Deno - Set up your environment](https://docs.deno.com/runtime/getting_started/setup_your_environment/).
+
+### Initialize the Project with Deno
+
+To download necessary build and dev dependencies run:
+
+```shell
+deno install
+```
+
+The program require certain environment variables set for the program in a file
+named `.env`, an example is shown below:
+
+```
+JWT_SERVER_SECRET="secret-that-only-server-knows-and-no-one-else!"
+ADMIN_USER_PASSWORD="test"
+```
+
+### Deno Tasks
 
 The project uses Deno tasks to configure the various build options
 
@@ -18,30 +60,14 @@ The project uses Deno tasks to configure the various build options
 
 ## Editor Configuration
 
-To work on the project the
-[Deno CLI](https://docs.deno.com/runtime/getting_started/installation/) tool
-will need to be installed, this can be done as shown below.
-
-**Linux/MacOS**
-
-```shell
-curl -fsSL https://deno.land/install.sh | sh
-```
-
-**Windows**:
-
-```powershell
-irm https://deno.land/install.ps1 | iex
-```
-
-Official environment setup documentation can be found at
-[Deno - Set up your environment](https://docs.deno.com/runtime/getting_started/setup_your_environment/).
+Most editors require Deno CLI to be installed as mentioned above in section
+[Building & Contributing](#building--contributing)
 
 ### VS Code
 
 1. Install the
    [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
-   for VS code.
+   for VS Code.
 
 2. Add the following to the local workspace settings file at:
    `.vscode/settings.json`
