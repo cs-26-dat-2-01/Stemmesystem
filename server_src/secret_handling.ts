@@ -1,6 +1,6 @@
 // Note that this package is experimental!
 // https://docs.deno.com/runtime/reference/env_variables/
-import { load } from "jsr:@std/dotenv@0.225.6";
+import { load } from "jsr:@std/dotenv";
 
 export const env = await load({
   // Optional: choose a specific path (defaults to ".env")

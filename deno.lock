@@ -5,6 +5,7 @@
     "jsr:@logtape/logtape@^2.0.5": "2.0.5",
     "jsr:@logtape/redaction@^2.0.5": "2.0.5",
     "jsr:@panva/jose@^6.2.2": "6.2.2",
+    "jsr:@std/dotenv@*": "0.225.6",
     "jsr:@std/dotenv@0.225.6": "0.225.6",
     "jsr:@std/dotenv@~0.225.6": "0.225.6",
     "npm:@eslint/js@^9.39.4": "9.39.4",
