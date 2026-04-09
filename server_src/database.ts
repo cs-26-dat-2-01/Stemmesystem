@@ -1,16 +1,21 @@
 // https://docs.deno.com/examples/sqlite/
 // https://nodejs.org/api/sqlite.html#sqlite
-
 import { DatabaseSync } from "node:sqlite";
 
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#password-hashing-algorithms
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 import * as argon2 from "npm:argon2@0.44.0";
 
+// --- Import the LogTape config --------------------
+import "./logtape_config.ts";
+import { getLogger } from "@logtape/logtape";
+const logger = getLogger(["server-backend"]);
+// --------------------------------------------------
+
 interface User {
-  id: number | undefined;
-  username: string | undefined;
-  passwordHash: string | undefined;
+  id: number;
+  username: string;
+  passwordHash: string;
 }
 
 // Initialize the SQLite database for the web application.
@@ -47,13 +52,10 @@ try {
 
 const rows = DB.prepare("SELECT id, username, passwordHash FROM users")
   .all();
-console.log("Users:");
-for (const row of rows) {
-  console.log(row);
-}
+logger.debug("Users: {rows}", { rows }); // Print all user entries.
 
 /**
- * Fetches a user from the db based on a username.
+ * Fetches a user from the db based on a username, if that user exists.
  *
  * @param username used that will be looked up and fetched from the db.
  */
@@ -62,35 +64,31 @@ export function getUserFromDB(username: string) {
     "SELECT id, username, passwordHash FROM users WHERE username = (?)",
   ).get(username);
 
+  let couldUserBePopulated: boolean = true;
+
   // To-do: this either needs a rewrite for better error handling on wrong type and or it needs extensive testing.
   // Convert the SQL row to an object in TypeScript.
   if (typeof sqlResult != "undefined") {
     const user: User = {
-      id: typeof sqlResult.id != "number" ? undefined : sqlResult.id,
-      username: typeof sqlResult.username != "string"
-        ? undefined
+      id: typeof sqlResult.id !== "number"
+        ? (couldUserBePopulated = false, 0)
+        : sqlResult.id,
+      username: typeof sqlResult.username !== "string"
+        ? (couldUserBePopulated = false, "")
         : sqlResult.username,
-      passwordHash: typeof sqlResult.passwordHash != "string"
-        ? undefined
+      passwordHash: typeof sqlResult.passwordHash !== "string"
+        ? (couldUserBePopulated = false, "")
         : sqlResult.passwordHash,
     };
 
-    // Check that the user object got correctly created.
-    if (
-      user.id === undefined || user.username === undefined ||
-      user.passwordHash === undefined
-    ) {
-      return {
-        errorMsg:
-          "Internal Server Error: user object did not get created correctly.",
-        httpStatusCode: 500, // User should not be able to input data that cause the user object to be malformed.
-      };
+    if (!couldUserBePopulated) {
+      const logMsg =
+        "400 Bad Request: User object cannot get created correctly, user does not exist in database.";
+      logger.debug(logMsg);
+      return { errorMsg: logMsg, httpStatusCode: 400 };
     }
 
-    return {
-      user,
-      httpStatusCode: 200,
-    };
+    return { user, httpStatusCode: 200 };
   }
 }
 
@@ -114,7 +112,7 @@ export async function addUserToDB(username: string, password: string) {
   } catch (err) {
     //...
   }
-  console.log("Added user:", username);
+  logger.info(`Added user to database with username: {{${username}}}`);
 }
 
 /**
@@ -127,7 +125,7 @@ export function deleteUserFromDB(username: string) {
     "DELETE FROM users WHERE username = (?)",
   ).get(username);
 
-  console.log("Deleted user:", sqlResult);
+  logger.info(`Deleted user from database with username: {{${username}}}`);
 }
 
 /**

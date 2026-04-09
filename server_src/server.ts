@@ -1,8 +1,14 @@
 import { Hono } from "@hono/hono";
 import { setCookie } from "@hono/hono/cookie";
-import { closeDB, getUserFromDB } from "./database.ts";
+import { getUserFromDB } from "./database.ts";
 import { createJWT, hasVaildJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
 import * as argon2 from "npm:argon2@0.44.0";
+
+// --- Import the LogTape config --------------------
+import "./logtape_config.ts";
+import { getLogger } from "@logtape/logtape";
+const logger = getLogger(["server-backend"]);
+// --------------------------------------------------
 
 const VERSION = { x: 0, y: 0, z: 0 };
 
@@ -15,25 +21,32 @@ const MIME_TYPES: Record<string, string> = {
 
 const router = new Hono();
 
-// Create a JWT if a user provide a username and password which is stored in the users database.
+// Create a JWT if a user provide a username and password which exists in the users database.
 router.get("/login", async (c) => {
   const username: string = c.req.header("Username") ?? "";
   const password: string = c.req.header("Password") ?? "";
 
   const user = getUserFromDB(username);
+
   if (
     user?.httpStatusCode === 200 &&
     typeof user.user?.passwordHash === "string"
   ) {
-    // https://github.com/ranisalt/node-argon2
-    try {
-      if (await argon2.verify(user.user?.passwordHash, password)) {
-        // Password matched, then a JWT token is created.
+    logger.debug(
+      `{{id: ${user.user.id}, username: ${user.user.username}}} succesfully retrived from database.`,
+    );
+
+    // Handle errors from argon2
+    try { // https://github.com/ranisalt/node-argon2
+      if (await argon2.verify(user.user?.passwordHash, password)) { // Password matched, then a JWT token is created.
+        logger.debug(
+          `Succesfully matched user provided password with database for user: {{id: ${user.user.id}, ${user.user.username}}}`,
+        );
+
         const token = await createJWT({
           userId: user.user?.id,
           username: user.user?.username,
         });
-        console.log("Created JWT:", token, "for user:", user.user?.username);
 
         // https://workos.com/blog/secure-jwt-storage
         // Store the JWT token in an HTTP-cookie which will be sent to the client.
@@ -51,14 +64,17 @@ router.get("/login", async (c) => {
           sameSite: "Strict",
           maxAge: TOKEN_EXPIRE_TIME,
         });
+        logger.info(
+          `Succesfully created JWT for user: {{id: ${user.user.id}, ${user.user.username}}}`,
+        );
 
         return c.body("login successful", 200);
-      } else {
-        // password did not match
+      } else { // password did not match
+        logger.info(
+          `Password did not match for user: {{id: ${user.user.id}, ${user.user.username}}}`,
+        );
       }
-    } catch (err) {
-      // internal failure
-    }
+    } catch (err) { /* internal failure */ }
   } else if (user?.httpStatusCode === 500) {
     return c.body("Internal Server Error", user.httpStatusCode);
   }

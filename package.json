@@ -11,12 +11,12 @@
     "prod": "tsc -b && vite build && deno run --no-prompt --allow-env=PREBUILDS_ONLY,ELECTRON_RUN_AS_NODE,npm_config_arch,npm_config_platform,LIBC,ARM_VERSION,ARGON2_PREBUILD --allow-net --allow-read=./dist,./server_src/users_db.json,./server_src/users.db,./node_modules/,/etc/alpine-release --allow-ffi=./node_modules/.deno/argon2@0.44.0/ --allow-write=./server_src/users.db --watch ./server_src/server.ts"
   },
   "dependencies": {
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@types/node": "^24.12.0",
+    "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -25,7 +25,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.57.2",
-    "vite": "^8.0.3"
+    "typescript-eslint": "^8.58.1",
+    "vite": "^8.0.8"
   }
 }

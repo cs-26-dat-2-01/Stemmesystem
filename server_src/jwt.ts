@@ -2,6 +2,12 @@ import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
 import { Context } from "@hono/hono";
 import { BlankEnv, BlankInput } from "@hono/hono/types";
 
+// --- Import the LogTape config --------------------
+import "./logtape_config.ts";
+import { getLogger } from "@logtape/logtape";
+const logger = getLogger(["server-backend"]);
+// --------------------------------------------------
+
 const getCookie = (name: string, cookies: string): string | undefined => {
   const value = `; ${cookies}`;
   const parts = value.split(`; ${name}=`);
@@ -42,10 +48,10 @@ export async function createJWT(payload: JWTPayload): Promise<string> {
 export async function verifyJWT(token: string): Promise<JWTPayload | null> {
   try {
     const { payload } = await jwtVerify(token, serverSecret);
-    console.log("JWT is valid:", payload);
+    logger.debug("JWT is valid: {payload}", { payload });
     return payload;
   } catch (error) {
-    console.error("Invalid JWT:", error);
+    logger.error(`Invalid JWT: ${error}`);
     return null;
   }
 }
@@ -64,7 +70,6 @@ export async function hasVaildJWT(
   // Retrieve the JWT token.
   const cookies = c.req.header("Cookie");
   const jwtCookie = getCookie("JWT", cookies != undefined ? cookies : ""); // Note: We don't need to directly check if the cookie is valid as the JWT itself contains expiry info.
-  console.log("jwtCookie:", jwtCookie);
 
   if (typeof jwtCookie === "string") {
     const jwt = jwtCookie.slice(jwtCookie.indexOf("=") + 1); // Remove name part of cookie.
@@ -73,7 +78,7 @@ export async function hasVaildJWT(
       return fn();
     }
   } else {
-    console.log("No auth token found"); // To-do: make better system for logs.
+    logger.debug("No auth token found");
   }
 
   return c.body("Lack of vaild authentication credentials.", {
