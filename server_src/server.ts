@@ -78,7 +78,7 @@ router.post("/login", async (c) => {
       }
     } catch (err) { /* internal failure */ }
   } else if (user?.httpStatusCode === 400) {
-    return c.body(`${user.errorMsg}`);
+    return c.body(`${user.errorMsg}`, user.httpStatusCode);
   }
 
   return c.body("Login incorrect", 401);
