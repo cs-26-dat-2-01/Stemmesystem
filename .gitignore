@@ -23,5 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
+# Misc
+/.trash
+
 # Database
 server_src/users.db
