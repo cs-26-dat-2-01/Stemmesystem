@@ -1,6 +1,7 @@
 import React from "react";
 import "./LoginPage.css";
 import { getCookie } from "../App.tsx";
+import NavBar from "../components/NavBar.tsx";
 
 type LoginPageProps = {
   setIsLoggedIn: React.Dispatch<React.SetStateAction<string | undefined>>;
@@ -38,6 +39,8 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
   }
 
   return (
+    <>
+    <NavBar/>
     <div>
       <h1>Login Page!</h1>
       <label htmlFor="username">User name:</label>
@@ -47,7 +50,7 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
         type="text"
         autoComplete="username"
         onChange={handleUsernameChange}
-      />
+        />
 
       <br />
 
@@ -58,12 +61,13 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
         type="password"
         autoComplete="current-password"
         onChange={handlePasswordChange}
-      />
+        />
 
       <button type="button" onClick={handleLogin}>
         Log In
       </button>
     </div>
+  </>
   );
 }
 
