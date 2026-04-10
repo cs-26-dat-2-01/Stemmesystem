@@ -3,7 +3,7 @@
   align-items: center;
   padding: 10px 20px;
   border-bottom: 2px solid #ccc;
-  background-color: #f8f8f8;
+  background-color: #fff;
 }
 
 .nav-left {
@@ -19,7 +19,7 @@
 }
 
 .vertical-divider {
-  width: 1px;
+  width: 2px;
   height: 30px;
   background-color: #ccc;
 }
@@ -50,6 +50,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  
+}
+.avatar a:hover{
+  transform: scale(1.2);
 }
 
 .avatar svg {
