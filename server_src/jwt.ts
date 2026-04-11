@@ -62,7 +62,7 @@ export async function verifyJWT(token: string): Promise<JWTPayload | null> {
  * If a valid authentication credentials are provided the function runs `fn`.
  * If given invalid authentication credentials the function returns a 401 response.
  *
- * @param c   - The context given by Hono for the request
+ * @param c   - The context given by Hono for the request.
  * @param fn  - The logic encasulated in a function that run on a valid JWT. Must return a hono context.
  */
 export async function hasValidJWT(

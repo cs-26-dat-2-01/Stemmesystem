@@ -1,17 +1,17 @@
-import { Hono } from "@hono/hono";
-import { setCookie } from "@hono/hono/cookie";
-import { getUserFromDB } from "./database.ts";
-import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
-import * as argon2 from "npm:argon2@0.44.0";
-
 // --- Import the LogTape config --------------------
 import "./logtape_config.ts";
 import { getLogger } from "@logtape/logtape";
 const logger = getLogger(["server-backend"]);
 // --------------------------------------------------
 
-const VERSION = { x: 0, y: 0, z: 0 };
+import { Hono } from "@hono/hono";
+import { setCookie } from "@hono/hono/cookie";
+import { getUserFromDB } from "./database.ts";
+import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
+import * as argon2 from "npm:argon2@0.44.0";
+import { getClientVersion, validateClientVersion } from "./api.ts";
 
+export const SERVER_VERSION = { x: 0, y: 0, z: 0 };
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -84,19 +84,30 @@ router.post("/login", async (c) => {
   return c.body("Login incorrect", 401);
 });
 
-// https://semver.org/
-router.get("/api/:version", async (c) => {
+/*
+  Route: /api/version
+  Description:
+    Lets the server parse the version of the client and judge if the client has
+    the correct version for communicating correctly with the API.
+*/
+router.get("/api/version", async (c) => {
   return await hasValidJWT(c, () => {
-    const versionStr = c.req.param("version");
-    const [x, y, z] = versionStr.split(".");
+    const clientVersion = getClientVersion(c);
 
-    const response = {
-      version: `${x}.${y}.${z}`,
-    };
+    if (clientVersion instanceof Error) {
+      logger.trace`${clientVersion}`;
 
-    return c.body(JSON.stringify(response), 200, {
-      "Content-Type": "application/json",
-    });
+      if (clientVersion.cause === undefined) {
+        return c.body(JSON.stringify(clientVersion.message), 400, {
+          "Content-Type": "application/json",
+        });
+      }
+    } else {
+      logger.trace`fn getClientVersion succeeded: ${clientVersion}`;
+
+      const result = validateClientVersion(c, clientVersion);
+      return c.json(result.res, result.status);
+    }
   });
 });
 
