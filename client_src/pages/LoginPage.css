@@ -18,7 +18,22 @@ label {
   box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.1), 0 3px 3px 0 rgba(0, 0, 0, 0.1);
   border-radius: 0.5em;
 }
-.form input {
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  width: 1rem;
+  height: 1rem;
+  pointer-events: none; 
+}
+
+.input-field {
   outline: 0;
   background: #f2f2f2;
   width: 100%;
@@ -28,6 +43,7 @@ label {
   box-sizing: border-box;
   font-size: 14px;
 }
+
 .form button {
   text-transform: uppercase;
   outline: 0;
