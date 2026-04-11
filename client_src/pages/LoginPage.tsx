@@ -26,8 +26,8 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
     const res = await fetch("http://localhost:8000/login", {
       method: "GET",
       headers: {
-        "Username": username,
-        "Password": password,
+        Username: username,
+        Password: password,
       },
     });
     console.log(res);
@@ -40,34 +40,33 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
 
   return (
     <>
-    <NavBar/>
-    <div>
-      <h1>Login Page!</h1>
-      <label htmlFor="username">User name:</label>
-      <input
-        name="username"
-        id="username"
-        type="text"
-        autoComplete="username"
-        onChange={handleUsernameChange}
-        />
+      <NavBar />
+      <div className="login-container">
+        <div className="form">
+          <h1>Login</h1>
+          <input
+            name="username"
+            id="username"
+            type="text"
+            placeholder="brugernavn"
+            autoComplete="username"
+            onChange={handleUsernameChange}
+          />
+          <input
+            name="password"
+            id="password"
+            type="password"
+            placeholder="adgangskode"
+            autoComplete="current-password"
+            onChange={handlePasswordChange}
+          />
 
-      <br />
-
-      <label htmlFor="password">Password:</label>
-      <input
-        name="password"
-        id="password"
-        type="password"
-        autoComplete="current-password"
-        onChange={handlePasswordChange}
-        />
-
-      <button type="button" onClick={handleLogin}>
-        Log In
-      </button>
-    </div>
-  </>
+          <button type="button" onClick={handleLogin}>
+            Login
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
