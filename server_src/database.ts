@@ -1,3 +1,9 @@
+// --- Import the LogTape config --------------------
+import "./logtape_config.ts";
+import { getLogger } from "@logtape/logtape";
+const logger = getLogger(["server-backend"]);
+// --------------------------------------------------
+
 // https://docs.deno.com/examples/sqlite/
 // https://nodejs.org/api/sqlite.html#sqlite
 import { DatabaseSync } from "node:sqlite";
@@ -6,16 +12,11 @@ import { DatabaseSync } from "node:sqlite";
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 import * as argon2 from "npm:argon2@0.44.0";
 import { env } from "./secret_handling.ts";
+import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 
-// --- Import the LogTape config --------------------
-import "./logtape_config.ts";
-import { getLogger } from "@logtape/logtape";
-const logger = getLogger(["server-backend"]);
-// --------------------------------------------------
-
-interface User {
+export interface User {
   id: number;
-  username: string;
+  name: string;
   passwordHash: string;
 }
 
@@ -31,11 +32,15 @@ DB.exec(
       username TEXT NOT NULL UNIQUE,
       passwordHash TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS polls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL
+    );
   `,
 );
 
 // Create admin user.
-// To-do: Let this be controlled by a config somewhere else or environment variable.
 try {
   // https://github.com/ranisalt/node-argon2
   const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD);
@@ -47,50 +52,64 @@ try {
   `,
   ).run("admin", adminPassword);
 } catch (err) {
-  //...
+  const errMsg = err instanceof Error ? err.message : "Unknown error";
+  logger.fatal`Error while creating admin user in database: ${errMsg}`;
+  throw new Error("Error while creating admin user in database.");
 }
-// --- End of db init ---
 
+// Print all user entries.
 const rows = DB.prepare("SELECT id, username, passwordHash FROM users")
   .all();
-logger.debug("Users: {rows}", { rows }); // Print all user entries.
+logger.debug("Users: {rows}", { rows });
+// --- End of db init ---
+
+/**
+ * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.
+ *
+ * @property user the user object if a user with the provided username exists in the database, otherwise undefined.
+ * @property errorMsg an error message if an error occurred during fetching the user from the database, otherwise undefined.
+ * @property httpStatusCode the http status code which should be sent to the client based on the result of fetching a user from the database.
+ */
+interface getUserFromDBResult {
+  user?: User;
+  errorMsg?: string;
+  httpStatusCode: ContentfulStatusCode;
+}
 
 /**
  * Fetches a user from the db based on a username, if that user exists.
  *
  * @param username used that will be looked up and fetched from the db.
  */
-export function getUserFromDB(username: string) {
+export function getUserFromDB(username: string): getUserFromDBResult {
   const sqlResult = DB.prepare(
     "SELECT id, username, passwordHash FROM users WHERE username = (?)",
   ).get(username);
 
-  let couldUserBePopulated: boolean = true;
-
-  // To-do: this either needs a rewrite for better error handling on wrong type and or it needs extensive testing.
-  // Convert the SQL row to an object in TypeScript.
-  if (typeof sqlResult != "undefined") {
-    const user: User = {
-      id: typeof sqlResult.id !== "number"
-        ? (couldUserBePopulated = false, 0)
-        : sqlResult.id,
-      username: typeof sqlResult.username !== "string"
-        ? (couldUserBePopulated = false, "")
-        : sqlResult.username,
-      passwordHash: typeof sqlResult.passwordHash !== "string"
-        ? (couldUserBePopulated = false, "")
-        : sqlResult.passwordHash,
-    };
-
-    if (!couldUserBePopulated) {
-      const logMsg =
-        "400 Bad Request: User object cannot get created correctly, user does not exist in database.";
-      logger.debug(logMsg);
-      return { errorMsg: logMsg, httpStatusCode: 400 };
-    }
-
-    return { user, httpStatusCode: 200 };
+  if (typeof sqlResult === "undefined") {
+    logger.info`User with username: ${username} not found in database.`;
+    return { errorMsg: "User not found in database", httpStatusCode: 400 };
   }
+
+  const { id, username: fetchedUsername, passwordHash } = sqlResult;
+
+  const hasValidShape = typeof id === "number" &&
+    typeof fetchedUsername === "string" &&
+    typeof passwordHash === "string";
+
+  if (!hasValidShape) {
+    logger
+      .error`500 Internal Server Error: User object cannot get created correctly, user does not exist in database.`;
+    return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
+  }
+
+  const user: User = {
+    id,
+    name: fetchedUsername,
+    passwordHash,
+  };
+
+  return { user, httpStatusCode: 200 };
 }
 
 /**
@@ -105,15 +124,17 @@ export async function addUserToDB(username: string, password: string) {
     // https://github.com/ranisalt/node-argon2
     DB.prepare(
       `
-    INSERT INTO users (username, passwordHash)
-    VALUES (?, ?)
-    ON CONFLICT(username) DO NOTHING
-  `,
+      INSERT INTO users (username, passwordHash)
+      VALUES (?, ?)
+      ON CONFLICT(username) DO NOTHING
+      `,
     ).run(username, await argon2.hash(password));
   } catch (err) {
-    //...
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
+    logger
+      .error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
   }
-  logger.info(`Added user to database with username: {{${username}}}`);
+  logger.info`Added user to database with username: ${username}`;
 }
 
 /**
