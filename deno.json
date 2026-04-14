@@ -7,8 +7,7 @@
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "deno.ns", "esnext"],
     "jsx": "react-jsx",
-    "jsxImportSource": "react",
-    "allowJs": true
+    "jsxImportSource": "react"
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.12.12",
