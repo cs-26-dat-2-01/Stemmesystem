@@ -2,6 +2,7 @@ import React from "react";
 import "./LoginPage.css";
 import { getCookie } from "../App.tsx";
 import NavBar from "../components/NavBar.tsx";
+import { FaLock, FaUser } from "react-icons/fa";
 
 type LoginPageProps = {
   setIsLoggedIn: React.Dispatch<React.SetStateAction<string | undefined>>;
@@ -41,34 +42,41 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
 
   return (
     <>
-    <NavBar/>
-    <div>
-      <h1>Login Page!</h1>
-      <label htmlFor="username">User name:</label>
-      <input
-        name="username"
-        id="username"
-        type="text"
-        autoComplete="username"
-        onChange={handleUsernameChange}
-        />
+      <NavBar />
+      <div className="login-container">
+        <div className="form">
+          <h1>Login</h1>
+          <div className="input-wrapper">
+            <FaUser className="input-icon" />
+            <input
+              name="username"
+              id="username"
+              type="text"
+              autoComplete="username"
+              placeholder="brugernavn"
+              className="input-field"
+              onChange={handleUsernameChange}
+            />
+          </div>
+          <div className="input-wrapper">
+            <FaLock className="input-icon" />
+            <input
+              name="password"
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="adgangskode"
+              className="input-field"
+              onChange={handlePasswordChange}
+            />
+          </div>
 
-      <br />
-
-      <label htmlFor="password">Password:</label>
-      <input
-        name="password"
-        id="password"
-        type="password"
-        autoComplete="current-password"
-        onChange={handlePasswordChange}
-        />
-
-      <button type="button" onClick={handleLogin}>
-        Log In
-      </button>
-    </div>
-  </>
+          <button type="button" onClick={handleLogin}>
+            Login
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
