@@ -13,20 +13,111 @@ import { DatabaseSync } from "node:sqlite";
 import * as argon2 from "npm:argon2@0.44.0";
 import { env } from "./secret_handling.ts";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { DB } from "./server.ts";
 
+export type userId = number;
+
+/**
+ * The TypeScript equivalent of the User object stored in the database.
+ *
+ * @param id A uniqe number representing the user.
+ * @param name A uniqe name representing the user
+ * @parm passwordHash The password stored as a Argon2id hash.
+ */
 export interface User {
-  id: number;
+  id: userId;
   name: string;
   passwordHash: string;
 }
 
-// Initialize the SQLite database for the web application.
-// --- Init db start ---
-const DB = new DatabaseSync("./server_src/users.db");
+type ballotOptionId = number;
 
-// Create database file.
-DB.exec(
-  `
+interface ballotOption {
+  id: ballotOptionId;
+  name: string;
+  votesRecived: number;
+}
+
+export type pollId = number;
+export type pollVisibility = "public" | "private";
+export type pollPrivacy = "secret" | "open";
+export type pollStatus =
+  | "draft" // Ongoing editing by poll creator.
+  | "saved" // Edits saved but poll haven't been published.
+  | "not started" // Poll have been published and will start at the given start time.
+  | "started" // Poll is started and eligible voters can cast their ballot.
+  | "finished"; // Poll is finished and users with correct access rights can see the poll results.
+
+export interface PollConfig {
+  title: string;
+  description: string;
+  voteOwner: userId;
+  pollVisibility: pollVisibility;
+  pollPrivacy: pollPrivacy;
+  showTopN: number;
+  ballotLimit: number;
+  eligibleVoters: Record<userId, number>;
+  ballotOptions: Record<ballotOptionId, ballotOption>;
+}
+
+/**
+ * @param showTopN - Instead of showing the distribution of votes, the top n votes will be shown.
+ * E.g. if a ballot has options: x, y, and z, where x got 10 votes, y got 5 and z got 1.
+ * Then instead of showing the exact vote distribution, if for example showTopN=2, then x and y will be shown as being in "top 2".
+ * @param ballotLimit - The amount of ballot options a user can select per vote.
+ * E.g. if ballotLimit=2 and the user can vote for ballot options: x, y, and z, the user could for an example vote for x and z.
+ */
+export class Poll {
+  id!: pollId;
+  public title!: string;
+  public description!: string;
+  public voteOwner!: userId;
+  public pollVisibility!: pollVisibility;
+  public pollPrivacy!: pollPrivacy;
+  public showTopN!: number;
+  public ballotLimit!: number;
+  // startNow: boolean // Consider this not being stored in object but handled in the creation function.
+  // useBuffer: boolean // Same as above.
+  public eligibleVoters!: Record<userId, number>;
+  public ballotOptions!: Record<ballotOptionId, ballotOption>;
+
+  /**
+   * Synchronize the object with the database, using the variables present in the object.
+   * This needs to be called after a variable change in the object.
+   */
+  private syncDB() {
+    logger.fatal`Not implemented`;
+  }
+
+  constructor(config: PollConfig) {
+    Object.assign(this, config);
+
+    return new Proxy(this, {
+      set(target, property, value, receiver) {
+        const result: boolean = Reflect.set(target, property, value, receiver);
+        logger.trace`${target} ${receiver}`;
+
+        if (result) {
+          target.syncDB();
+        }
+
+        return result;
+      },
+    });
+  }
+}
+
+export async function initDB() {
+  // Initialize the SQLite database for the web application.
+  // --- Init db start ---
+  const DB = new DatabaseSync("./server_src/users.db");
+
+  // Create database file. -------------------------------
+  // To-do: remove AUTOINCREMENT as it does not fit
+  // the use case. (See https://sqlite.org/autoinc.html)
+  // -----------------------------------------------------
+  DB.exec(
+    `
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
@@ -38,30 +129,37 @@ DB.exec(
       description TEXT NOT NULL
     );
   `,
-);
+  );
 
-// Create admin user.
-try {
-  // https://github.com/ranisalt/node-argon2
-  const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD);
-  DB.prepare(
-    `
+  // Create admin user.
+  try {
+    // https://github.com/ranisalt/node-argon2
+    const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD);
+    DB.prepare(
+      `
     INSERT INTO users (username, passwordHash)
     VALUES (?, ?)
     ON CONFLICT(username) DO NOTHING
   `,
-  ).run("admin", adminPassword);
-} catch (err) {
-  const errMsg = err instanceof Error ? err.message : "Unknown error";
-  logger.fatal`Error while creating admin user in database: ${errMsg}`;
-  throw new Error("Error while creating admin user in database.");
-}
+    ).run("admin", adminPassword);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
+    logger.fatal`Error while creating admin user in database: ${errMsg}`;
+    throw new Error("Error while creating admin user in database.");
+  }
 
-// Print all user entries.
-const rows = DB.prepare("SELECT id, username, passwordHash FROM users")
-  .all();
-logger.debug("Users: {rows}", { rows });
-// --- End of db init ---
+  // Print all user entries.
+  const rows = DB.prepare("SELECT id, username, passwordHash FROM users")
+    .all();
+  logger.trace("DB | Users: {rows}", { rows });
+  // Print all user entries.
+  const polls = DB.prepare("SELECT * FROM polls")
+    .all();
+  logger.trace`"DB | Polls: ${polls}"`;
+  // --- End of db init ---
+
+  return DB;
+}
 
 /**
  * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.

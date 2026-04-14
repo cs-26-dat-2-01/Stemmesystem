@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "prod": "tsc -b && vite build && deno run --no-prompt --allow-env=ADMIN_USER_PASSWORD,JWT_SERVER_SECRET,PREBUILDS_ONLY,ELECTRON_RUN_AS_NODE,npm_config_arch,npm_config_platform,LIBC,ARM_VERSION,ARGON2_PREBUILD --allow-net --allow-read=.env,./dist,./server_src/users.db,./node_modules/,/etc/alpine-release --allow-ffi=./node_modules/.deno/argon2@0.44.0/ --allow-write=./server_src/users.db --watch ./server_src/server.ts"
+    "prod": "tsc -b && vite build && deno run --no-prompt --allow-env=ADMIN_USER_PASSWORD,JWT_SERVER_SECRET,PREBUILDS_ONLY,ELECTRON_RUN_AS_NODE,npm_config_arch,npm_config_platform,LIBC,ARM_VERSION,ARGON2_PREBUILD --allow-net --allow-read=.env,./dist,./server_src/users.db,./node_modules/,/etc/alpine-release --allow-ffi=./node_modules/.deno/argon2@0.44.0/ --allow-write=./server_src/users.db --watch ./server_src/server.ts",
+    "test": "deno test --no-prompt --allow-env=ADMIN_USER_PASSWORD,JWT_SERVER_SECRET,PREBUILDS_ONLY,ELECTRON_RUN_AS_NODE,npm_config_arch,npm_config_platform,LIBC,ARM_VERSION,ARGON2_PREBUILD --allow-net --allow-read=.env,./dist,./server_src/test.db,./node_modules/,/etc/alpine-release --allow-ffi=./node_modules/.deno/argon2@0.44.0/ --allow-write=./server_src/test.db ./server_src/test.ts"
   },
   "dependencies": {
     "react": "^19.2.5",

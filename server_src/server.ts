@@ -6,10 +6,11 @@ const logger = getLogger(["server-backend"]);
 
 import { Hono } from "@hono/hono";
 import { setCookie } from "@hono/hono/cookie";
-import { getUserFromDB, User } from "./database.ts";
+import { getUserFromDB, initDB, User } from "./database.ts";
 import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
 import * as argon2 from "npm:argon2@0.44.0";
 import { getClientVersion, validateClientVersion } from "./api.ts";
+import { DatabaseSync } from "node:sqlite";
 
 export const SERVER_VERSION = { x: 0, y: 0, z: 0 };
 const MIME_TYPES: Record<string, string> = {
@@ -19,6 +20,7 @@ const MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
 };
 
+export const DB: DatabaseSync = await initDB();
 const router = new Hono();
 
 // Create a JWT if a user provide a username and password which exists in the users database.
