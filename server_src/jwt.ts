@@ -1,13 +1,13 @@
-import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
-import { Context } from "@hono/hono";
-import { BlankEnv, BlankInput } from "@hono/hono/types";
-import { env } from "./secret_handling.ts";
-
 // --- Import the LogTape config --------------------
 import "./logtape_config.ts";
 import { getLogger } from "@logtape/logtape";
 const logger = getLogger(["server-backend"]);
 // --------------------------------------------------
+
+import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
+import { Context } from "@hono/hono";
+import { BlankEnv, BlankInput } from "@hono/hono/types";
+import { env } from "./secret_handling.ts";
 
 const getCookie = (name: string, cookies: string): string | undefined => {
   const value = `; ${cookies}`;
@@ -62,7 +62,7 @@ export async function verifyJWT(token: string): Promise<JWTPayload | null> {
  * If a valid authentication credentials are provided the function runs `fn`.
  * If given invalid authentication credentials the function returns a 401 response.
  *
- * @param c   - The context given by Hono for the request
+ * @param c   - The context given by Hono for the request.
  * @param fn  - The logic encasulated in a function that run on a valid JWT. Must return a hono context.
  */
 export async function hasValidJWT(
