@@ -1,13 +1,13 @@
-import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
-import { Context } from "@hono/hono";
-import { BlankEnv, BlankInput } from "@hono/hono/types";
-import { env } from "./secret_handling.ts";
-
 // --- Import the LogTape config --------------------
 import "./logtape_config.ts";
 import { getLogger } from "@logtape/logtape";
 const logger = getLogger(["server-backend"]);
 // --------------------------------------------------
+
+import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
+import { Context } from "@hono/hono";
+import { BlankEnv, BlankInput } from "@hono/hono/types";
+import { env } from "./secret_handling.ts";
 
 const getCookie = (name: string, cookies: string): string | undefined => {
   const value = `; ${cookies}`;
