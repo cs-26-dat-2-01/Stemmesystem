@@ -1,4 +1,3 @@
-import React from "react";
 import "./NavBar.css";
 import {FaUser} from "react-icons/fa";
 
@@ -6,7 +5,7 @@ function NavBar() {
   return (
     <header className="navbar">
       <div className="nav-left">
-        <div className="placeholder-box"></div>
+        <div className="nav-logo">LOGO</div>
         <span className="title">Se Afstemning</span>
       </div>
 
