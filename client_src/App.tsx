@@ -21,7 +21,6 @@ export const getCookie = (name: string): string | undefined => {
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(getCookie("isLoggedIn"));
-  console.log(isLoggedIn);
 
   return isLoggedIn === "true"
     ? <OverviewPage />
