@@ -9,8 +9,6 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
 
-export type userId = number;
-
 /**
  * The TypeScript equivalent of the User object stored in the database.
  *
@@ -18,6 +16,8 @@ export type userId = number;
  * @param name A uniqe name representing the user
  * @parm passwordHash The password stored as a Argon2id hash.
  */
+
+export type userId = number;
 export interface User {
   id: userId;
   name: string;
@@ -25,7 +25,6 @@ export interface User {
 }
 
 type ballotOptionId = number;
-
 interface ballotOption {
   id: ballotOptionId;
   name: string;
@@ -94,6 +93,8 @@ export class Poll {
 
         if (result) {
           target.syncDB();
+        } else {
+          logger.error`Failed to set property of target: ${target}`;
         }
 
         return result;
@@ -131,7 +132,7 @@ export class WebappDatabase {
     this.DB = new DatabaseSync(filePath);
 
     // Create database file. -------------------------------
-    // To-do: remove AUTOINCREMENT as it does not fit
+    // To-do: remove AUTOINCREMENT as it does not fit with
     // the use case. (See https://sqlite.org/autoinc.html)
     // -----------------------------------------------------
     this.DB.exec(
@@ -144,10 +145,20 @@ export class WebappDatabase {
         CREATE TABLE IF NOT EXISTS polls (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           title TEXT NOT NULL,
-          description TEXT NOT NULL
+          description TEXT NOT NULL,
+          votwOwner INTEGER NOT NULL,
+          pollVisibility TEXT NOT NULL,
+          pollPrivacy TEXT NOT NULL,
+          showTopN INTEGER NOT NULL,
+          ballotLimit INTEGER NOT NULL,
+          eligibleVoters TEXT NOT NULL,
+          ballotOptions TEXT NOT NULL
         );
       `,
     );
+    // The records (eligibleVoters and ballotOptions) from the Poll class will be stored as a string in the database.
+    // This should be fine as SQLite as a default string size of 1 billion bytes which should be enough.
+    // https://sqlite.org/limits.html
 
     // Create admin user.
     try {
