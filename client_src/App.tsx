@@ -1,26 +1,19 @@
+import { useState } from "react";
 import "./App.css";
 import LoginPage from "./pages/LoginPage.tsx";
 import OverviewPage from "./pages/OverviewPage.tsx";
-import { useState } from "react";
+import { getCookie } from "./WebLib.ts";
 
 /**
  * Retrieves a cookie value by name.
  * @param name - The key of the cookie to retrieve.
  * @returns The string value of the cookie, or undefined if not found.
  */
-export const getCookie = (name: string): string | undefined => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-
-  if (parts.length === 2) {
-    return parts.pop()?.split(";").shift();
-  }
-
-  return undefined;
-};
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(getCookie("isLoggedIn"));
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    getCookie("isLoggedIn", document.cookie),
+  );
 
   return isLoggedIn === "true"
     ? <OverviewPage />

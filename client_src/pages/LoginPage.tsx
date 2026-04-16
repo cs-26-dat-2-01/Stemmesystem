@@ -1,6 +1,6 @@
 import React from "react";
 import "./LoginPage.css";
-import { getCookie } from "../App.tsx";
+import { getCookie } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
 import { FaLock, FaUser } from "react-icons/fa";
 
@@ -34,7 +34,7 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
 
     console.log(res);
     if (res.status == 200) {
-      setIsLoggedIn(getCookie("isLoggedIn"));
+      setIsLoggedIn(getCookie("isLoggedIn", document.cookie));
     } else {
       console.log("login failed with code: " + res.status);
     }
