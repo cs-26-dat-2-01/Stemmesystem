@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#password-hashing-algorithms
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
-import * as argon2 from "npm:argon2@0.44.0";
+import * as argon2 from "npm:argon2@0.44.0"; // used for hashing
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
@@ -24,13 +24,7 @@ export interface User {
   passwordHash: string;
 }
 
-type ballotOptionId = number;
-
-interface ballotOption {
-  id: ballotOptionId;
-  name: string;
-  votesRecived: number;
-}
+export type pollOptionId = number;
 
 export type pollId = number;
 export type pollVisibility = "public" | "private";
@@ -45,13 +39,37 @@ export type pollStatus =
 export interface PollConfig {
   title: string;
   description: string;
-  voteOwner: userId;
-  pollVisibility: pollVisibility;
-  pollPrivacy: pollPrivacy;
+  createdBy: userId;
+  visibility: pollVisibility;
+  privacy: pollPrivacy;
   showTopN: number;
   ballotLimit: number;
-  eligibleVoters: Record<userId, number>;
-  ballotOptions: Record<ballotOptionId, ballotOption>;
+  useBuffer: boolean;
+  startsAt?: string;  // ? betyder valgfri
+  endsAt?: string;
+}
+
+export interface PollOption {
+  id: pollOptionId; 
+  pollId: pollId;
+  optionText: string;
+  displayOrder: number;
+}
+
+export interface VoteToken {
+  id: number;
+  pollId: pollId;
+  userId: userId;
+  token: string;
+  createdAt: string;
+  used: boolean;
+}
+
+export interface Vote {
+  id: number;
+  pollId: pollId;
+  pollOptionId: pollOptionId;
+  timestamp: string;
 }
 
 /**
@@ -61,19 +79,21 @@ export interface PollConfig {
  * @param ballotLimit - The amount of ballot options a user can select per vote.
  * E.g. if ballotLimit=2 and the user can vote for ballot options: x, y, and z, the user could for an example vote for x and z.
  */
+
+// hvorfor er Poll egentlig en class? og ikke blot interface, vi har vel ikke behov for f.eks. inheritance eller lignende? 
+// er det fordi du tænker at at bruge proxy syntaxen til at lave en slags auto sync? hvorfor ikke blot have en sync funktion 
+// der kan kaldes efter ændringer i stedet for at gøre det implicit ved at bruge proxy?
 export class Poll {
   id!: pollId;
   public title!: string;
   public description!: string;
-  public voteOwner!: userId;
-  public pollVisibility!: pollVisibility;
-  public pollPrivacy!: pollPrivacy;
+  public createdBy!: userId;
+  public visibility!: pollVisibility;
+  public privacy!: pollPrivacy;
   public showTopN!: number;
   public ballotLimit!: number;
   // startNow: boolean // Consider this not being stored in object but handled in the creation function.
   // useBuffer: boolean // Same as above.
-  public eligibleVoters!: Record<userId, number>;
-  public ballotOptions!: Record<ballotOptionId, ballotOption>;
 
   /**
    * Synchronize the object with the database, using the variables present in the object.
@@ -134,6 +154,17 @@ export class WebappDatabase {
     // To-do: remove AUTOINCREMENT as it does not fit
     // the use case. (See https://sqlite.org/autoinc.html)
     // -----------------------------------------------------
+
+    //SQLite does not support foreign keys by default, so we need to enable it 
+    // I think we need foreign keys since for example poll_option a vote without a valid poll_option should not be possible. 
+    this.DB.exec("PRAGMA foreign_keys = ON;");
+
+    // jeg er tvivl om vi skal tage stilling til ON DELETE ved createdBy, synes ikke der er nogen optioner der giver mening f.eks. 
+    // cascade er uønsket, set null så skal vi ihvertfald tillade den at være null og det tænker jeg ikke giver mening, 
+    // restrict vil gøre at vi ikke kan slette brugere der har oprettet polls, og det synes jeg heller ikke er ønskeligt. Så måske skal vi bare lade være med at 
+    // specificere det og så er det default som er no action? evt få en 'superadministrator' rolle, som den CreatedBy assignes til hvis brugeren slettes.  
+
+    // Unique is voteTokens sørgerer for at bruger kan få to aktive tokens til samme afstemning. 
     this.DB.exec(
       `
         CREATE TABLE IF NOT EXISTS users (
@@ -144,8 +175,46 @@ export class WebappDatabase {
         CREATE TABLE IF NOT EXISTS polls (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           title TEXT NOT NULL,
-          description TEXT NOT NULL
+          description TEXT NOT NULL,
+          voteStatus TEXT NOT NULL DEFAULT 'draft', 
+          createdBy INTEGER NOT NULL REFERENCES users(id),
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')), 
+          startsAt TEXT, 
+          endsAt TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private',
+          privacy TEXT NOT NULL DEFAULT 'secret',
+          showTopN INTEGER NOT NULL DEFAULT 0,
+          ballotLimit INTEGER NOT NULL DEFAULT 1,
+          useBuffer INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS pollEligibleVoters(
+          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+          userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          PRIMARY KEY(pollId, userId)
+          );
+        CREATE TABLE IF NOT EXISTS pollOptions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+          optionText TEXT NOT NULL,
+          displayOrder INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS voteTokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+          userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token TEXT NOT NULL UNIQUE,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          used INTEGER NOT NULL DEFAULT 0
+          UNIQUE(pollId, userId) 
+        );
+        CREATE TABLE IF NOT EXISTS votes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+          pollOptionId INTEGER NOT NULL REFERENCES pollOptions(id) ON DELETE CASCADE,
+          timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+
       `,
     );
 
