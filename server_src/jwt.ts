@@ -1,24 +1,9 @@
-// --- Import the LogTape config --------------------
-import "./logtape_config.ts";
-import { getLogger } from "@logtape/logtape";
-const logger = getLogger(["server-backend"]);
-// --------------------------------------------------
-
 import { JWTPayload, jwtVerify, SignJWT } from "@panva/jose";
 import { Context } from "@hono/hono";
 import { BlankEnv, BlankInput } from "@hono/hono/types";
+import { getCookie } from "../client_src/WebLib.ts";
 import { env } from "./secret_handling.ts";
-
-const getCookie = (name: string, cookies: string): string | undefined => {
-  const value = `; ${cookies}`;
-  const parts = value.split(`; ${name}=`);
-
-  if (parts.length === 2) {
-    return parts.pop()?.split(";").shift();
-  }
-
-  return undefined;
-};
+import { logger } from "./main_lib.ts";
 
 // https://docs.deno.com/examples/creating_and_verifying_jwt/
 const serverSecret = new TextEncoder().encode(env.JWT_SERVER_SECRET);

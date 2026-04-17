@@ -1,13 +1,7 @@
-// --- Import the LogTape config --------------------
-import "./logtape_config.ts";
-import { getLogger } from "@logtape/logtape";
-const logger = getLogger(["server-backend"]);
-// --------------------------------------------------
-
 import { Context } from "@hono/hono";
 import { BlankEnv, BlankInput } from "@hono/hono/types";
-import { SERVER_VERSION } from "./server.ts";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { logger, SERVER_VERSION } from "./main_lib.ts";
 // The API uses https://semver.org/
 
 /**

@@ -7,6 +7,7 @@ const logger = getLogger(["server-backend"]);
 // Note that this package is experimental!
 // https://docs.deno.com/runtime/reference/env_variables/
 import { load } from "jsr:@std/dotenv";
+import { logger } from "./main_lib.ts";
 
 /**
  * @returns Validated record of enviorment variables.
