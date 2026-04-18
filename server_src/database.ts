@@ -8,7 +8,7 @@ import * as argon2 from "npm:argon2@0.44.0";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
-import { error } from "node:console";
+
 
 export type userId = number;
 
