@@ -80,47 +80,23 @@ export interface Vote {
  * E.g. if ballotLimit=2 and the user can vote for ballot options: x, y, and z, the user could for an example vote for x and z.
  */
 
-// hvorfor er Poll egentlig en class? og ikke blot interface, vi har vel ikke behov for f.eks. inheritance eller lignende? 
-// er det fordi du tænker at at bruge proxy syntaxen til at lave en slags auto sync? hvorfor ikke blot have en sync funktion 
-// der kan kaldes efter ændringer i stedet for at gøre det implicit ved at bruge proxy?
-export class Poll {
-  id!: pollId;
-  public title!: string;
-  public description!: string;
-  public createdBy!: userId;
-  public visibility!: pollVisibility;
-  public privacy!: pollPrivacy;
-  public showTopN!: number;
-  public ballotLimit!: number;
-  // startNow: boolean // Consider this not being stored in object but handled in the creation function.
-  // useBuffer: boolean // Same as above.
-
-  /**
-   * Synchronize the object with the database, using the variables present in the object.
-   * This needs to be called after a variable change in the object.
-   */
-  private syncDB() {
-    logger.fatal`Not implemented`;
-    throw new Error("Not implemented");
-  }
-
-  constructor(config: PollConfig) {
-    Object.assign(this, config);
-
-    return new Proxy(this, {
-      set(target, property, value, receiver) {
-        const result: boolean = Reflect.set(target, property, value, receiver);
-        logger.trace`${target} ${receiver}`;
-
-        if (result) {
-          target.syncDB();
-        }
-
-        return result;
-      },
-    });
-  }
+// har lavet Poll om til interface istedet for class. 
+export interface Poll {
+  id: pollId;
+  title: string;
+  description: string;
+  voteStatus: pollStatus;
+  createdBy: userId;
+  createdAt: string;
+  startsAt?: string;
+  endsAt?: string;
+  visibility: pollVisibility;
+  privacy: pollPrivacy;
+  showTopN: number;
+  ballotLimit: number;
+  useBuffer: number;
 }
+
 
 /**
  * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.
@@ -134,6 +110,19 @@ interface getUserFromDBResult {
   errorMsg?: string;
   httpStatusCode: ContentfulStatusCode;
 }
+
+interface getPollFromDBResult {
+  poll?: Poll;
+  errorMsg?: string;
+  httpStatusCode: ContentfulStatusCode;
+}
+
+interface createVoteTokenResult {
+  token?: string;
+  errorMsg?: string;
+  httpStatusCode: ContentfulStatusCode;
+}
+
 
 /**
  * Class for creating an ad hoc database object for the web application.
@@ -204,11 +193,11 @@ export class WebappDatabase {
           userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           token TEXT NOT NULL UNIQUE,
           createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-          used INTEGER NOT NULL DEFAULT 0
+          used INTEGER NOT NULL DEFAULT 0,
           UNIQUE(pollId, userId) 
         );
         CREATE TABLE IF NOT EXISTS votes (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          id TEXT PRIMARY KEY,
           pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
           pollOptionId INTEGER NOT NULL REFERENCES pollOptions(id) ON DELETE CASCADE,
           timestamp TEXT NOT NULL DEFAULT (datetime('now'))
@@ -338,4 +327,174 @@ export class WebappDatabase {
   public closeDB() {
     this.DB.close();
   }
+
+  public getPollFromDB(pollId: number): getPollFromDBResult {
+    const sqlResult = this.DB.prepare(
+      "SELECT id, title, description, voteStatus, createdBy, createdAt, startsAt, endsAt, visibility, privacy, showTopN, ballotLimit, useBuffer FROM polls WHERE id = (?)",
+    ).get(pollId);
+
+    if (typeof sqlResult === "undefined") {
+      logger.info`Poll with ID: ${pollId} not found in database.`;
+      return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
+    }
+
+    const { id, title, description, voteStatus, createdBy, createdAt, startsAt, endsAt, visibility, privacy, showTopN, ballotLimit, useBuffer } = sqlResult;
+
+    const hasValidShape = typeof id === "number" &&
+      typeof title === "string" &&
+      typeof description === "string" &&
+      typeof voteStatus === "string" &&
+      typeof createdBy === "number" &&
+      typeof createdAt === "string" &&
+      typeof (startsAt === "string" || startsAt === null) &&
+      typeof (endsAt === "string" || endsAt === null) &&
+      typeof visibility === "string" &&
+      typeof privacy === "string" &&
+      typeof showTopN === "number" &&
+      typeof ballotLimit === "number" &&
+      typeof useBuffer === "number";
+
+    if (!hasValidShape) {
+      logger
+        .error`500 Internal Server Error: Poll object cannot get created correctly, poll does not exist in database.`;
+      return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
+    }
+
+    const poll: Poll = {
+      id,
+      title,
+      description,
+      voteStatus,
+      createdBy,
+      createdAt,
+      startsAt,
+      endsAt,
+      visibility,
+      privacy,
+      showTopN,
+      ballotLimit,
+      useBuffer
+    };
+
+    return { poll, httpStatusCode: 200 };
+  }
+
+  public getPollOptionsFromDB(pollId: number): PollOption[] {
+    const sqlResults = this.DB.prepare(
+      "SELECT id, pollId, optionText, displayOrder FROM pollOptions WHERE pollId = (?) ORDER BY displayOrder ASC",
+    ).all(pollId);
+
+
+    if (typeof sqlResult === "undefined") {
+      logger.info`Poll with ID: ${pollId} not found in database.`;
+      return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
+    }
+
+    const pollOptions: PollOption[] = [];
+
+    for (const row of sqlResults) {
+      const { id, pollId, optionText, displayOrder } = row;
+
+      const hasValidShape = typeof id === "number" &&
+        typeof pollId === "number" &&
+        typeof optionText === "string" &&
+        typeof displayOrder === "number";
+        
+      if (!hasValidShape) {
+        logger
+          .error`500 Internal Server Error: PollOption object cannot get created correctly, poll option does not exist in database.`;
+        continue;
+      }
+      pollOptions.push({
+        id,
+        pollId,
+        optionText,
+        displayOrder
+      });
+    }
+    
+    return pollOptions;
+  }
+
+  public createVoteToken(pollId: number, userId: number): createVoteTokenResult {
+    try {
+      const newToken = crypto.randomUUID();
+      const sqlResult = this.DB.prepare(`
+        INSERT INTO voteTokens (pollId, userId, token)
+        VALUES (?, ?, ?)
+        ON CONFLICT(pollId, userId) DO UPDATE SET token = token
+        RETURNING token
+        `).get(pollId, userId, newToken);
+
+      return { token: sqlResult.token, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error while creating vote token for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
+      return { errorMsg: "Error while creating vote token", httpStatusCode: 500 };
+    }
+  }
+
+  public getVoteToken(pollId: number, userId: number): getVoteTokenResult {
+    try {
+      const sqlResult = this.DB.prepare(`
+        SELECT token FROM voteTokens
+        WHERE pollId = ? AND userId = ?
+        `).get(pollId, userId);
+
+      if (typeof sqlResult === "undefined") {
+        logger.info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database.`;
+        return { errorMsg: "Vote token not found in database", httpStatusCode: 400 };
+      }
+      
+      return { token: sqlResult.token, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error while fetching vote token for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
+      return { errorMsg: "Error while fetching vote token", httpStatusCode: 500 };
+    }
+  }
+
+  public markTokenUsed(pollId: number, userId: number): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
+    try {
+      const sqlResult = this.DB.prepare(`
+        UPDATE voteTokens
+        SET used = 1
+        WHERE pollId = ? AND userId = ?
+        `).run(pollId, userId);
+        
+      if (sqlResult.changes === 0) {
+        logger.info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database, cannot mark as used.`;
+        return { success: false, errorMsg: "Vote token not found in database", httpStatusCode: 400 };
+      }
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error while marking vote token as used for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
+      return { success: false, errorMsg: "Error while marking vote token as used", httpStatusCode: 500 };
+    }
+  }
+
+  public insertVote(pollId: number, pollOptionId: number, voteId: string): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
+    try {
+      this.DB.prepare(`
+        INSERT INTO votes (pollId, pollOptionId, id)
+        VALUES (?, ?, ?)
+        `).run(pollId, pollOptionId, voteId);
+        
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error while inserting vote for poll with ID: ${pollId} and poll option with ID: ${pollOptionId}. Error: ${errMsg}`;
+      return { success: false, errorMsg: "Error while inserting vote", httpStatusCode: 500 };
+    }
+  }
+
+
+
+
+
 }
