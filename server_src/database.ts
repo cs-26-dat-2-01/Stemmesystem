@@ -9,6 +9,7 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
 
+
 export type userId = number;
 
 /**
@@ -167,13 +168,13 @@ export class WebappDatabase {
     }
 
     // Print all user entries.
-    const rows = this.DB.prepare("SELECT id, username, passwordHash FROM users")
-      .all();
+    const rows = this.DB.prepare(
+      "SELECT id, username, passwordHash FROM users",
+    ).all();
     logger.trace("DB | Users: {rows}", { rows });
 
     // Print all user entries.
-    const polls = this.DB.prepare("SELECT * FROM polls")
-      .all();
+    const polls = this.DB.prepare("SELECT * FROM polls").all();
     logger.trace`"DB | Polls: ${polls}"`;
   }
 
@@ -184,7 +185,32 @@ export class WebappDatabase {
    */
   public static async initDatabase(filePath: string): Promise<WebappDatabase> {
     const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD);
-    return new WebappDatabase(adminPassword, filePath);
+    const dbInstance = new WebappDatabase(adminPassword, filePath);
+
+    // Get admin from database
+    const { user, httpStatusCode, errorMsg } =
+      dbInstance.getUserFromDB("admin");
+
+    // Check if admin user is in database
+    if (httpStatusCode !== 200) {
+      throw new Error(`Admin user not found in the database: ${errorMsg}`);
+    }
+
+    // Verify password from database with password from .env
+    const passwordMatches = await argon2.verify(
+      user.passwordHash,
+      env.ADMIN_USER_PASSWORD,
+    );
+
+    // Throw error if password from database doesn't match password from .env
+    if (!passwordMatches) {
+      throw new Error(
+        "Admin password in database does not match .env password.",
+      );
+    }
+
+    logger.info("Admin password successfully validated.");
+    return dbInstance;
   }
 
   /**
@@ -204,13 +230,13 @@ export class WebappDatabase {
 
     const { id, username: fetchedUsername, passwordHash } = sqlResult;
 
-    const hasValidShape = typeof id === "number" &&
+    const hasValidShape =
+      typeof id === "number" &&
       typeof fetchedUsername === "string" &&
       typeof passwordHash === "string";
 
     if (!hasValidShape) {
-      logger
-        .error`500 Internal Server Error: User object cannot get created correctly, user does not exist in database.`;
+      logger.error`500 Internal Server Error: User object cannot get created correctly, user does not exist in database.`;
       return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
     }
 
@@ -242,8 +268,7 @@ export class WebappDatabase {
       ).run(username, await argon2.hash(password));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
+      logger.error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
     }
     logger.info`Added user to database with username: ${username}`;
   }
