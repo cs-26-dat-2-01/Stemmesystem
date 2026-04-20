@@ -60,16 +60,18 @@ export interface VoteToken {
   id: number;
   pollId: pollId;
   userId: userId;
-  token: string;
+  UUID: string;
   createdAt: string;
   used: boolean;
 }
 
 export interface Vote {
-  id: number;
+  id: string;
   pollId: pollId;
   pollOptionId: pollOptionId;
   timestamp: string;
+  previousHash: string;
+  currentHash: string;
 }
 
 /**
@@ -118,10 +120,26 @@ interface getPollFromDBResult {
 }
 
 interface createVoteTokenResult {
-  token?: string;
+  token?: string; 
+  alreadyExisted?: boolean; //true hvis vi bare læste eksisternde UUID fra DB, false hvis vi lavede en ny UUID og gemte i DB.
   errorMsg?: string;
   httpStatusCode: ContentfulStatusCode;
 }
+
+interface getVoteTokenResult {
+  UUID?: string;
+  used?: number;
+  errorMsg?: string;
+  httpStatusCode: ContentfulStatusCode;
+}
+
+export interface AuditLogEntry { 
+  action: string;
+  UUID: string; 
+  timestamp: string; 
+  details: string | null;
+} 
+
 
 
 /**
@@ -191,16 +209,25 @@ export class WebappDatabase {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
           userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          token TEXT NOT NULL UNIQUE,
+          UUID TEXT NOT NULL UNIQUE,
           createdAt TEXT NOT NULL DEFAULT (datetime('now')),
           used INTEGER NOT NULL DEFAULT 0,
           UNIQUE(pollId, userId) 
         );
         CREATE TABLE IF NOT EXISTS votes (
-          id TEXT PRIMARY KEY,
+          id TEXT PRIMARY KEY REFERENCES voteTokens(UUID),
           pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
           pollOptionId INTEGER NOT NULL REFERENCES pollOptions(id) ON DELETE CASCADE,
-          timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+          timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+          previousHash TEXT NOT NULL UNIQUE,
+          currentHash TEXT NOT NULL UNIQUE
+        );
+        CREATE TABLE IF NOT EXISTS auditLog(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        UUID TEXT NOT NULL References votetokens(UUID),
+        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+        details TEXT 
         );
 
 
@@ -416,17 +443,23 @@ export class WebappDatabase {
     return pollOptions;
   }
 
-  public createVoteToken(pollId: number, userId: number): createVoteTokenResult {
+  public createVoteToken(pollId: number, userId: number, ClientUUID: string): createVoteTokenResult {
     try {
-      const newToken = crypto.randomUUID();
       const sqlResult = this.DB.prepare(`
-        INSERT INTO voteTokens (pollId, userId, token)
+        INSERT INTO voteTokens (pollId, userId, UUID)
         VALUES (?, ?, ?)
-        ON CONFLICT(pollId, userId) DO UPDATE SET token = token
-        RETURNING token
-        `).get(pollId, userId, newToken);
+        ON CONFLICT(pollId, userId) DO UPDATE SET UUID = UUID
+        RETURNING UUID
+        `).get(pollId, userId, ClientUUID);
 
-      return { token: sqlResult.token, httpStatusCode: 200 };
+        if (!sqlResult || typeof sqlResult.UUID !== "string") {
+          return { errorMsg: "Failed to store vote token", httpStatusCode: 500 };
+        }
+
+      const storedUUID = sqlResult.UUID as string; 
+      const alreadyExisted = storedUUID !== ClientUUID;
+
+      return {token: storedUUID, alreadyExisted,httpStatusCode: 200};
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
@@ -438,7 +471,7 @@ export class WebappDatabase {
   public getVoteToken(pollId: number, userId: number): getVoteTokenResult {
     try {
       const sqlResult = this.DB.prepare(`
-        SELECT token FROM voteTokens
+        SELECT UUID, used FROM voteTokens
         WHERE pollId = ? AND userId = ?
         `).get(pollId, userId);
 
@@ -446,8 +479,16 @@ export class WebappDatabase {
         logger.info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database.`;
         return { errorMsg: "Vote token not found in database", httpStatusCode: 400 };
       }
+
+      const {UUID, used} = sqlResult;
+      const hasValidShape = typeof UUID === "string" && typeof used === "number";
+
+      if (!hasValidShape) {
+        logger.error`500 Internal Server Error: VoteToken has invalid shape.`;
+        return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
+       }
       
-      return { token: sqlResult.token, httpStatusCode: 200 };
+      return { UUID, used, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
@@ -477,12 +518,12 @@ export class WebappDatabase {
     }
   }
 
-  public insertVote(pollId: number, pollOptionId: number, voteId: string): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
+  public insertVote(pollId: number, pollOptionId: number, voteId: string, previousHash: string, currentHash: string): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
     try {
       this.DB.prepare(`
-        INSERT INTO votes (pollId, pollOptionId, id)
-        VALUES (?, ?, ?)
-        `).run(pollId, pollOptionId, voteId);
+        INSERT INTO votes (pollId, pollOptionId, id, previousHash, currentHash)
+        VALUES (?, ?, ?, ?, ?)
+        `).run(pollId, pollOptionId, voteId, previousHash, currentHash);
         
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
@@ -492,6 +533,141 @@ export class WebappDatabase {
       return { success: false, errorMsg: "Error while inserting vote", httpStatusCode: 500 };
     }
   }
+  public getLatestHash(pollId: number): { hash: string | null; httpStatusCode: ContentfulStatusCode; errorMsg?: string } {
+    try {
+      const sqlResult = this.DB.prepare(`
+        SELECT currentHash FROM votes
+        WHERE pollId = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT 1
+      `).get(pollId);
+
+      if (typeof sqlResult === "undefined") {
+        // Ingen stemmer endnu → "genesis" — første stemme i kæden
+        return { hash: null, httpStatusCode: 200 };
+      }
+
+      if (typeof sqlResult.currentHash !== "string") {
+        return { hash: null, errorMsg: "Invalid hash shape", httpStatusCode: 500 };
+      }
+
+      return { hash: sqlResult.currentHash, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
+      return { hash: null, errorMsg: "Error fetching latest hash", httpStatusCode: 500 };
+    }
+  }
+
+  public insertAuditLog(action: string, UUID: string, details: string | null): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
+    try {
+      this.DB.prepare(`
+        INSERT INTO auditLog (action, UUID, details)
+        VALUES (?, ?, ?)
+        `).run(action, UUID, details);
+        
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error while inserting audit log with action: ${action}, UUID: ${UUID}. Error: ${errMsg}`;
+      return { success: false, errorMsg: "Error while inserting audit log", httpStatusCode: 500 };
+    }
+  }
+
+  public getAuditLog(pollId: number): { logs: AuditLogEntry[]; httpStatusCode: ContentfulStatusCode; errorMsg?: string } {
+    try {
+      const sqlResults = this.DB.prepare(`
+        SELECT action, UUID, timestamp, details FROM auditLog
+        WHERE UUID IN (SELECT UUID FROM voteTokens WHERE pollId = ?)
+        ORDER BY timestamp DESC
+      `).all(pollId);
+      
+      const logs: AuditLogEntry[] = []; 
+
+      for (const row of sqlResults){
+        const { action, UUID, timestamp, details } = row;
+        
+        const hasValidShape = typeof action === "string" &&
+          typeof UUID === "string" &&
+          typeof timestamp === "string" &&
+          (typeof details === "string" || details === null);
+        
+        if (!hasValidShape) {
+          logger.error`500 Internal Server Error: AuditLogEntry has invalid shape.`;
+          continue; // Skip this entry but continue processing the rest of the entries.
+        }
+        
+        logs.push({ action, UUID, timestamp, details });
+      }  
+
+      return { logs, httpStatusCode: 200 };
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        logger.error`Error fetching audit log for poll ID: ${pollId}. Error: ${errMsg}`;
+        return { logs: [], errorMsg: "Error fetching audit log", httpStatusCode: 500 };
+    }
+  }
+
+  /*
+    Jeg har valgt at simpelthen gøre det på "database" niveau at tjekke om pollStatus er finished, logikken kan evt alt flyttes et andet sted hen
+    Har valgt at det skal være stigende grad istedet for faldende. For verifikation vil man gerne følge kæden fra start til slut: vote 1 --> vote 2 --> vote 3, hver stemmes previousHash skal matche den forriges currentHash. 
+
+  */
+  public listVotesForPoll(pollId: number): { 
+    votes: Vote[]; 
+    httpStatusCode: ContentfulStatusCode; 
+    errorMsg?: string 
+  } {
+    try {
+      // tjek først om afstemningn er 'finished'
+      const pollStatus = this.DB.prepare(`SELECT voteStatus FROM polls WHERE id = ?`
+      ).get(pollId);
+
+      if (typeof pollStatus === "undefined") {
+        return {votes: [], errorMsg: "Poll not found", httpStatusCode: 404};
+      }
+
+      //Skal return forbidden hvis ikke voteStatus er finished.
+      if (pollStatus.voteStatus !== "finished"){
+        return {votes: [], errorMsg: "Polls is not finished - votes are not public until voting closes", httpStatusCode: 403}
+      }
+      // voteStatus er nu "finished" og vi skal return votes. 
+      const sqlResults = this.DB.prepare(`
+        SELECT id, pollId, pollOptionId, timestamp, previousHash, currentHash 
+        FROM votes
+        WHERE pollId = ?
+        ORDER BY timestamp ASC, rowid ASC
+      `).all(pollId);
+
+      const votes: Vote[] = [];
+
+      for (const row of sqlResults) {
+        const { id, pollId, pollOptionId, timestamp, previousHash, currentHash } = row;
+
+        const hasValidShape = typeof id === "string" &&
+          typeof pollId === "number" &&
+          typeof pollOptionId === "number" &&
+          typeof timestamp === "string" &&
+          typeof previousHash === "string" &&
+          typeof currentHash === "string";
+
+        if (!hasValidShape) {
+          logger.error`500 Internal Server Error: Vote row has invalid shape.`;
+          continue;
+        }
+
+        votes.push({ id, pollId, pollOptionId, timestamp, previousHash, currentHash });
+    }
+      return { votes, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
+      return { votes: [], errorMsg: "Error listing votes", httpStatusCode: 500 };
+    }
+  }
+
+
 
 
 

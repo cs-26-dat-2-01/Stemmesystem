@@ -160,6 +160,26 @@ export async function startServer() {
     }
   });
 
+  /* User opens the poll page for a specific poll
+    1. We verify the login-JWT of the user 
+    2. We call pollManager.openPoll(pollId) which will give us the poll, options and a voteToken. 
+    3. We create a JWT token which contains the pollId and the voteToken and send it to the client.
+    4. Send poll + options as response body to the client.
+  */
+  router.get("/poll/:pollId", async (c) => {
+  
+  }); 
+
+  /* User casta a vote
+    1. We verify the login-JWT of the user and the vote-JWT which contains the pollId and voteToken.
+    2. We extract optionId from the request body 
+    3- We cal pollManager.castVote(pollId, userId, optionId, voteToken) which will return true if the vote was succesfully casted and false if not.
+    4. We return a response to the client so the client knows if the vote was succesfully casted or not.
+  */
+  router.post("/poll/:pollId/vote", async (c) => {
+  
+  });
+
   Deno.serve(router.fetch);
   // closeDB(); // Figure out where to actually close this.
 }
