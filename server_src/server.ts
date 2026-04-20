@@ -4,15 +4,20 @@ import * as argon2 from "npm:argon2@0.44.0";
 import { logger, MIME_TYPES } from "./main_lib.ts";
 import { User, WebappDatabase } from "./database.ts";
 import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
-import { getClientVersion, validateClientVersion } from "./api.ts";
+import {
+  addUser,
+  assertClientVersion,
+  getClientVersion,
+  validateClientVersion,
+} from "./api.ts";
 
 /**
  * Start the web application.
  */
-export async function startServer() {
+export async function startServer(dbFile: string) {
   const router = new Hono();
   const DB: WebappDatabase = await WebappDatabase.initDatabase(
-    "./server_src/users.db",
+    dbFile,
   );
 
   // Create a JWT if a user provide a username and password which exists in the users database.
@@ -108,22 +113,21 @@ export async function startServer() {
   */
   router.get("/api/version", async (c) => {
     return await hasValidJWT(c, () => {
-      const clientVersion = getClientVersion(c);
+      const result = assertClientVersion(c);
+      return c.json(result);
+    });
+  });
 
-      if (clientVersion instanceof Error) {
-        logger.trace`${clientVersion}`;
-
-        if (clientVersion.cause === undefined) {
-          return c.body(JSON.stringify(clientVersion.message), 400, {
-            "Content-Type": "application/json",
-          });
-        }
-      } else {
-        logger.trace`fn getClientVersion succeeded: ${clientVersion}`;
-
-        const result = validateClientVersion(c, clientVersion);
-        return c.json(result.res, result.status);
+  router.post("/api/admin/add-user", async (c) => {
+    return await hasValidJWT(c, async (verifiedPayload) => {
+      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
+        logger.trace`Failed authenication atempt on admin API route.`;
+        return c.body("401 Unauthorized", 401);
       }
+      const req = await c.req.json();
+
+      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
+      return c.body("", result);
     });
   });
 

@@ -52,7 +52,7 @@ export async function verifyJWT(token: string): Promise<JWTPayload | null> {
  */
 export async function hasValidJWT(
   c: Context<BlankEnv, string, BlankInput>,
-  fn: () => void,
+  fn: (verifiedPayload: JWTPayload) => void,
 ) {
   const cookies = c.req.header("Cookie");
   const jwt = getCookie("JWT", cookies != undefined ? cookies : ""); // Retrieve the JWT token.
@@ -61,7 +61,7 @@ export async function hasValidJWT(
   if (typeof jwt === "string") {
     const verifiedPayload = await verifyJWT(jwt);
     if (verifiedPayload) {
-      return fn();
+      return fn(verifiedPayload);
     }
   } else {
     logger.debug("No auth token found");

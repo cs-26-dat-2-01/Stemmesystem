@@ -5,9 +5,12 @@
     "jsr:@logtape/logtape@^2.0.5": "2.0.5",
     "jsr:@logtape/redaction@^2.0.5": "2.0.5",
     "jsr:@panva/jose@^6.2.2": "6.2.2",
+    "jsr:@std/assert@*": "1.0.19",
+    "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/dotenv@*": "0.225.6",
     "jsr:@std/dotenv@0.225.6": "0.225.6",
     "jsr:@std/dotenv@~0.225.6": "0.225.6",
+    "jsr:@std/internal@^1.0.12": "1.0.13",
     "npm:@eslint/js@^9.39.4": "9.39.4",
     "npm:@types/node@^24.12.2": "24.12.2",
     "npm:@types/react-dom@^19.2.3": "19.2.3_@types+react@19.2.14",
@@ -43,8 +46,17 @@
     "@panva/jose@6.2.2": {
       "integrity": "bfe1178a9d2f53effa5ee6c1786b6534a39690b03969472b3ad690600d8898ec"
     },
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
     "@std/dotenv@0.225.6": {
       "integrity": "1d6f9db72f565bd26790fa034c26e45ecb260b5245417be76c2279e5734c421b"
+    },
+    "@std/internal@1.0.13": {
+      "integrity": "2f9546691d4ac2d32859c82dff284aaeac980ddeca38430d07941e7e288725c0"
     }
   },
   "npm": {
@@ -1264,6 +1276,7 @@
       "jsr:@logtape/logtape@^2.0.5",
       "jsr:@logtape/redaction@^2.0.5",
       "jsr:@panva/jose@^6.2.2",
+      "jsr:@std/assert@^1.0.19",
       "jsr:@std/dotenv@~0.225.6"
     ],
     "packageJson": {
