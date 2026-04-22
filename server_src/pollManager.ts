@@ -95,36 +95,43 @@ export class PollManager {
 
   }
 
-  public openPoll(pollId: number, userId: number): {poll: Poll; options: PollOption[]; voteToken: string} | null {
-    // 1. Hent poll fra DB
+  public openPoll(pollId: number, userId: number, clientUUID: string): {poll: Poll; options: PollOption[]; voteToken: string; alreadyExisted: boolean} | null {
+    const isUserEligible = this.DB.isUserEligible(pollId, userId); 
+    // 1. Check if user is eliglbe for opening the vote
+    if (!isUserEligible){
+          logger.warn(`User ${userId} is not eligible for poll ${pollId}.`);
+          return null;
+    }
+        
+    // 2. Get poll data
     const { poll: pollFromDB, httpStatusCode: pollStatuscode } = this.DB.getPollFromDB(pollId);
     if (pollStatuscode !== 200) {
         logger.error(`Failed to retrieve poll with ID ${pollId} from database. Status code: ${pollStatuscode}`);
         return null;
     }
 
-    // 2. Tjek om poll er lukket -> hvis den er det så skal den ikke åbnes
+    // 3. Check if poll is close 
     if (!pollFromDB || pollFromDB.voteStatus !== "started") {
         logger.warn(`Attempted to open poll with ID ${pollId}, but it is closed.`);
             return null;
     }
 
-    // 3. Hent polloptions fra DB 
+    // 4. get polloptions 
     const optionsFromDB = this.DB.getPollOptionsFromDB(pollId);
     if (optionsFromDB.length === 0) {
         logger.warn(`No options found for poll with ID ${pollId}.`);
         return null;
     }
-
-    // 4. createVotetoken 
-    const voteToken = this.DB.createVoteToken(pollId, userId);
-    if (voteToken.httpStatusCode !== 200 || !voteToken.token) {
+    // 5. create the clientUUID in Database
+    const voteToken = this.DB.createVoteToken(pollId, userId, clientUUID); 
+    if (voteToken.httpStatusCode !== 200 || !voteToken.token || voteToken.alreadyExisted === undefined) {
         logger.error(`Failed to create vote token for poll ID ${pollId} and user ID ${userId}. Status code: ${voteToken.httpStatusCode}`);
         return null;
     }
-    
-    return { poll: pollFromDB, options: optionsFromDB, voteToken: voteToken.token };
-  }
+    // 6. auditlog 
+    this.DB.insertAuditLog("TOKEN_ISSUED", clientUUID, `pollId:${pollId},userId:${userId}`);
 
+    return { poll: pollFromDB, options: optionsFromDB, voteToken: voteToken.token, alreadyExisted: voteToken.alreadyExisted };
+  }
 
 }

@@ -367,19 +367,24 @@ export class WebappDatabase {
 
     const { id, title, description, voteStatus, createdBy, createdAt, startsAt, endsAt, visibility, privacy, showTopN, ballotLimit, useBuffer } = sqlResult;
 
+    const validStatuses = ["draft", "saved", "not started", "started", "finished"];
+    const validVisibilities = ["public", "private"];
+    const validPrivacies = ["secret", "open"];
+
     const hasValidShape = typeof id === "number" &&
       typeof title === "string" &&
       typeof description === "string" &&
-      typeof voteStatus === "string" &&
+      typeof voteStatus === "string" && validStatuses.includes(voteStatus) &&
       typeof createdBy === "number" &&
       typeof createdAt === "string" &&
-      typeof (startsAt === "string" || startsAt === null) &&
-      typeof (endsAt === "string" || endsAt === null) &&
-      typeof visibility === "string" &&
-      typeof privacy === "string" &&
+      (typeof startsAt === "string" || startsAt === null) &&
+      (typeof endsAt === "string" || endsAt === null) &&
+      typeof visibility === "string" && validVisibilities.includes(visibility) &&
+      typeof privacy === "string" && validPrivacies.includes(privacy) &&
       typeof showTopN === "number" &&
       typeof ballotLimit === "number" &&
       typeof useBuffer === "number";
+
 
     if (!hasValidShape) {
       logger
@@ -391,13 +396,13 @@ export class WebappDatabase {
       id,
       title,
       description,
-      voteStatus,
+      voteStatus: voteStatus as pollStatus,
       createdBy,
       createdAt,
-      startsAt,
-      endsAt,
-      visibility,
-      privacy,
+      startsAt: startsAt ?? undefined,
+      endsAt: endsAt ?? undefined,
+      visibility: visibility as pollVisibility,
+      privacy : privacy as pollPrivacy,
       showTopN,
       ballotLimit,
       useBuffer
@@ -410,15 +415,8 @@ export class WebappDatabase {
     const sqlResults = this.DB.prepare(
       "SELECT id, pollId, optionText, displayOrder FROM pollOptions WHERE pollId = (?) ORDER BY displayOrder ASC",
     ).all(pollId);
-
-
-    if (typeof sqlResult === "undefined") {
-      logger.info`Poll with ID: ${pollId} not found in database.`;
-      return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
-    }
-
+    
     const pollOptions: PollOption[] = [];
-
     for (const row of sqlResults) {
       const { id, pollId, optionText, displayOrder } = row;
 
@@ -664,6 +662,20 @@ export class WebappDatabase {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger.error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
       return { votes: [], errorMsg: "Error listing votes", httpStatusCode: 500 };
+    }
+  }
+
+  public isUserEligible (pollId: number, userId: number):boolean {
+    try{
+      const sqlResult = this.DB.prepare(`
+        SELECT 1 FROM pollEligibleVoters
+        WHERE pollId = ? AND userId = ? `).get(pollId, userId); 
+    
+      return typeof sqlResult !== "undefined"; 
+    } catch (err){
+      const errMsg = err instanceof Error ? err.message : "Uknown error";
+      logger.error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      return false; // Fail-safe: ved fejl nægter vi adgang
     }
   }
 
