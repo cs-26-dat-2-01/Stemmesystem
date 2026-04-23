@@ -2,6 +2,7 @@ import "./App.css";
 import LoginPage from "./pages/LoginPage.tsx";
 import OverviewPage from "./pages/OverviewPage.tsx";
 import { useState } from "react";
+import PollResults from "./pages/PollResult.tsx";
 
 /**
  * Retrieves a cookie value by name.
