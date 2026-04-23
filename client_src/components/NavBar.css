@@ -1,9 +1,11 @@
+@import '../variables.css';
+
 .navbar {
   display: flex;
   align-items: center;
   padding: 10px 20px;
   border-bottom: 2px solid #ccc;
-  background-color: #fff;
+  background-color: var(--primary-background-color);
 }
 
 .nav-left {
