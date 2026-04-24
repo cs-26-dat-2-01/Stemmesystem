@@ -30,7 +30,21 @@ irm https://deno.land/install.ps1 | iex
 Official environment setup documentation can be found at
 [Deno - Set up your environment](https://docs.deno.com/runtime/getting_started/setup_your_environment/).
 
-### Initialize the Project with Deno
+### Development Using Docker
+
+The project can run inside a Docker container for development where source files are automagically synchronized with the development container on file changes.
+
+The Docker container can be run with (requires root):
+```shell
+docker compose watch
+```
+
+To connect to the container to view logs use (requires root):
+```shell
+docker attach CONTAINER
+```
+
+### Initialize the Project with Deno - Local Development
 
 To download necessary build and dev dependencies run:
 

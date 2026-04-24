@@ -43,7 +43,7 @@ function OverviewPage() {
           <span>{block.name}!!!</span>
         </div>
       ))}
-      <text></text>
+      <text>Hello, World!</text>
     </>
   );
 }

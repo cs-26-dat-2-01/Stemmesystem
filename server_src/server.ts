@@ -10,9 +10,14 @@ import { getClientVersion, validateClientVersion } from "./api.ts";
  * Start the web application.
  */
 export async function startServer() {
+  // logger.trace`testing that hot reload work`;
+
   const router = new Hono();
+
+  const databasePath: string = "./database/users.db";
+  const _file = await Deno.create(databasePath);
   const DB: WebappDatabase = await WebappDatabase.initDatabase(
-    "./server_src/users.db",
+    databasePath,
   );
 
   // Create a JWT if a user provide a username and password which exists in the users database.
