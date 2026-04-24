@@ -6,9 +6,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-    # - ./database:/app/database:rw # Mount local database folder with read and write permission.
       - app_database:/app/database
-    develop:
+    develop: # https://docs.docker.com/reference/compose-file/develop/
       watch: 
       - action: sync
         path: ./server_src
