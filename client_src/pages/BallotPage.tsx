@@ -36,8 +36,8 @@ interface Poll {
   createdAt: string;
   startsAt?: string;
   endsAt?: string;
-  visibility: string;
-  privacy: string;
+  pollVisibility: string;
+  ballotPrivacy: string;
   showTopN: number;
   ballotLimit: number;
   useBuffer: number;

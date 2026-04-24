@@ -9,7 +9,6 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
 
-
 export type userId = number;
 
 /**
@@ -29,7 +28,7 @@ export type pollOptionId = number;
 
 export type pollId = number;
 export type pollVisibility = "public" | "private";
-export type pollPrivacy = "secret" | "open";
+export type ballotPrivacy = "secret" | "open";
 export type pollStatus =
   | "draft" // Ongoing editing by poll creator.
   | "saved" // Edits saved but poll haven't been published.
@@ -37,21 +36,8 @@ export type pollStatus =
   | "started" // Poll is started and eligible voters can cast their ballot.
   | "finished"; // Poll is finished and users with correct access rights can see the poll results.
 
-export interface PollConfig {
-  title: string;
-  description: string;
-  createdBy: userId;
-  visibility: pollVisibility;
-  privacy: pollPrivacy;
-  showTopN: number;
-  ballotLimit: number;
-  useBuffer: boolean;
-  startsAt?: string;  // ? betyder valgfri
-  endsAt?: string;
-}
-
 export interface PollOption {
-  id: pollOptionId; 
+  id: pollOptionId;
   pollId: pollId;
   optionText: string;
   displayOrder: number;
@@ -83,7 +69,7 @@ export interface Vote {
  * E.g. if ballotLimit=2 and the user can vote for ballot options: x, y, and z, the user could for an example vote for x and z.
  */
 
-// har lavet Poll om til interface istedet for class. 
+// har lavet Poll om til interface istedet for class.
 export interface Poll {
   id: pollId;
   title: string;
@@ -93,13 +79,12 @@ export interface Poll {
   createdAt: string;
   startsAt?: string;
   endsAt?: string;
-  visibility: pollVisibility;
-  privacy: pollPrivacy;
+  pollVisibility: pollVisibility;
+  ballotPrivacy: ballotPrivacy;
   showTopN: number;
   ballotLimit: number;
   useBuffer: number;
 }
-
 
 /**
  * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.
@@ -121,7 +106,7 @@ interface getPollFromDBResult {
 }
 
 interface createVoteTokenResult {
-  token?: string; 
+  token?: string;
   alreadyExisted?: boolean; //true hvis vi bare læste eksisternde UUID fra DB, false hvis vi lavede en ny UUID og gemte i DB.
   errorMsg?: string;
   httpStatusCode: ContentfulStatusCode;
@@ -134,14 +119,12 @@ interface getVoteTokenResult {
   httpStatusCode: ContentfulStatusCode;
 }
 
-export interface AuditLogEntry { 
+export interface AuditLogEntry {
   action: string;
-  UUID: string; 
-  timestamp: string; 
+  UUID: string;
+  timestamp: string;
   details: string | null;
-} 
-
-
+}
 
 /**
  * Class for creating an ad hoc database object for the web application.
@@ -163,16 +146,16 @@ export class WebappDatabase {
     // the use case. (See https://sqlite.org/autoinc.html)
     // -----------------------------------------------------
 
-    //SQLite does not support foreign keys by default, so we need to enable it 
-    // I think we need foreign keys since for example poll_option a vote without a valid poll_option should not be possible. 
+    //SQLite does not support foreign keys by default, so we need to enable it
+    // I think we need foreign keys since for example poll_option a vote without a valid poll_option should not be possible.
     this.DB.exec("PRAGMA foreign_keys = ON;");
 
-    // jeg er tvivl om vi skal tage stilling til ON DELETE ved createdBy, synes ikke der er nogen optioner der giver mening f.eks. 
-    // cascade er uønsket, set null så skal vi ihvertfald tillade den at være null og det tænker jeg ikke giver mening, 
-    // restrict vil gøre at vi ikke kan slette brugere der har oprettet polls, og det synes jeg heller ikke er ønskeligt. Så måske skal vi bare lade være med at 
-    // specificere det og så er det default som er no action? evt få en 'superadministrator' rolle, som den CreatedBy assignes til hvis brugeren slettes.  
+    // jeg er tvivl om vi skal tage stilling til ON DELETE ved createdBy, synes ikke der er nogen optioner der giver mening f.eks.
+    // cascade er uønsket, set null så skal vi ihvertfald tillade den at være null og det tænker jeg ikke giver mening,
+    // restrict vil gøre at vi ikke kan slette brugere der har oprettet polls, og det synes jeg heller ikke er ønskeligt. Så måske skal vi bare lade være med at
+    // specificere det og så er det default som er no action? evt få en 'superadministrator' rolle, som den CreatedBy assignes til hvis brugeren slettes.
 
-    // Unique is voteTokens sørgerer for at bruger kan få to aktive tokens til samme afstemning. 
+    // Unique is voteTokens sørgerer for at bruger kan få to aktive tokens til samme afstemning.
     this.DB.exec(
       `
         CREATE TABLE IF NOT EXISTS users (
@@ -189,8 +172,8 @@ export class WebappDatabase {
           createdAt TEXT NOT NULL DEFAULT (datetime('now')), 
           startsAt TEXT, 
           endsAt TEXT,
-          visibility TEXT NOT NULL DEFAULT 'private',
-          privacy TEXT NOT NULL DEFAULT 'secret',
+          pollVisibility TEXT NOT NULL DEFAULT 'private',
+          ballotPrivacy TEXT NOT NULL DEFAULT 'secret',
           showTopN INTEGER NOT NULL DEFAULT 0,
           ballotLimit INTEGER NOT NULL DEFAULT 1,
           useBuffer INTEGER NOT NULL DEFAULT 0
@@ -273,8 +256,9 @@ export class WebappDatabase {
     const dbInstance = new WebappDatabase(adminPassword, filePath);
 
     // Get admin from database
-    const { user, httpStatusCode, errorMsg } =
-      dbInstance.getUserFromDB("admin");
+    const { user, httpStatusCode, errorMsg } = dbInstance.getUserFromDB(
+      "admin",
+    );
 
     // Check if admin user is in database
     if (httpStatusCode !== 200) {
@@ -315,13 +299,13 @@ export class WebappDatabase {
 
     const { id, username: fetchedUsername, passwordHash } = sqlResult;
 
-    const hasValidShape =
-      typeof id === "number" &&
+    const hasValidShape = typeof id === "number" &&
       typeof fetchedUsername === "string" &&
       typeof passwordHash === "string";
 
     if (!hasValidShape) {
-      logger.error`500 Internal Server Error: User object cannot get created correctly, user does not exist in database.`;
+      logger
+        .error`500 Internal Server Error: User object cannot get created correctly, user does not exist in database.`;
       return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
     }
 
@@ -341,7 +325,10 @@ export class WebappDatabase {
    * @param username of the user going to be created.
    * @param password of the user going to be created.
    */
-  public async addUserToDB(username: string, password: string) {
+  public async addUserToDB(
+    username: string,
+    password: string,
+  ): Promise<ContentfulStatusCode> {
     try {
       // https://github.com/ranisalt/node-argon2
       this.DB.prepare(
@@ -353,9 +340,12 @@ export class WebappDatabase {
       ).run(username, await argon2.hash(password));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
+      logger
+        .error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
+      return 500;
     }
     logger.info`Added user to database with username: ${username}`;
+    return 201;
   }
 
   /**
@@ -382,7 +372,7 @@ export class WebappDatabase {
 
   public getPollFromDB(pollId: number): getPollFromDBResult {
     const sqlResult = this.DB.prepare(
-      "SELECT id, title, description, voteStatus, createdBy, createdAt, startsAt, endsAt, visibility, privacy, showTopN, ballotLimit, useBuffer FROM polls WHERE id = (?)",
+      "SELECT id, title, description, voteStatus, createdBy, createdAt, startsAt, endsAt, pollVisibility, ballotPrivacy, showTopN, ballotLimit, useBuffer FROM polls WHERE id = (?)",
     ).get(pollId);
 
     if (typeof sqlResult === "undefined") {
@@ -390,9 +380,29 @@ export class WebappDatabase {
       return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
     }
 
-    const { id, title, description, voteStatus, createdBy, createdAt, startsAt, endsAt, visibility, privacy, showTopN, ballotLimit, useBuffer } = sqlResult;
+    const {
+      id,
+      title,
+      description,
+      voteStatus,
+      createdBy,
+      createdAt,
+      startsAt,
+      endsAt,
+      pollVisibility,
+      ballotPrivacy,
+      showTopN,
+      ballotLimit,
+      useBuffer,
+    } = sqlResult;
 
-    const validStatuses = ["draft", "saved", "not started", "started", "finished"];
+    const validStatuses = [
+      "draft",
+      "saved",
+      "not started",
+      "started",
+      "finished",
+    ];
     const validVisibilities = ["public", "private"];
     const validPrivacies = ["secret", "open"];
 
@@ -404,12 +414,13 @@ export class WebappDatabase {
       typeof createdAt === "string" &&
       (typeof startsAt === "string" || startsAt === null) &&
       (typeof endsAt === "string" || endsAt === null) &&
-      typeof visibility === "string" && validVisibilities.includes(visibility) &&
-      typeof privacy === "string" && validPrivacies.includes(privacy) &&
+      typeof pollVisibility === "string" &&
+      validVisibilities.includes(pollVisibility) &&
+      typeof ballotPrivacy === "string" &&
+      validPrivacies.includes(ballotPrivacy) &&
       typeof showTopN === "number" &&
       typeof ballotLimit === "number" &&
       typeof useBuffer === "number";
-
 
     if (!hasValidShape) {
       logger
@@ -426,11 +437,11 @@ export class WebappDatabase {
       createdAt,
       startsAt: startsAt ?? undefined,
       endsAt: endsAt ?? undefined,
-      visibility: visibility as pollVisibility,
-      privacy : privacy as pollPrivacy,
+      pollVisibility: pollVisibility as pollVisibility,
+      ballotPrivacy: ballotPrivacy as ballotPrivacy,
       showTopN,
       ballotLimit,
-      useBuffer
+      useBuffer,
     };
 
     return { poll, httpStatusCode: 200 };
@@ -440,7 +451,12 @@ export class WebappDatabase {
     const sqlResults = this.DB.prepare(
       "SELECT id, pollId, optionText, displayOrder FROM pollOptions WHERE pollId = (?) ORDER BY displayOrder ASC",
     ).all(pollId);
-    
+
+    if (typeof sqlResults === "undefined") {
+      logger.info`Poll with ID: ${pollId} not found in database.`;
+      // return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
+    }
+
     const pollOptions: PollOption[] = [];
     for (const row of sqlResults) {
       const { id, pollId, optionText, displayOrder } = row;
@@ -449,7 +465,7 @@ export class WebappDatabase {
         typeof pollId === "number" &&
         typeof optionText === "string" &&
         typeof displayOrder === "number";
-        
+
       if (!hasValidShape) {
         logger
           .error`500 Internal Server Error: PollOption object cannot get created correctly, poll option does not exist in database.`;
@@ -459,14 +475,18 @@ export class WebappDatabase {
         id,
         pollId,
         optionText,
-        displayOrder
+        displayOrder,
       });
     }
-    
+
     return pollOptions;
   }
 
-  public createVoteToken(pollId: number, userId: number, ClientUUID: string): createVoteTokenResult {
+  public createVoteToken(
+    pollId: number,
+    userId: number,
+    ClientUUID: string,
+  ): createVoteTokenResult {
     try {
       const sqlResult = this.DB.prepare(`
         INSERT INTO voteTokens (pollId, userId, UUID)
@@ -475,19 +495,22 @@ export class WebappDatabase {
         RETURNING UUID
         `).get(pollId, userId, ClientUUID);
 
-        if (!sqlResult || typeof sqlResult.UUID !== "string") {
-          return { errorMsg: "Failed to store vote token", httpStatusCode: 500 };
-        }
+      if (!sqlResult || typeof sqlResult.UUID !== "string") {
+        return { errorMsg: "Failed to store vote token", httpStatusCode: 500 };
+      }
 
-      const storedUUID = sqlResult.UUID as string; 
+      const storedUUID = sqlResult.UUID as string;
       const alreadyExisted = storedUUID !== ClientUUID;
 
-      return {token: storedUUID, alreadyExisted,httpStatusCode: 200};
+      return { token: storedUUID, alreadyExisted, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error while creating vote token for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
-      return { errorMsg: "Error while creating vote token", httpStatusCode: 500 };
+      return {
+        errorMsg: "Error while creating vote token",
+        httpStatusCode: 500,
+      };
     }
   }
 
@@ -499,64 +522,108 @@ export class WebappDatabase {
         `).get(pollId, userId);
 
       if (typeof sqlResult === "undefined") {
-        logger.info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database.`;
-        return { errorMsg: "Vote token not found in database", httpStatusCode: 400 };
+        logger
+          .info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database.`;
+        return {
+          errorMsg: "Vote token not found in database",
+          httpStatusCode: 400,
+        };
       }
 
-      const {UUID, used} = sqlResult;
-      const hasValidShape = typeof UUID === "string" && typeof used === "number";
+      const { UUID, used } = sqlResult;
+      const hasValidShape = typeof UUID === "string" &&
+        typeof used === "number";
 
       if (!hasValidShape) {
         logger.error`500 Internal Server Error: VoteToken has invalid shape.`;
         return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
-       }
-      
+      }
+
       return { UUID, used, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error while fetching vote token for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
-      return { errorMsg: "Error while fetching vote token", httpStatusCode: 500 };
+      return {
+        errorMsg: "Error while fetching vote token",
+        httpStatusCode: 500,
+      };
     }
   }
 
-  public markTokenUsed(pollId: number, userId: number): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
+  public markTokenUsed(
+    pollId: number,
+    userId: number,
+  ): {
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  } {
     try {
       const sqlResult = this.DB.prepare(`
         UPDATE voteTokens
         SET used = 1
         WHERE pollId = ? AND userId = ?
         `).run(pollId, userId);
-        
+
       if (sqlResult.changes === 0) {
-        logger.info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database, cannot mark as used.`;
-        return { success: false, errorMsg: "Vote token not found in database", httpStatusCode: 400 };
+        logger
+          .info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database, cannot mark as used.`;
+        return {
+          success: false,
+          errorMsg: "Vote token not found in database",
+          httpStatusCode: 400,
+        };
       }
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error while marking vote token as used for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
-      return { success: false, errorMsg: "Error while marking vote token as used", httpStatusCode: 500 };
+      return {
+        success: false,
+        errorMsg: "Error while marking vote token as used",
+        httpStatusCode: 500,
+      };
     }
   }
 
-  public insertVote(pollId: number, pollOptionId: number, voteId: string, previousHash: string, currentHash: string): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
+  public insertVote(
+    pollId: number,
+    pollOptionId: number,
+    voteId: string,
+    previousHash: string,
+    currentHash: string,
+  ): {
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  } {
     try {
       this.DB.prepare(`
         INSERT INTO votes (pollId, pollOptionId, id, previousHash, currentHash)
         VALUES (?, ?, ?, ?, ?)
         `).run(pollId, pollOptionId, voteId, previousHash, currentHash);
-        
+
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error while inserting vote for poll with ID: ${pollId} and poll option with ID: ${pollOptionId}. Error: ${errMsg}`;
-      return { success: false, errorMsg: "Error while inserting vote", httpStatusCode: 500 };
+      return {
+        success: false,
+        errorMsg: "Error while inserting vote",
+        httpStatusCode: 500,
+      };
     }
   }
-  public getLatestHash(pollId: number): { hash: string | null; httpStatusCode: ContentfulStatusCode; errorMsg?: string } {
+  public getLatestHash(
+    pollId: number,
+  ): {
+    hash: string | null;
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  } {
     try {
       const sqlResult = this.DB.prepare(`
         SELECT currentHash FROM votes
@@ -571,91 +638,130 @@ export class WebappDatabase {
       }
 
       if (typeof sqlResult.currentHash !== "string") {
-        return { hash: null, errorMsg: "Invalid hash shape", httpStatusCode: 500 };
+        return {
+          hash: null,
+          errorMsg: "Invalid hash shape",
+          httpStatusCode: 500,
+        };
       }
 
       return { hash: sqlResult.currentHash, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
-      return { hash: null, errorMsg: "Error fetching latest hash", httpStatusCode: 500 };
+      logger
+        .error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
+      return {
+        hash: null,
+        errorMsg: "Error fetching latest hash",
+        httpStatusCode: 500,
+      };
     }
   }
 
-  public insertAuditLog(action: string, UUID: string, details: string | null): { success: boolean; errorMsg?: string; httpStatusCode: ContentfulStatusCode } {
+  public insertAuditLog(
+    action: string,
+    UUID: string,
+    details: string | null,
+  ): {
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  } {
     try {
       this.DB.prepare(`
         INSERT INTO auditLog (action, UUID, details)
         VALUES (?, ?, ?)
         `).run(action, UUID, details);
-        
+
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error while inserting audit log with action: ${action}, UUID: ${UUID}. Error: ${errMsg}`;
-      return { success: false, errorMsg: "Error while inserting audit log", httpStatusCode: 500 };
+      return {
+        success: false,
+        errorMsg: "Error while inserting audit log",
+        httpStatusCode: 500,
+      };
     }
   }
 
-  public getAuditLog(pollId: number): { logs: AuditLogEntry[]; httpStatusCode: ContentfulStatusCode; errorMsg?: string } {
+  public getAuditLog(
+    pollId: number,
+  ): {
+    logs: AuditLogEntry[];
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  } {
     try {
       const sqlResults = this.DB.prepare(`
         SELECT action, UUID, timestamp, details FROM auditLog
         WHERE UUID IN (SELECT UUID FROM voteTokens WHERE pollId = ?)
         ORDER BY timestamp DESC
       `).all(pollId);
-      
-      const logs: AuditLogEntry[] = []; 
 
-      for (const row of sqlResults){
+      const logs: AuditLogEntry[] = [];
+
+      for (const row of sqlResults) {
         const { action, UUID, timestamp, details } = row;
-        
+
         const hasValidShape = typeof action === "string" &&
           typeof UUID === "string" &&
           typeof timestamp === "string" &&
           (typeof details === "string" || details === null);
-        
+
         if (!hasValidShape) {
-          logger.error`500 Internal Server Error: AuditLogEntry has invalid shape.`;
+          logger
+            .error`500 Internal Server Error: AuditLogEntry has invalid shape.`;
           continue; // Skip this entry but continue processing the rest of the entries.
         }
-        
+
         logs.push({ action, UUID, timestamp, details });
-      }  
+      }
 
       return { logs, httpStatusCode: 200 };
     } catch (err) {
-        const errMsg = err instanceof Error ? err.message : "Unknown error";
-        logger.error`Error fetching audit log for poll ID: ${pollId}. Error: ${errMsg}`;
-        return { logs: [], errorMsg: "Error fetching audit log", httpStatusCode: 500 };
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error fetching audit log for poll ID: ${pollId}. Error: ${errMsg}`;
+      return {
+        logs: [],
+        errorMsg: "Error fetching audit log",
+        httpStatusCode: 500,
+      };
     }
   }
 
   /*
     Jeg har valgt at simpelthen gøre det på "database" niveau at tjekke om pollStatus er finished, logikken kan evt alt flyttes et andet sted hen
-    Har valgt at det skal være stigende grad istedet for faldende. For verifikation vil man gerne følge kæden fra start til slut: vote 1 --> vote 2 --> vote 3, hver stemmes previousHash skal matche den forriges currentHash. 
+    Har valgt at det skal være stigende grad istedet for faldende. For verifikation vil man gerne følge kæden fra start til slut: vote 1 --> vote 2 --> vote 3, hver stemmes previousHash skal matche den forriges currentHash.
 
   */
-  public listVotesForPoll(pollId: number): { 
-    votes: Vote[]; 
-    httpStatusCode: ContentfulStatusCode; 
-    errorMsg?: string 
+  public listVotesForPoll(pollId: number): {
+    votes: Vote[];
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
   } {
     try {
       // tjek først om afstemningn er 'finished'
-      const pollStatus = this.DB.prepare(`SELECT voteStatus FROM polls WHERE id = ?`
+      const pollStatus = this.DB.prepare(
+        `SELECT voteStatus FROM polls WHERE id = ?`,
       ).get(pollId);
 
       if (typeof pollStatus === "undefined") {
-        return {votes: [], errorMsg: "Poll not found", httpStatusCode: 404};
+        return { votes: [], errorMsg: "Poll not found", httpStatusCode: 404 };
       }
 
       //Skal return forbidden hvis ikke voteStatus er finished.
-      if (pollStatus.voteStatus !== "finished"){
-        return {votes: [], errorMsg: "Polls is not finished - votes are not public until voting closes", httpStatusCode: 403}
+      if (pollStatus.voteStatus !== "finished") {
+        return {
+          votes: [],
+          errorMsg:
+            "Polls is not finished - votes are not public until voting closes",
+          httpStatusCode: 403,
+        };
       }
-      // voteStatus er nu "finished" og vi skal return votes. 
+      // voteStatus er nu "finished" og vi skal return votes.
       const sqlResults = this.DB.prepare(`
         SELECT id, pollId, pollOptionId, timestamp, previousHash, currentHash 
         FROM votes
@@ -666,7 +772,14 @@ export class WebappDatabase {
       const votes: Vote[] = [];
 
       for (const row of sqlResults) {
-        const { id, pollId, pollOptionId, timestamp, previousHash, currentHash } = row;
+        const {
+          id,
+          pollId,
+          pollOptionId,
+          timestamp,
+          previousHash,
+          currentHash,
+        } = row;
 
         const hasValidShape = typeof id === "string" &&
           typeof pollId === "number" &&
@@ -680,34 +793,40 @@ export class WebappDatabase {
           continue;
         }
 
-        votes.push({ id, pollId, pollOptionId, timestamp, previousHash, currentHash });
-    }
+        votes.push({
+          id,
+          pollId,
+          pollOptionId,
+          timestamp,
+          previousHash,
+          currentHash,
+        });
+      }
       return { votes, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
-      return { votes: [], errorMsg: "Error listing votes", httpStatusCode: 500 };
+      logger
+        .error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
+      return {
+        votes: [],
+        errorMsg: "Error listing votes",
+        httpStatusCode: 500,
+      };
     }
   }
 
-  public isUserEligible (pollId: number, userId: number):boolean {
-    try{
+  public isUserEligible(pollId: number, userId: number): boolean {
+    try {
       const sqlResult = this.DB.prepare(`
         SELECT 1 FROM pollEligibleVoters
-        WHERE pollId = ? AND userId = ? `).get(pollId, userId); 
-    
-      return typeof sqlResult !== "undefined"; 
-    } catch (err){
+        WHERE pollId = ? AND userId = ? `).get(pollId, userId);
+
+      return typeof sqlResult !== "undefined";
+    } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Uknown error";
-      logger.error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger
+        .error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return false; // Fail-safe: ved fejl nægter vi adgang
     }
   }
-
-
-
-
-
-
-
 }

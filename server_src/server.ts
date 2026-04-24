@@ -4,17 +4,16 @@ import * as argon2 from "npm:argon2@0.44.0";
 import { logger, MIME_TYPES } from "./main_lib.ts";
 import { User, WebappDatabase } from "./database.ts";
 import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
-import { getClientVersion, validateClientVersion } from "./api.ts";
+import { addUser, assertClientVersion } from "./api.ts";
 import { PollManager } from "./pollManager.ts";
-
 
 /**
  * Start the web application.
  */
-export async function startServer() {
+export async function startServer(dbFile: string) {
   const router = new Hono();
   const DB: WebappDatabase = await WebappDatabase.initDatabase(
-    "./server_src/users.db",
+    dbFile,
   );
 
   const pollManager = new PollManager(DB);
@@ -111,25 +110,21 @@ export async function startServer() {
   */
   router.get("/api/version", async (c) => {
     return await hasValidJWT(c, () => {
-      const clientVersion = getClientVersion(c);
-      if (clientVersion instanceof Error) {
-        logger.trace`${clientVersion}`;
+      const result = assertClientVersion(c);
+      return c.json(result);
+    });
+  });
 
-        if (clientVersion.cause === undefined) {
-          return c.body(JSON.stringify(clientVersion.message), 400, {
-            "Content-Type": "application/json",
-          });
-        }
-
-       // following is to make typescript happy, it should always get undefined in instanceof error but 
-       // cause is defined --> unexpected errorstate --> 500 internal server error
-       return c.body("Internal Server Error", 500); 
-      } else {
-        logger.trace`fn getClientVersion succeeded: ${clientVersion}`;
-
-        const result = validateClientVersion(c, clientVersion);
-        return c.json(result.res, result.status);
+  router.post("/api/admin/add-user", async (c) => {
+    return await hasValidJWT(c, async (verifiedPayload) => {
+      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
+        logger.trace`Failed authenication atempt on admin API route.`;
+        return c.body("401 Unauthorized", 401);
       }
+      const req = await c.req.json();
+
+      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
+      return c.body("", result);
     });
   });
 
@@ -166,9 +161,9 @@ export async function startServer() {
     }
   });
 
-  /* User opens the poll page for a specific poll 
-    This will give the index.html and let bundle.js handle everything. This is because we need to do a post 
-    with the UUID in, and that will retrieve the actual data. 
+  /* User opens the poll page for a specific poll
+    This will give the index.html and let bundle.js handle everything. This is because we need to do a post
+    with the UUID in, and that will retrieve the actual data.
   */
   router.get("/poll/:pollId", async (c) => {
     try {
@@ -177,14 +172,14 @@ export async function startServer() {
     } catch {
       return c.body("Not Found", { status: 404 });
     }
-  }); 
+  });
 
   router.post("/api/poll/:pollId/open", async (c) => {
-    return await hasValidJWT(c, async (payload) =>{
-      // 1. parse pollId from URL 
-      const pollIdStr = c.req.param('pollId');
+    return await hasValidJWT(c, async (payload) => {
+      // 1. parse pollId from URL
+      const pollIdStr = c.req.param("pollId");
       const pollId = Number(pollIdStr);
-      if (Number.isNaN(pollId)){
+      if (Number.isNaN(pollId)) {
         return c.body("Invalid pollId", 400);
       }
       // 2. Parse body --> (UUID: "...")
@@ -192,68 +187,72 @@ export async function startServer() {
       try {
         body = await c.req.json();
       } catch {
-      return c.body("Invalid JSON body", 400);
+        return c.body("Invalid JSON body", 400);
       }
 
-      if (typeof body.UUID !== "string"){
+      if (typeof body.UUID !== "string") {
         return c.body("Missing or invalid UUID", 400);
       }
       // body.UUID er nu den klient-genererede UUID
 
       // 3. get userId from payload (payload.userId)
-      const userid = payload.userId as number; 
+      const userid = payload.userId as number;
 
       // 4. Call pollManager.openPoll(pollId, useriD, UUID)
       const pollData = pollManager.openPoll(pollId, userid, body.UUID);
       // 5. if null -> 404  if obect --> c.json(result)
-      if (pollData === null){
+      if (pollData === null) {
         return c.body("Not eligible or poll unavailable", 403);
-      } 
-      return c.json(pollData); 
+      }
+      return c.json(pollData);
     });
   });
 
   /* User casta a vote
     1. We verify the login-JWT of the user and the vote-JWT which contains the pollId and voteToken.
-    2. We extract optionId from the request body 
+    2. We extract optionId from the request body
     3- We cal pollManager.castVote(pollId, userId, optionId, voteToken) which will return true if the vote was succesfully casted and false if not.
     4. We return a response to the client so the client knows if the vote was succesfully casted or not.
   */
   router.post("/api/poll/:pollId/vote", async (c) => {
     return await hasValidJWT(c, async (payload) => {
-      // 1. parse polldId from URL + validate 
-      const pollIdStr = c.req.param('pollId');
+      // 1. parse polldId from URL + validate
+      const pollIdStr = c.req.param("pollId");
       const pollId = Number(pollIdStr);
-      if (Number.isNaN(pollId)){
+      if (Number.isNaN(pollId)) {
         return c.body("Invalid pollId", 400);
-      } 
+      }
       // 2 parse body --> {optionId, UUID} + validate
       let body = undefined;
       try {
         body = await c.req.json();
       } catch {
-      return c.body("Invalid JSON body", 400);
+        return c.body("Invalid JSON body", 400);
       }
 
-      if (typeof body.UUID !== "string"){
+      if (typeof body.UUID !== "string") {
         return c.body("Missing or invalid UUID", 400);
       }
-      if (!Number.isInteger(body.optionId)){
-        return c.body("Missing or invalid optionid", 400); 
+      if (!Number.isInteger(body.optionId)) {
+        return c.body("Missing or invalid optionid", 400);
       }
       // 3. userId from payload
       const userid = payload.userId as number;
       // 4. await pollManager
-      const castedVote = await pollManager.castVote(pollId, userid, body.optionId, body.UUID); 
+      const castedVote = await pollManager.castVote(
+        pollId,
+        userid,
+        body.optionId,
+        body.UUID,
+      );
 
       // 5. if result.success === false --> errormsg
-      if (castedVote.success === false){
-        return c.body(castedVote.errorMsg ?? "Vote failed", 400); 
+      if (castedVote.success === false) {
+        return c.body(castedVote.errorMsg ?? "Vote failed", 400);
       }
 
-      // if success casted! 
-      return c.body("Vote cast", 200); 
-
+      // if success casted!
+      return c.body("Vote cast", 200);
     });
   });
 
