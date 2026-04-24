@@ -268,7 +268,7 @@ function PollTable({ polls }: { polls: Poll[] }) {
                   </svg>
                 </span>
               ) : poll.status === "active" ? (
-                <a href={`/poll/${poll.id}/vote`} className="btn-vote">
+                <a href={`/poll/${poll.id}`} className="btn-vote">
                   Stem
                 </a>
               ) : null}
