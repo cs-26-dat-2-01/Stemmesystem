@@ -90,7 +90,7 @@ export async function startServer() {
 
       // This cookie is not secret and is used for browser logic only.
       setCookie(c, "isLoggedIn", "true", {
-        secure: false,
+        secure: true,
         httpOnly: false, // Cookie has to be accessible by scripts.
         sameSite: "Strict",
         maxAge: TOKEN_EXPIRE_TIME,
