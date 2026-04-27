@@ -1,30 +1,28 @@
+import { useState } from "react";
 import "./App.css";
 import LoginPage from "./pages/LoginPage.tsx";
 import OverviewPage from "./pages/OverviewPage.tsx";
-import { useState } from "react";
-
-/**
- * Retrieves a cookie value by name.
- * @param name - The key of the cookie to retrieve.
- * @returns The string value of the cookie, or undefined if not found.
- */
-export const getCookie = (name: string): string | undefined => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-
-  if (parts.length === 2) {
-    return parts.pop()?.split(";").shift();
-  }
-
-  return undefined;
-};
+import AdminPage from "./pages/AdminPage.tsx";
+import { getCookie } from "./WebLib.ts";
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(getCookie("isLoggedIn"));
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    getCookie("isLoggedIn", document.cookie),
+  );
 
-  return isLoggedIn === "true"
-    ? <OverviewPage />
-    : <LoginPage setIsLoggedIn={setIsLoggedIn} />;
+  // Vis admin-dashboardet hvis URL'en er /admin
+  // Dette er en simpel client-side routing uden React Router
+  const erPaaAdminSide = window.location.pathname === "/admin";
+
+  if (!isLoggedIn || isLoggedIn !== "true") {
+    return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
+  }
+
+  if (erPaaAdminSide) {
+    return <AdminPage />;
+  }
+
+  return <OverviewPage />;
 }
 
 export default App;

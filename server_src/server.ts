@@ -1,137 +1,241 @@
 import { Hono } from "@hono/hono";
 import { setCookie } from "@hono/hono/cookie";
-import { getUserFromDB } from "./database.ts";
-import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
 import * as argon2 from "npm:argon2@0.44.0";
+import { logger, MIME_TYPES } from "./main_lib.ts";
+import { User, WebappDatabase } from "./database.ts";
+import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
+import { getClientVersion, validateClientVersion } from "./api.ts";
+import { cors } from "@hono/hono/cors";
+/**
+ * Start the web application.
+ */
+export async function startServer() {
+  // logger.trace`testing that hot reload work`;
 
-// --- Import the LogTape config --------------------
-import "./logtape_config.ts";
-import { getLogger } from "@logtape/logtape";
-const logger = getLogger(["server-backend"]);
-// --------------------------------------------------
+  const router = new Hono();
 
-const VERSION = { x: 0, y: 0, z: 0 };
+  router.use("/*", cors({
+  origin: "http://localhost:5173",
+  credentials: true,
+}));
 
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".css": "text/css",
-  ".png": "image/png",
-};
+  const databasePath: string = "./database/users.db";
+  const _file = await Deno.create(databasePath);
+  const DB: WebappDatabase = await WebappDatabase.initDatabase(
+    databasePath,
+  );
 
-const router = new Hono();
+  // Create a JWT if a user provide a username and password which exists in the users database.
+  router.post("/login", async (c) => {
+    logger
+      .info`Received login request. Attempting to parse JSON body for username and password.`;
 
-// Create a JWT if a user provide a username and password which exists in the users database.
-router.post("/login", async (c) => {
-  const userCredentials = await c.req.json();
+    // Parse user credential from request body. If parsing fails, then the user provided an invalid JSON body and a 400 response is returned.
+    let userCredentials = undefined;
+    try {
+      userCredentials = await c.req.json();
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
+      return c.body("Invalid JSON body", 400);
+    }
 
-  const username: string = userCredentials.username;
-  const password: string = userCredentials.password;
+    // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
+    const result = DB.getUserFromDB(userCredentials.username);
+    if (result.httpStatusCode !== 200) {
+      logger
+        .info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
+      return c.body(``, result.httpStatusCode);
+    }
+    const user = result.user as User; // This is safe because if httpStatusCode is 200.
 
-  const user = getUserFromDB(username);
-
-  if (
-    user?.httpStatusCode === 200 &&
-    typeof user.user?.passwordHash === "string"
-  ) {
     logger.debug(
-      `{{id: ${user.user.id}, username: "${user.user.username}"}} succesfully retrived from database.`,
+      `{id: ${user.id}, username: "${user.name}"} succesfully retrived from database.`,
     );
 
-    // Handle errors from argon2
-    try { // https://github.com/ranisalt/node-argon2
-      if (await argon2.verify(user.user?.passwordHash, password)) { // Password matched, then a JWT token is created.
-        logger.debug(
-          `Succesfully matched user provided password with database for user: {{id: ${user.user.id}, username: "${user.user.username}"}}`,
-        );
+    // Check that the password provided by the user match the stored password hash.
+    // Also handle any unexpected errors from argon2 and return a 500 status code in that case.
+    let argon2Result = undefined;
+    try {
+      // https://github.com/ranisalt/node-argon2
+      argon2Result = await argon2.verify(
+        user.passwordHash,
+        userCredentials.password,
+      );
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
+      return c.body("Internal Server Error", 500);
+    }
 
-        const token = await createJWT({
-          userId: user.user?.id,
-          username: user.user?.username,
-        });
+    if (argon2Result) { // Password matched.
+      logger
+        .debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
 
-        // https://workos.com/blog/secure-jwt-storage
-        // Store the JWT token in an HTTP-cookie which will be sent to the client.
-        setCookie(c, "JWT", token, {
-          secure: true,
-          httpOnly: true,
-          sameSite: "Strict",
-          maxAge: TOKEN_EXPIRE_TIME,
-        });
+      const token = await createJWT({
+        userId: user.id,
+        username: user.name,
+      });
 
-        // This cookie is not secret and is used for browser logic only.
-        setCookie(c, "isLoggedIn", "true", {
-          secure: true,
-          httpOnly: false, // Has to be accessible by scripts.
-          sameSite: "Strict",
-          maxAge: TOKEN_EXPIRE_TIME,
-        });
-        logger.info(
-          `Succesfully created JWT for user: {{id: ${user.user.id}, username: "${user.user.username}"}}`,
-        );
+      // https://workos.com/blog/secure-jwt-storage
+      // Store the JWT token in an HTTP-cookie which will be sent to the client.
+      setCookie(c, "JWT", token, {
+        secure: true,
+        httpOnly: true,
+        sameSite: "Strict",
+        maxAge: TOKEN_EXPIRE_TIME,
+      });
 
-        return c.body("login successful", 200);
-      } else { // password did not match
-        logger.info(
-          `Password did not match for user: {{id: ${user.user.id}, username: "${user.user.username}"}}`,
-        );
+      // This cookie is not secret and is used for browser logic only.
+      setCookie(c, "isLoggedIn", "true", {
+        secure: false,
+        httpOnly: false, // Cookie has to be accessible by scripts.
+        sameSite: "Strict",
+        maxAge: TOKEN_EXPIRE_TIME,
+      });
+      logger
+        .info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
+
+      return c.body("login successful", 200);
+    } else { // password did not match
+      logger
+        .info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
+      return c.body("Login incorrect", 401);
+    }
+
+    // deno-lint-ignore no-unreachable
+    logger
+      .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
+  });
+
+  /*
+  Route: /api/version
+  Description:
+    Lets the server parse the version of the client and judge if the client has
+    the correct version for communicating correctly with the API.
+  */
+  router.get("/api/version", async (c) => {
+    return await hasValidJWT(c, () => {
+      const clientVersion = getClientVersion(c);
+
+      if (clientVersion instanceof Error) {
+        logger.trace`${clientVersion}`;
+
+        if (clientVersion.cause === undefined) {
+          return c.body(JSON.stringify(clientVersion.message), 400, {
+            "Content-Type": "application/json",
+          });
+        }
+      } else {
+        logger.trace`fn getClientVersion succeeded: ${clientVersion}`;
+
+        const result = validateClientVersion(c, clientVersion);
+        return c.json(result.res, result.status);
       }
-    } catch (err) { /* internal failure */ }
-  } else if (user?.httpStatusCode === 400) {
-    return c.body(`${user.errorMsg}`, user.httpStatusCode);
-  }
-
-  return c.body("Login incorrect", 401);
-});
-
-// https://semver.org/
-router.get("/api/:version", async (c) => {
-  return await hasValidJWT(c, () => {
-    const versionStr = c.req.param("version");
-    const [x, y, z] = versionStr.split(".");
-
-    const response = {
-      version: `${x}.${y}.${z}`,
-    };
-
-    return c.body(JSON.stringify(response), 200, {
-      "Content-Type": "application/json",
     });
   });
-});
 
-router.get("/", async (c) => {
-  try {
-    const file = await Deno.readFile("./dist/index.html");
-    return c.body(file);
-  } catch {
-    return c.body("Not Found", { status: 404 });
-  }
-});
+  router.get("/", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
 
-router.get("/assets/*", async (c) => {
-  const path = new URL(c.req.url).pathname;
+  router.get("/assets/*", async (c) => {
+    const path = new URL(c.req.url).pathname;
 
-  // Sanitize URL path as only the directory "dist" is the only directory to be publicly served.
-  // Deno permissions should also catch any attempts to reach any top level directory outside of "dist"
-  const filePath = `./dist/${path}`;
-  logger.trace(`router.get("/assets/*", ...) resovled to path: ${filePath}`);
+    // Sanitize URL path as only the directory "dist" is the only directory to be publicly served.
+    // Deno permissions should also catch any attempts to reach any top level directory outside of "dist"
+    const filePath = `./dist/${path}`;
+    logger.trace(`router.get("/assets/*", ...) resovled to path: ${filePath}`);
 
-  try {
-    const file = await Deno.readFile(filePath);
-    const extension = filePath.substring(filePath.lastIndexOf("."));
-    const contentType = MIME_TYPES[extension] || "text/plain";
+    try {
+      const file = await Deno.readFile(filePath);
+      const extension = filePath.substring(filePath.lastIndexOf("."));
+      const contentType = MIME_TYPES[extension] || "text/plain";
 
-    return c.body(file, {
-      headers: {
-        "content-type": contentType,
-        // "Cache-Control": "public, max-age=31536000, immutable",
-      },
+      return c.body(file, {
+        headers: {
+          "content-type": contentType,
+          // "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  // ─── Admin-routes ──────────────────────────────────────────────────────────
+  // Alle /admin/* routes kræver at brugeren har et gyldigt JWT-token (er logget ind).
+  // På sigt bør disse routes også tjekke om brugeren har admin-rettigheder.
+  // TODO: Tilføj rolle-baseret adgangskontrol (f.eks. isAdmin-felt i databasen).
+
+  // GET /admin/users — returnerer en liste af alle brugere (uden passwordHash)
+  router.get("/admin/users", async (c) => {
+    return await hasValidJWT(c, () => {
+      try {
+        // Hent alle brugere fra databasen — vi sender aldrig passwordHash til klienten
+        const brugere = DB.getAllUsers();
+        return c.json(brugere, 200);
+      } catch {
+        return c.body("Intern serverfejl", 500);
+      }
     });
-  } catch {
-    return c.body("Not Found", { status: 404 });
-  }
-});
+  });
 
-Deno.serve(router.fetch);
-// closeDB(); // Figure out where to actually close this.
+  // POST /admin/users — opretter en ny bruger med brugernavn og adgangskode
+  router.post("/admin/users", async (c) => {
+    return await hasValidJWT(c, async () => {
+      let body;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Ugyldigt JSON", 400);
+      }
+
+      const { username, password } = body;
+
+      if (!username || !password) {
+        return c.body("Brugernavn og adgangskode er påkrævet", 400);
+      }
+
+      // Tjek om brugernavnet allerede er taget
+      const eksisterende = DB.getUserFromDB(username);
+      if (eksisterende.httpStatusCode === 200) {
+        return c.body("Brugernavnet er allerede taget", 409);
+      }
+
+      await DB.addUserToDB(username, password);
+      return c.body("Bruger oprettet", 201);
+    });
+  });
+
+  // DELETE /admin/users/:username — sletter en bruger baseret på brugernavn
+  router.delete("/admin/users/:username", async (c) => {
+    return await hasValidJWT(c, () => {
+      const username = c.req.param("username");
+
+      // Beskyt admin-kontoen mod at blive slettet
+      if (username === "admin") {
+        return c.body("Admin-kontoen kan ikke slettes", 403);
+      }
+
+      // Tjek at brugeren faktisk eksisterer inden vi forsøger at slette
+      const bruger = DB.getUserFromDB(username);
+      if (bruger.httpStatusCode !== 200) {
+        return c.body("Bruger ikke fundet", 404);
+      }
+
+      DB.deleteUserFromDB(username);
+      return c.body("Bruger slettet", 200);
+    });
+  });
+
+  Deno.serve(router.fetch);
+  // closeDB(); // Figure out where to actually close this.
+}

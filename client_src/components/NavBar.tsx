@@ -17,6 +17,7 @@ function NavBar() {
         <div className="vertical-divider"></div>
 
         <div className="nav-right">
+          {/* User Icon SVG */}
           <div className="avatar">
             <a href="#">
               <FaUser />

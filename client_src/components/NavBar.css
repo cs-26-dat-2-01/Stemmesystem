@@ -1,9 +1,11 @@
+@import '../variables.css';
+
 .navbar {
   display: flex;
   align-items: center;
   padding: 10px 20px;
   border-bottom: 2px solid #ccc;
-  background-color: #fff;
+  background-color: var(--primary-background-color);
 }
 
 .nav-left {
@@ -36,6 +38,14 @@
   color: #555;
 }
 
+.separator {
+  margin: 0 5px;
+}
+
+.current {
+  font-weight: bold;
+}
+
 .avatar {
   width: 30px;
   height: 30px;
@@ -43,10 +53,13 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  
 }
-
-.avatar a {
+.avatar a{
   text-decoration: none;
   color: #333;
   font-size: 1.2rem;
+  &:hover{
+    transform: scale(1.2);
+  }
 }
