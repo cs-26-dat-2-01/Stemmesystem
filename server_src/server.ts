@@ -12,6 +12,9 @@ import { PollManager } from "./pollManager.ts";
  */
 export async function startServer(dbFile: string) {
   const router = new Hono();
+
+  const databasePath: string = "./database/users.db";
+  const _file = await Deno.create(databasePath);
   const DB: WebappDatabase = await WebappDatabase.initDatabase(
     dbFile,
   );
