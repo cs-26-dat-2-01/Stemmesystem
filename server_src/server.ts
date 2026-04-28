@@ -12,6 +12,8 @@ import { PollManager } from "./pollManager.ts";
  * Start the web application.
  */
 export async function startServer() {
+  // logger.trace`testing that hot reload work`;
+
   const router = new Hono();
 
   const databasePath: string = "./database/users.db";

@@ -30,5 +30,3 @@ dist-ssr
 # Database
 database/test.db
 database/users.db
-server_src/users.db
-testing_grounds/test.db
