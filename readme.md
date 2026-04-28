@@ -34,7 +34,12 @@ Official environment setup documentation can be found at
 
 The project can run inside a Docker container for development where source files are automagically synchronized with the development container on file changes.
 
-The Docker container can be run with (requires root):
+The Docker container can run attached with (requires root):
+```shell
+docker compose up
+```
+
+The Docker container can run detached with (requires root):
 ```shell
 docker compose watch
 ```
