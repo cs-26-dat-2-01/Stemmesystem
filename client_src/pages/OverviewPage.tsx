@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import "./OverviewPage.css";
+import NavBar from "../components/NavBar.tsx";
 
 // This is the main entry point of the app
 // Currently it is configured to showcase how to create declarative UI with react.
@@ -19,8 +20,7 @@ function OverviewPage() {
     {
       id: 3,
       name: "Jukebox",
-      url:
-        "https://minecraft.wiki/images/thumb/Jukebox_JE2_BE2.png/150px-Jukebox_JE2_BE2.png?50367",
+      url: "https://minecraft.wiki/images/thumb/Jukebox_JE2_BE2.png/150px-Jukebox_JE2_BE2.png?50367",
     },
   ];
 
@@ -36,6 +36,7 @@ function OverviewPage() {
   // In this way we can write declarative reusable UI components.
   return (
     <>
+      <NavBar />
       {blocks.map((block) => (
         <div className="content-block">
           <img src={block.url} />

@@ -16,14 +16,11 @@ export async function startServer() {
 
   const databasePath: string = "./database/users.db";
   const _file = await Deno.create(databasePath);
-  const DB: WebappDatabase = await WebappDatabase.initDatabase(
-    databasePath,
-  );
+  const DB: WebappDatabase = await WebappDatabase.initDatabase(databasePath);
 
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {
-    logger
-      .info`Received login request. Attempting to parse JSON body for username and password.`;
+    logger.info`Received login request. Attempting to parse JSON body for username and password.`;
 
     // Parse user credential from request body. If parsing fails, then the user provided an invalid JSON body and a 400 response is returned.
     let userCredentials = undefined;
@@ -31,16 +28,14 @@ export async function startServer() {
       userCredentials = await c.req.json();
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
+      logger.info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
       return c.body("Invalid JSON body", 400);
     }
 
     // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
     const result = DB.getUserFromDB(userCredentials.username);
     if (result.httpStatusCode !== 200) {
-      logger
-        .info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
+      logger.info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
       return c.body(``, result.httpStatusCode);
     }
     const user = result.user as User; // This is safe because if httpStatusCode is 200.
@@ -60,14 +55,13 @@ export async function startServer() {
       );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
+      logger.error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
       return c.body("Internal Server Error", 500);
     }
 
-    if (argon2Result) { // Password matched.
-      logger
-        .debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
+    if (argon2Result) {
+      // Password matched.
+      logger.debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
 
       const token = await createJWT({
         userId: user.id,
@@ -83,6 +77,14 @@ export async function startServer() {
         maxAge: TOKEN_EXPIRE_TIME,
       });
 
+      // Username cookie for display purposes
+      setCookie(c, "user", user.name, {
+        secure: true,
+        httpOnly: false,
+        sameSite: "Strict",
+        maxAge: TOKEN_EXPIRE_TIME,
+      });
+
       // This cookie is not secret and is used for browser logic only.
       setCookie(c, "isLoggedIn", "true", {
         secure: true,
@@ -90,19 +92,17 @@ export async function startServer() {
         sameSite: "Strict",
         maxAge: TOKEN_EXPIRE_TIME,
       });
-      logger
-        .info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger.info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
 
       return c.body("login successful", 200);
-    } else { // password did not match
-      logger
-        .info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
+    } else {
+      // password did not match
+      logger.info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
       return c.body("Login incorrect", 401);
     }
 
     // deno-lint-ignore no-unreachable
-    logger
-      .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
+    logger.error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
   });
 
   /*

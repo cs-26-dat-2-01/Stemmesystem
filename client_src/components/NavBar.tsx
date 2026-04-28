@@ -1,7 +1,10 @@
+import { useState } from "react";
 import "./NavBar.css";
-import {FaUser} from "react-icons/fa";
+import { FaUser } from "react-icons/fa";
+import { getCookie } from "../WebLib.ts";
 
 function NavBar() {
+  const [userName] = useState(getCookie("user", document.cookie));
   return (
     <header className="navbar">
       <div className="nav-left">
@@ -23,7 +26,7 @@ function NavBar() {
               <FaUser />
             </a>
           </div>
-          <span className="username">Navn</span>
+          <span className="username">{userName}</span>
         </div>
       </div>
     </header>
