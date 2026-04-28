@@ -17,7 +17,7 @@
   https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_cascading_variables/Using_CSS_custom_properties
 */
 
-:root{
-    --primary-background-color: #fff;
-    --blue-button-color: cornflowerblue;
+:root {
+  --primary-background-color: #fff;
+  --blue-button-color: cornflowerblue;
 }

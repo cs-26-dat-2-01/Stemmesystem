@@ -2,6 +2,7 @@ import { Context } from "@hono/hono";
 import { BlankEnv, BlankInput } from "@hono/hono/types";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { logger, SERVER_VERSION } from "./main_lib.ts";
+import { WebappDatabase } from "./database.ts";
 // The API uses https://semver.org/
 
 /**
@@ -28,7 +29,6 @@ interface clientInfo {
  * @param version - object containg the client version.
  */
 export function checkClientVersion(
-  c: Context<BlankEnv, string, BlankInput>,
   v: { x: number; y: number; z: number },
 ): clientInfo {
   const response = {
@@ -73,7 +73,7 @@ export function validateClientVersion(
   c: Context<BlankEnv, string, BlankInput>,
   v: { x: number; y: number; z: number },
 ): { res: clientInfo; status: ContentfulStatusCode } {
-  const response = checkClientVersion(c, v);
+  const response = checkClientVersion(v);
 
   switch (response.compatibility) {
     case compatibility.full:
@@ -101,5 +101,49 @@ export function getClientVersion(
     return { x: x, y: y, z: z };
   }
 
+  logger.error`${c.req.header()}`;
   return new Error("client version is undefined", { cause: undefined });
+}
+
+interface clientVersionError {
+  message: string;
+  status: ContentfulStatusCode;
+}
+
+interface assertClientVersionResult {
+  res: clientInfo;
+  status: ContentfulStatusCode;
+}
+
+/**
+ * Checks that the client, has correct client version for communicating with the API.
+ * Returns a response based on the client version.
+ * @returns
+ */
+export function assertClientVersion(
+  c: Context<BlankEnv, string, BlankInput>,
+): clientVersionError | assertClientVersionResult {
+  const clientVersion = getClientVersion(c);
+
+  if (clientVersion instanceof Error) {
+    logger.trace`${clientVersion}`;
+
+    return { message: clientVersion.message, status: 400 };
+  } else {
+    logger.trace`fn getClientVersion succeeded: ${clientVersion}`;
+
+    const result = validateClientVersion(c, clientVersion);
+    return result;
+  }
+}
+
+export async function addUser(
+  dbInstance: WebappDatabase,
+  c: Context<BlankEnv, string, BlankInput>,
+  username: string,
+  password: string,
+): Promise<ContentfulStatusCode> {
+  const result = assertClientVersion(c);
+  if (result.status !== 200) return result.status;
+  return await dbInstance.addUserToDB(username, password);
 }
