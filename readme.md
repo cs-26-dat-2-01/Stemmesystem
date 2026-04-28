@@ -32,19 +32,23 @@ Official environment setup documentation can be found at
 
 ### Development Using Docker
 
-The project can run inside a Docker container for development where source files are automagically synchronized with the development container on file changes.
+The project can run inside a Docker container for development where source files
+are automagically synchronized with the development container on file changes.
 
 The Docker container can run attached with (requires root):
+
 ```shell
 docker compose up
 ```
 
 The Docker container can run detached with (requires root):
+
 ```shell
 docker compose watch
 ```
 
 To connect to the container to view logs use (requires root):
+
 ```shell
 docker attach CONTAINER
 ```

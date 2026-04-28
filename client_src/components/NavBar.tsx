@@ -1,5 +1,5 @@
 import "./NavBar.css";
-import {FaUser} from "react-icons/fa";
+import { FaUser } from "react-icons/fa";
 
 function NavBar() {
   return (

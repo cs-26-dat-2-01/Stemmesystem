@@ -3,6 +3,7 @@
 import { assert } from "jsr:@std/assert";
 import { env } from "../server_src/secret_handling.ts";
 import { logger } from "../server_src/main_lib.ts";
+import { DatabaseSync } from "node:sqlite";
 
 const CLIENT_VERSION = "0.0.0";
 
@@ -46,5 +47,18 @@ Deno.test({
     });
     logger.trace`${await addUserRes.text()}`; // Response have to be consumed for test to pass.
     assert(addUserRes.status === 201, "succefully added user to db.");
+  },
+});
+
+Deno.test({
+  name: "test route: /api/poll/:pollId/open",
+  fn() {
+    Deno.create("./database/test.db"); // Create the file, if exists truncates it.
+    const DB = new DatabaseSync("./database/test.db");
+    DB.prepare(
+      `
+         
+      `,
+    ).run();
   },
 });

@@ -16,14 +16,11 @@ function App() {
     getCookie("isLoggedIn", document.cookie),
   );
 
-  const pollMatch = window.location.pathname.match(/^\/poll\/(\d+)$/); // match needs regex to match the string. Returns null if no match 
+  const pollMatch = window.location.pathname.match(/^\/poll\/(\d+)$/); // match needs regex to match the string. Returns null if no match
 
   if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
   return <OverviewPage />;
-
 }
-
-
 
 export default App;

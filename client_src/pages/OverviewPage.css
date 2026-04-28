@@ -56,7 +56,9 @@
   line-height: 1.35;
   transition: background 0.12s, color 0.12s;
 }
-.ov-filter-btn:hover { background: #e5e7eb; }
+.ov-filter-btn:hover {
+  background: #e5e7eb;
+}
 .ov-filter-btn--active {
   background: #bfdbfe;
   color: #1e3a8a;
@@ -85,7 +87,9 @@
   line-height: 1;
   padding: 0 2px;
 }
-.ov-folder-add:hover { color: #111827; }
+.ov-folder-add:hover {
+  color: #111827;
+}
 
 /* Folder tree */
 .ov-folder-nav {
@@ -108,7 +112,9 @@
   border-radius: 4px;
   transition: background 0.12s;
 }
-.ov-folder-btn:hover { background: #e5e7eb; }
+.ov-folder-btn:hover {
+  background: #e5e7eb;
+}
 .ov-folder-arrow {
   font-size: 0.75rem;
   color: #9ca3af;
@@ -134,8 +140,13 @@
   border-radius: 4px;
   transition: background 0.12s;
 }
-.ov-folder-item:hover { background: #e5e7eb; }
-.ov-folder-item--active { color: #1d4ed8; font-weight: 600; }
+.ov-folder-item:hover {
+  background: #e5e7eb;
+}
+.ov-folder-item--active {
+  color: #1d4ed8;
+  font-weight: 600;
+}
 
 /* ─── Main ───────────────────────────────────────────────────── */
 .ov-main {
@@ -207,8 +218,12 @@
   border-bottom: 1px solid #e5e7eb;
   transition: background 0.1s;
 }
-.ov-table tbody tr:nth-child(even) { background: #f9fafb; }
-.ov-table tbody tr:hover { background: #eff6ff; }
+.ov-table tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+.ov-table tbody tr:hover {
+  background: #eff6ff;
+}
 
 .ov-table td {
   padding: 11px 14px;
@@ -254,7 +269,9 @@
   text-decoration: none;
   transition: background 0.15s;
 }
-.btn-vote:hover { background: #1e40af; }
+.btn-vote:hover {
+  background: #1e40af;
+}
 
 /* Results button */
 .btn-results {
@@ -268,7 +285,9 @@
   text-decoration: none;
   transition: background 0.15s;
 }
-.btn-results:hover { background: #047857; }
+.btn-results:hover {
+  background: #047857;
+}
 
 /* Check / cross icons */
 .icon-check {
@@ -308,16 +327,27 @@
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 640px) {
-  .ov-layout { grid-template-columns: 1fr; }
+  .ov-layout {
+    grid-template-columns: 1fr;
+  }
   .ov-sidebar {
     border-right: none;
     border-bottom: 1px solid #d1d5db;
     padding: 12px;
   }
-  .ov-filter-nav { flex-direction: row; flex-wrap: wrap; }
-  .ov-filter-btn { width: auto; }
+  .ov-filter-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .ov-filter-btn {
+    width: auto;
+  }
 }
