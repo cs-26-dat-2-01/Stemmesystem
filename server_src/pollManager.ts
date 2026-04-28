@@ -135,8 +135,14 @@ export class PollManager {
       logger.warn(`User ${userId} is not eligible for poll ${pollId}.`);
       return null;
     }
+    // 2. Check if user already has voted
+    const existingToken = this.DB.getVoteToken(pollId, userId);
+    if (existingToken.httpStatusCode === 200 && existingToken.used === 1) {
+      logger.warn(`User ${userId} has already voted in poll ${pollId}.`);
+      return null;
+    }
 
-    // 2. Get poll data
+    // 3. Get poll data
     const { poll: pollFromDB, httpStatusCode: pollStatuscode } = this.DB
       .getPollFromDB(pollId);
     if (pollStatuscode !== 200) {
@@ -146,7 +152,7 @@ export class PollManager {
       return null;
     }
 
-    // 3. Check if poll is close
+    // 4. Check if poll is close
     if (!pollFromDB || pollFromDB.voteStatus !== "started") {
       logger.warn(
         `Attempted to open poll with ID ${pollId}, but it is closed.`,
@@ -154,13 +160,13 @@ export class PollManager {
       return null;
     }
 
-    // 4. get polloptions
+    // 5. get polloptions
     const optionsFromDB = this.DB.getPollOptionsFromDB(pollId);
     if (optionsFromDB.length === 0) {
       logger.warn(`No options found for poll with ID ${pollId}.`);
       return null;
     }
-    // 5. create the clientUUID in Database
+    // 6. create the clientUUID in Database
     const voteToken = this.DB.createVoteToken(pollId, userId, clientUUID);
     if (
       voteToken.httpStatusCode !== 200 || !voteToken.token ||
@@ -171,7 +177,7 @@ export class PollManager {
       );
       return null;
     }
-    // 6. auditlog
+    // 7. auditlog
     this.DB.insertAuditLog(
       "TOKEN_ISSUED",
       clientUUID,
