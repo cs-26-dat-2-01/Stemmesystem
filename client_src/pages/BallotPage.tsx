@@ -105,8 +105,7 @@ function BallotPage({ pollId }: BallotPageProps) {
                     name="pollOption"
                     value={option.id}
                     checked={selectedOption === option.id}
-                    onChange={() =>
-                      setSelectedOption(option.id)}
+                    onChange={() => setSelectedOption(option.id)}
                   />
                   {option.optionText}
                 </label>
@@ -114,6 +113,7 @@ function BallotPage({ pollId }: BallotPageProps) {
             </div>
 
             <button
+              type="submit"
               className="ballot-submit"
               disabled={selectedOption === null}
               onClick={() => setViewState("confirming")}
@@ -127,8 +127,9 @@ function BallotPage({ pollId }: BallotPageProps) {
   }
 
   if (viewState === "confirming") {
-    const selectedText = options.find((o) => o.id === selectedOption)
-      ?.optionText;
+    const selectedText = options.find(
+      (o) => o.id === selectedOption,
+    )?.optionText;
 
     return (
       <>
@@ -141,12 +142,14 @@ function BallotPage({ pollId }: BallotPageProps) {
             <p>Vil du bekræfte?</p>
             <div className="ballot-confirm-buttons">
               <button
+                type="button"
                 className="ballot-btn-yes"
                 onClick={submitVote}
               >
                 Ja
               </button>
               <button
+                type="button"
                 className="ballot-btn-no"
                 onClick={() => setViewState("ready")}
               >
@@ -180,7 +183,9 @@ function BallotPage({ pollId }: BallotPageProps) {
           <div className="ballot-done">
             <h2>Tak for din stemme!</h2>
             <p>Din stemme er blevet registreret.</p>
-            <a href="/" className="ballot-back-link">Tilbage til oversigten</a>
+            <a href="/" className="ballot-back-link">
+              Tilbage til oversigten
+            </a>
           </div>
         </div>
       </>
@@ -194,7 +199,9 @@ function BallotPage({ pollId }: BallotPageProps) {
           <div className="ballot-error">
             <h2>Noget gik galt</h2>
             <p>{errorMessage || "Ukendt fejl."}</p>
-            <a href="/" className="ballot-back-link">Tilbage til oversigten</a>
+            <a href="/" className="ballot-back-link">
+              Tilbage til oversigten
+            </a>
           </div>
         </div>
       </>
