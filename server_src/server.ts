@@ -10,15 +10,13 @@ import { PollManager } from "./pollManager.ts";
 
 /**
  * Start the web application.
+ *
+ * @param A instance of a WebappDatabase.
  */
-export async function startServer() {
-  const router = new Hono();
+export function startServer(DB: WebappDatabase, ac: AbortController) {
+  const { signal } = ac;
 
-  const databasePath: string = "./database/users.db";
-  const _file = await Deno.create(databasePath);
-  const DB: WebappDatabase = await WebappDatabase.initDatabase(
-    databasePath,
-  );
+  const router = new Hono();
 
   const pollManager = new PollManager(DB);
   // Create a JWT if a user provide a username and password which exists in the users database.
@@ -260,6 +258,15 @@ export async function startServer() {
     });
   });
 
-  Deno.serve(router.fetch);
+  // Deno.addSignalListener("SIGINT", () => {
+  //   logger.info`Caught SIGINT, shutting down...`;
+  //   ac.abort(); // Gracefully shut down server
+  //   DB.closeDB;
+  //   Deno.exit(0); // Ensure zero exit code
+  // });
+
+  const server = Deno.serve({ signal }, router.fetch);
+  return server.finished;
+
   // closeDB(); // Figure out where to actually close this.
 }

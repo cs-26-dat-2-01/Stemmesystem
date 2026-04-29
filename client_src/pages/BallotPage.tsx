@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
 import "./BallotPage.css";
-import { Poll, PollOption } from "../WebLib.ts";
+import type { Poll, PollOption } from "../WebLib.ts";
 
 /* What i can see is i can make a "render screen" where we create the UUID, and send it back to the server, we then
 use useEffect from React to do all of this, and then use useState to rerender the page.
