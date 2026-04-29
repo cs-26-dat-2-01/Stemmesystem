@@ -1,7 +1,6 @@
 import React from "react";
 import "./LoginPage.css";
 import { getCookie } from "../WebLib.ts";
-import NavBar from "../components/NavBar.tsx";
 import { FaLock, FaUser } from "react-icons/fa";
 
 type LoginPageProps = {
@@ -42,7 +41,6 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
 
   return (
     <>
-      <NavBar />
       <div className="login-container">
         <div className="form">
           <h1>Login</h1>
