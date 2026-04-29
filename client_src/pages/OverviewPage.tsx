@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import "./OverviewPage.css";
 import NavBar from "../components/NavBar.tsx";
 
+//SVG icons
+import { FaCheck, FaXmark } from "react-icons/fa6";
+import { FaSearch } from "react-icons/fa";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Poll-interfacet beskriver formen på et afstemnings-objekt som vi forventer
 // at modtage fra API-endpointet GET /api/polls.
@@ -159,6 +163,7 @@ function Sidebar({
       {/* Filterknapper – klik nulstiller også eventuel mappe-filtrering */}
       <nav className="ov-filter-nav">
         <button
+          type="button"
           className={`ov-filter-btn ${
             activeFilter === "all" && !activeFolderFilter
               ? "ov-filter-btn--active"
@@ -172,6 +177,7 @@ function Sidebar({
           Alle Afstemninger
         </button>
         <button
+          type="button"
           className={`ov-filter-btn ${
             activeFilter === "eligible" && !activeFolderFilter
               ? "ov-filter-btn--active"
@@ -185,6 +191,7 @@ function Sidebar({
           Afstemninger du er stemmeberettigede
         </button>
         <button
+          type="button"
           className={`ov-filter-btn ${
             activeFilter === "drafts" && !activeFolderFilter
               ? "ov-filter-btn--active"
@@ -204,6 +211,7 @@ function Sidebar({
         <span className="ov-folders-title">Mapper</span>
         {/* TODO: ＋-knappen skal senere åbne en dialog til at oprette en ny mappe */}
         <button
+          type="button"
           className="ov-folder-add"
           title="Opret mappe"
           aria-label="Opret mappe"
@@ -214,41 +222,44 @@ function Sidebar({
 
       {/* Mappetræ: sorteret alfabetisk, hver mappe kan foldes ud/ind */}
       <nav className="ov-folder-nav">
-        {Object.keys(folderMap).sort().map((name) => {
-          const isOpen = !!openFolders[name];
-          return (
-            <div key={name} className="ov-folder">
-              {/* Klik på mappenavnet åbner/lukker mappen */}
-              <button
-                className="ov-folder-btn"
-                onClick={() => toggleFolder(name)}
-                aria-expanded={isOpen} // Tilgængelighed: skærmlæsere forstår om træet er åbent
-              >
-                <span className="ov-folder-arrow">{isOpen ? "∨" : "›"}</span>
-                {name}
-              </button>
+        {Object.keys(folderMap)
+          .sort()
+          .map((name) => {
+            const isOpen = !!openFolders[name];
+            return (
+              <div key={name} className="ov-folder">
+                {/* Klik på mappenavnet åbner/lukker mappen */}
+                <button
+                  type="button"
+                  className="ov-folder-btn"
+                  onClick={() => toggleFolder(name)}
+                  aria-expanded={isOpen} // Tilgængelighed: skærmlæsere forstår om træet er åbent
+                >
+                  <span className="ov-folder-arrow">{isOpen ? "∨" : "›"}</span>
+                  {name}
+                </button>
 
-              {/* Vis afstemningerne i mappen kun når den er foldet ud */}
-              {isOpen && (
-                <div className="ov-folder-children">
-                  {folderMap[name].map((poll) => (
-                    <a
-                      key={poll.id}
-                      href={`/poll/${poll.id}`}
-                      className={`ov-folder-item ${
-                        activeFolderFilter === name
-                          ? "ov-folder-item--active"
-                          : ""
-                      }`}
-                    >
-                      {poll.title}
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                {/* Vis afstemningerne i mappen kun når den er foldet ud */}
+                {isOpen && (
+                  <div className="ov-folder-children">
+                    {folderMap[name].map((poll) => (
+                      <a
+                        key={poll.id}
+                        href={`/poll/${poll.id}`}
+                        className={`ov-folder-item ${
+                          activeFolderFilter === name
+                            ? "ov-folder-item--active"
+                            : ""
+                        }`}
+                      >
+                        {poll.title}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
       </nav>
     </aside>
   );
@@ -285,35 +296,21 @@ function PollTable({ polls }: { polls: Poll[] }) {
               <a href={`/poll/${poll.id}`}>{poll.title}</a>
             </td>
 
-            {
-              /* "Din status": viser brugerens personlige relation til afstemningen.
+            {/* "Din status": viser brugerens personlige relation til afstemningen.
                 - Har stemt → tekst + flueben
                 - Ikke stemt + afstemning er aktiv → blå "Stem"-knap der linker til stemme-siden
-                - Ikke stemt + afstemning er ikke aktiv → ingenting (tom celle) */
-            }
+                - Ikke stemt + afstemning er ikke aktiv → ingenting (tom celle) */}
             <td className="ov-col-mystatus">
-              {poll.hasVoted
-                ? (
-                  <span className="voted-label">
-                    Du har stemt
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      aria-hidden="true"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </span>
-                )
-                : poll.status === "active"
-                ? (
-                  <a href={`/poll/${poll.id}`} className="btn-vote">
-                    Stem
-                  </a>
-                )
-                : null}
+              {poll.hasVoted ? (
+                <span className="voted-label">
+                  Du har stemt
+                  <FaCheck />
+                </span>
+              ) : poll.status === "active" ? (
+                <a href={`/poll/${poll.id}`} className="btn-vote">
+                  Stem
+                </a>
+              ) : null}
             </td>
 
             {/* Overordnet status på afstemningen – tekst fra statusLabel() */}
@@ -327,38 +324,11 @@ function PollTable({ polls }: { polls: Poll[] }) {
               {poll.isPublic ? "Offentlig" : "Privat"}
             </td>
 
-            {
-              /* Anonym-kolonnen viser et flueben eller kryds som SVG-ikoner.
+            {/* Anonym-kolonnen viser et flueben eller kryds som SVG-ikoner.
                 Vi bruger SVG i stedet for ✓/✗ tegn for at sikre ensartet
-                visuel størrelse og farve på tværs af browsere. */
-            }
+                visuel størrelse og farve på tværs af browsere. */}
             <td className="ov-col-anon">
-              {poll.isAnonymous
-                ? (
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    className="icon-check"
-                    aria-label="Ja"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )
-                : (
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    className="icon-cross"
-                    aria-label="Nej"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                )}
+              {poll.isAnonymous ? <FaCheck /> : <FaXmark />}
             </td>
 
             {/* Brugernavnet på den person der oprettede afstemningen */}
@@ -445,9 +415,10 @@ function OverviewPage() {
       }
     })
     // Søgning på titel og ejer (case-insensitiv)
-    .filter((poll) =>
-      poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      poll.owner.toLowerCase().includes(searchQuery.toLowerCase())
+    .filter(
+      (poll) =>
+        poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        poll.owner.toLowerCase().includes(searchQuery.toLowerCase()),
     );
 
   return (
@@ -467,16 +438,7 @@ function OverviewPage() {
           {/* Søgefelt øverst over tabellen */}
           <div className="ov-search-row">
             <div className="ov-search-box">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              <FaSearch />
               <input
                 type="search"
                 placeholder="search"
@@ -489,14 +451,14 @@ function OverviewPage() {
           </div>
 
           {/* Vis loading-spinner mens data hentes, ellers tabellen */}
-          {loading
-            ? (
-              <div className="ov-state">
-                <div className="spinner" />
-                <span>Henter afstemninger…</span>
-              </div>
-            )
-            : <PollTable polls={filteredPolls} />}
+          {loading ? (
+            <div className="ov-state">
+              <div className="spinner" />
+              <span>Henter afstemninger…</span>
+            </div>
+          ) : (
+            <PollTable polls={filteredPolls} />
+          )}
         </main>
       </div>
     </>
