@@ -18,6 +18,13 @@ function NavBar() {
       console.log("logout failed with code: " + res.status);
     }
   }
+  // Toggle the visibilty of the dropdown menu
+  function toggleDropdown() {
+    const id = document.getElementById("dropdown");
+    if (id) {
+      id.classList.toggle("show");
+    }
+  }
   return (
     <header className="navbar">
       <div className="nav-left">
@@ -33,11 +40,18 @@ function NavBar() {
         <div className="vertical-divider"></div>
 
         <div className="nav-right">
-          {/* User Icon SVG */}
-          <div className="avatar">
-            <a href="#" onClick={handleLogout}>
+          <div className="dropdown">
+            <button
+              type="button"
+              className="dropdown-button"
+              onClick={toggleDropdown}
+            >
+              {/* User Icon SVG */}
               <FaUser />
-            </a>
+            </button>
+            <div id="dropdown" className="dropdown-content">
+              <a onClick={handleLogout}>Logout</a>
+            </div>
           </div>
           <span className="username">{userName}</span>
         </div>
