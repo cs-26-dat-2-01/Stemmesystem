@@ -1,3 +1,4 @@
+@import "../variables.css";
 /* ─── Layout ─────────────────────────────────────────────────── */
 .ov-layout {
   display: grid;
@@ -261,7 +262,7 @@
 .btn-vote {
   display: inline-block;
   padding: 5px 18px;
-  background: #1d4ed8;
+  background: var(--blue-button-color);
   color: #fff;
   border-radius: 5px;
   font-size: 0.82rem;
@@ -270,7 +271,7 @@
   transition: background 0.15s;
 }
 .btn-vote:hover {
-  background: #1e40af;
+  background: var(--blue-button-hover);
 }
 
 /* Results button */

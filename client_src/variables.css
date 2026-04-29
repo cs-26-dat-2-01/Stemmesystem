@@ -20,4 +20,5 @@
 :root {
   --primary-background-color: #fff;
   --blue-button-color: cornflowerblue;
+  --blue-button-hover: rgb(119, 159, 234);
 }

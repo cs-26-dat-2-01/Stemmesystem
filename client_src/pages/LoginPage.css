@@ -60,5 +60,5 @@ label {
   cursor: pointer;
 }
 .form button:hover, .form button:active, .form button:focus {
-  background: rgb(119, 159, 234);
+  background: var(--blue-button-hover);
 }
