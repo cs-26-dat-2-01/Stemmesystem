@@ -13,7 +13,7 @@ import { PollManager } from "./pollManager.ts";
  *
  * @param A instance of a WebappDatabase.
  */
-export async function startServer(DB: WebappDatabase, ac: AbortController) {
+export function startServer(DB: WebappDatabase, ac: AbortController) {
   const { signal } = ac;
   // logger.trace`testing that hot reload work`;
 
