@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import NavBar from "../components/NavBar.tsx";
 import "./OverviewPage.css";
 import NavBar from "../components/NavBar.tsx";
 
