@@ -190,6 +190,10 @@ export class WebappDatabase {
       "admin",
     );
 
+    if (user === undefined) {
+      throw new Error(`Admin user not found in the database: ${errorMsg}`);
+    }
+
     // Check if admin user is in database
     if (httpStatusCode !== 200) {
       throw new Error(`Admin user not found in the database: ${errorMsg}`);
@@ -758,5 +762,15 @@ export class WebappDatabase {
         .error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return false; // Fail-safe: ved fejl nægter vi adgang
     }
+  }
+
+  /**
+   * Unsafe function to run custom SQL on the database, use with caution.
+   *
+   * @param customSQL A custom SQL statements to be run on the database.
+   */
+  public runCustomSQL(customSQL: string) {
+    logger.info`Running custom SQL statement: \n ${customSQL}`;
+    this.DB.exec(customSQL);
   }
 }

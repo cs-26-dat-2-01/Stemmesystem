@@ -132,13 +132,13 @@ export class PollManager {
     const isUserEligible = this.DB.isUserEligible(pollId, userId);
     // 1. Check if user is eliglbe for opening the vote
     if (!isUserEligible) {
-      logger.warn(`User ${userId} is not eligible for poll ${pollId}.`);
+      logger.warn`User ${userId} is not eligible for poll ${pollId}.`;
       return null;
     }
     // 2. Check if user already has voted
     const existingToken = this.DB.getVoteToken(pollId, userId);
     if (existingToken.httpStatusCode === 200 && existingToken.used === 1) {
-      logger.warn(`User ${userId} has already voted in poll ${pollId}.`);
+      logger.warn`User ${userId} has already voted in poll ${pollId}.`;
       return null;
     }
 
@@ -146,24 +146,21 @@ export class PollManager {
     const { poll: pollFromDB, httpStatusCode: pollStatuscode } = this.DB
       .getPollFromDB(pollId);
     if (pollStatuscode !== 200) {
-      logger.error(
-        `Failed to retrieve poll with ID ${pollId} from database. Status code: ${pollStatuscode}`,
-      );
+      logger
+        .error`Failed to retrieve poll with ID ${pollId} from database. Status code: ${pollStatuscode}`;
       return null;
     }
 
     // 4. Check if poll is close
     if (!pollFromDB || pollFromDB.voteStatus !== "started") {
-      logger.warn(
-        `Attempted to open poll with ID ${pollId}, but it is closed.`,
-      );
+      logger.warn`Attempted to open poll with ID ${pollId}, but it is closed.`;
       return null;
     }
 
     // 5. get polloptions
     const optionsFromDB = this.DB.getPollOptionsFromDB(pollId);
     if (optionsFromDB.length === 0) {
-      logger.warn(`No options found for poll with ID ${pollId}.`);
+      logger.warn`No options found for poll with ID ${pollId}.`;
       return null;
     }
     // 6. create the clientUUID in Database

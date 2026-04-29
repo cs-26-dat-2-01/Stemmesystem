@@ -44,9 +44,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
     const user = result.user as User; // This is safe because if httpStatusCode is 200.
 
-    logger.debug(
-      `{id: ${user.id}, username: "${user.name}"} succesfully retrived from database.`,
-    );
+    logger.debug`User: ${user}, succesfully retrived from database.`;
 
     // Check that the password provided by the user match the stored password hash.
     // Also handle any unexpected errors from argon2 and return a 500 status code in that case.
