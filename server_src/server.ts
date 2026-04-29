@@ -162,13 +162,7 @@ export async function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
-  /* User opens the poll page for a specific poll
-<<<<<<< HEAD
-    This will give the index.html and let bundle.js handle everything. This is because we need to do a post
-    with the UUID in, and that will retrieve the actual data.
-=======
->>>>>>> origin/48-update-tables-in-sqlite-database
-  */
+  /* User opens the poll page for a specific poll */
   router.get("/poll/:pollId", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
