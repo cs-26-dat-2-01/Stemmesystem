@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { setCookie } from "@hono/hono/cookie";
+import { deleteCookie, setCookie } from "@hono/hono/cookie";
 import * as argon2 from "npm:argon2@0.44.0";
 import { logger, MIME_TYPES } from "./main_lib.ts";
 import { User, WebappDatabase } from "./database.ts";
@@ -163,6 +163,28 @@ export async function startServer() {
     } catch {
       return c.body("Not Found", { status: 404 });
     }
+  });
+
+  /*
+  Route: /logout
+  Description:
+    Clears the cookies on the server, which is needed for httpOnly cookies
+  */
+  router.post("/logout", (c) => {
+    deleteCookie(c, "JWT", {
+      secure: true,
+      sameSite: "Strict",
+    });
+    deleteCookie(c, "user", {
+      secure: true,
+      sameSite: "Strict",
+    });
+    deleteCookie(c, "isLoggedIn", {
+      secure: true,
+      sameSite: "Strict",
+    });
+
+    return c.body("Logged out", 200);
   });
 
   Deno.serve(router.fetch);

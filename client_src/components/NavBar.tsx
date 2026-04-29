@@ -5,6 +5,19 @@ import { getCookie } from "../WebLib.ts";
 
 function NavBar() {
   const [userName] = useState(getCookie("user", document.cookie));
+  async function handleLogout() {
+    const res = await fetch("/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+
+    if (res.status == 200) {
+      //Refresh site after clearing cookies
+      window.location.reload();
+    } else {
+      console.log("logout failed with code: " + res.status);
+    }
+  }
   return (
     <header className="navbar">
       <div className="nav-left">
@@ -22,7 +35,7 @@ function NavBar() {
         <div className="nav-right">
           {/* User Icon SVG */}
           <div className="avatar">
-            <a href="#">
+            <a href="#" onClick={handleLogout}>
               <FaUser />
             </a>
           </div>
