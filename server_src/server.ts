@@ -187,6 +187,7 @@ export async function startServer() {
     });
 
     return c.body("Logged out", 200);
+  });
   /* User opens the poll page for a specific poll
     This will give the index.html and let bundle.js handle everything. This is because we need to do a post
     with the UUID in, and that will retrieve the actual data.
