@@ -26,9 +26,8 @@ dist-ssr
 # Misc
 /.trash
 .env
+.codex
 
 # Database
 database/test.db
 database/users.db
-server_src/users.db
-testing_grounds/test.db

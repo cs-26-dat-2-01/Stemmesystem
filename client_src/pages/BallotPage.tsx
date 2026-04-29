@@ -33,21 +33,19 @@ function BallotPage({ pollId }: BallotPageProps) {
   const [viewState, setViewState] = useState<ViewState>("loading");
   const [poll, setPoll] = useState<Poll | null>(null);
   const [options, setOptions] = useState<PollOption[]>([]);
-  const [voteToken, setVoteToken] = useState<string>("");
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [votesRemaining, setVotesRemaining] = useState<number>(0);
+  const [voteAllocations, setVoteAllocations] = useState<
+    Record<number, number>
+  >({});
 
   useEffect(() => {
     // INDRE async funktion — HER må vi gerne bruge await
     async function openPoll() {
-      const UUID = crypto.randomUUID();
-      console.log("Generated UUID:", UUID);
-
       const resOpen = await fetch(`/api/poll/${pollId}/open`, {
         method: "POST",
         credentials: "include",
-        body: JSON.stringify({ UUID }),
-        headers: { "Content-Type": "application/json" },
       });
 
       if (resOpen.status === 200) {
@@ -55,7 +53,7 @@ function BallotPage({ pollId }: BallotPageProps) {
         console.log("Open succeeded:", dataOpen);
         setPoll(dataOpen.poll);
         setOptions(dataOpen.options);
-        setVoteToken(dataOpen.voteToken);
+        setVotesRemaining(dataOpen.votesRemaining);
         setViewState("ready");
       } else {
         setErrorMessage("Kunne ikke indlæse afstemning");
@@ -66,7 +64,18 @@ function BallotPage({ pollId }: BallotPageProps) {
 
     // Kald den INDRE funktion med det samme
     openPoll();
-  }, []); // ← tom array = kør kun én gang ved mount
+  }, [pollId]); // change if pollId changes.
+
+  let allocatedVotes = 0;
+  for (const count of Object.values(voteAllocations)) {
+    allocatedVotes += count;
+  }
+
+  const remainingToAllocate = votesRemaining - allocatedVotes;
+  const hasMultipleVotes = votesRemaining > 1;
+  const canSubmit = hasMultipleVotes
+    ? allocatedVotes > 0 && remainingToAllocate === 0
+    : selectedOption !== null; // if the user does not have multiplevotes, the user can submit when the user has selected an option
 
   if (viewState === "loading") {
     return (
@@ -98,24 +107,50 @@ function BallotPage({ pollId }: BallotPageProps) {
             </div>
 
             <div className="ballot-options">
-              {options.map((option) => (
-                <label key={option.id} className="ballot-option">
-                  <input
-                    type="radio"
-                    name="pollOption"
-                    value={option.id}
-                    checked={selectedOption === option.id}
-                    onChange={() =>
-                      setSelectedOption(option.id)}
-                  />
-                  {option.optionText}
-                </label>
-              ))}
+              {votesRemaining <= 0
+                ? <p>Du har allerede brugt alle dine stemmer.</p>
+                : hasMultipleVotes
+                ? (
+                  options.map((option) => (
+                    <label key={option.id} className="ballot-option">
+                      <span>{option.optionText}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={votesRemaining}
+                        value={voteAllocations[option.id] ?? 0}
+                        onChange={(e) => {
+                          const nextValue = Number(e.target.value);
+
+                          setVoteAllocations((prev) => ({
+                            ...prev,
+                            [option.id]: nextValue,
+                          }));
+                        }}
+                      />
+                    </label>
+                  ))
+                )
+                : (
+                  options.map((option) => (
+                    <label key={option.id} className="ballot-option">
+                      <input
+                        type="radio"
+                        name="pollOption"
+                        value={option.id}
+                        checked={selectedOption === option.id}
+                        onChange={() =>
+                          setSelectedOption(option.id)}
+                      />
+                      {option.optionText}
+                    </label>
+                  ))
+                )}
             </div>
 
             <button
               className="ballot-submit"
-              disabled={selectedOption === null}
+              disabled={!canSubmit}
               onClick={() => setViewState("confirming")}
             >
               Afgiv stemme
@@ -130,20 +165,41 @@ function BallotPage({ pollId }: BallotPageProps) {
     const selectedText = options.find((o) => o.id === selectedOption)
       ?.optionText;
 
+    const selectedAllocations = options
+      .map((option) => ({
+        option,
+        count: voteAllocations[option.id] ?? 0,
+      }))
+      .filter(({ count }) => count > 0);
+
     return (
       <>
         <NavBar />
         <div className="ballot-container">
           <div className="ballot-confirm-card">
-            <p>
-              Du er ved at stemme på <strong>{selectedText}</strong>
-            </p>
+            {hasMultipleVotes
+              ? (
+                <>
+                  <p>Du er ved at afgive følgende stemmer:</p>
+                  <ul>
+                    {selectedAllocations.map(({ option, count }) => (
+                      <li key={option.id}>
+                        {option.optionText}: {count}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )
+              : (
+                <p>
+                  Du er ved at stemme på <strong>{selectedText}</strong>
+                </p>
+              )}
+
             <p>Vil du bekræfte?</p>
+
             <div className="ballot-confirm-buttons">
-              <button
-                className="ballot-btn-yes"
-                onClick={submitVote}
-              >
+              <button className="ballot-btn-yes" onClick={submitVote}>
                 Ja
               </button>
               <button
@@ -204,13 +260,26 @@ function BallotPage({ pollId }: BallotPageProps) {
   async function submitVote() {
     setViewState("submitting");
 
+    const votes = hasMultipleVotes
+      ? Object.entries(voteAllocations).flatMap(([optionId, count]) =>
+        Array.from({ length: count }, () => ({
+          optionId: Number(optionId),
+          UUID: crypto.randomUUID(),
+        }))
+      )
+      : selectedOption === null
+      ? []
+      : [
+        {
+          optionId: selectedOption,
+          UUID: crypto.randomUUID(),
+        },
+      ];
+
     const resVote = await fetch(`/api/poll/${pollId}/vote`, {
       method: "POST",
       credentials: "include",
-      body: JSON.stringify({
-        optionId: selectedOption,
-        UUID: voteToken,
-      }),
+      body: JSON.stringify({ votes }),
       headers: { "Content-Type": "application/json" },
     });
 
@@ -223,5 +292,4 @@ function BallotPage({ pollId }: BallotPageProps) {
     }
   }
 }
-
 export default BallotPage;

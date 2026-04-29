@@ -99,3 +99,14 @@ export interface Poll {
   ballotLimit: number;
   useBuffer: number;
 }
+export interface OpenpollResult {
+  poll: Poll;
+  options: PollOption[];
+  votesAllowed: number;
+  votesRemaining: number;
+}
+
+export interface VoteInput {
+  optionId: number;
+  UUID: string;
+}
