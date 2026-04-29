@@ -17,7 +17,7 @@ export async function startServer() {
   const router = new Hono();
 
   const databasePath: string = "./database/users.db";
-  const _file = await Deno.create(databasePath);
+  await Deno.mkdir("./database", { recursive: true }); // recursvive true so if the folder exists it wont fail.
   const DB: WebappDatabase = await WebappDatabase.initDatabase(
     databasePath,
   );

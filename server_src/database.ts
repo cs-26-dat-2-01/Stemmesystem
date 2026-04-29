@@ -113,6 +113,7 @@ export class WebappDatabase {
         CREATE TABLE IF NOT EXISTS pollEligibleVoters(
           pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
           userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	  votesAllowed INTEGER NOT NULL, 
           PRIMARY KEY(pollId, userId)
           );
         CREATE TABLE IF NOT EXISTS pollOptions (
@@ -127,8 +128,7 @@ export class WebappDatabase {
           userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           UUID TEXT NOT NULL UNIQUE,
           createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-          used INTEGER NOT NULL DEFAULT 0,
-          UNIQUE(pollId, userId) 
+          used INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS votes (
           id TEXT PRIMARY KEY REFERENCES voteTokens(UUID),
@@ -141,7 +141,6 @@ export class WebappDatabase {
         CREATE TABLE IF NOT EXISTS auditLog(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         action TEXT NOT NULL,
-        UUID TEXT NOT NULL References votetokens(UUID),
         timestamp TEXT NOT NULL DEFAULT (datetime('now')),
         details TEXT 
         );
@@ -757,6 +756,48 @@ export class WebappDatabase {
       logger
         .error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return false; // Fail-safe: ved fejl nægter vi adgang
+    }
+  }
+
+  public getVotesAllowed(pollId: number, userId: number): number {
+    try {
+      const sqlResult = this.DB.prepare(`
+		SELECT votesAllowed FROM pollEligibleVoters
+		WHERE pollId = ? AND userId = ? `).get(pollId, userId);
+      if (
+        typeof sqlResult === "undefined" ||
+        typeof sqlResult.votesAllowed !== "number"
+      ) {
+        return 0;
+      }
+      return sqlResult.votesAllowed;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Uknown error";
+      logger
+        .error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      return 0;
+    }
+  }
+  // returns the number of votes a current User already has "cast"
+  public countCastVotes(pollId: number, userId: number): number {
+    try {
+      const sqlResult = this.DB.prepare(`
+		SELECT COUNT(*) AS count FROM voteTokens WHERE pollId = ? AND userId = ?`)
+        .get(
+          pollId,
+          userId,
+        );
+      if (
+        typeof sqlResult === "undefined" || typeof sqlResult.count !== "number"
+      ) {
+        return 0;
+      }
+      return sqlResult.count;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Uknown error";
+      logger
+        .error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      return 0;
     }
   }
 }
