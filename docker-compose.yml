@@ -8,30 +8,29 @@ services:
     volumes:
       - app_database:/app/database
     develop: # https://docs.docker.com/reference/compose-file/develop/
-      watch: 
-      - action: sync
-        path: ./server_src
-        target: /app/server_src
-      - action: sync
-        path: ./testing_grounds
-        target: /app/testing_grounds
-      - action: rebuild  # Rebuild the image, on config change.        
-        path: .
-        include:
-          - deno.json
-          - package.json
-          - vite.config.ts
-      - action: sync+exec
-        path: ./client_src
-        target: /app/client_src
-        exec:
-          command: deno task build
-      - action: sync+exec # It would be obivious to try and merge with above action, however moving index.html is apparently really hard.
-        path: ./index.html
-        target: /app/index.html
-        exec:
-          command: deno task build
-    
+      watch:
+        - action: sync
+          path: ./server_src
+          target: /app/server_src
+        - action: sync
+          path: ./testing_grounds
+          target: /app/testing_grounds
+        - action: rebuild # Rebuild the image, on config change.
+          path: .
+          include:
+            - deno.json
+            - package.json
+            - vite.config.ts
+        - action: sync+exec
+          path: ./client_src
+          target: /app/client_src
+          exec:
+            command: deno task build
+        - action: sync+exec # It would be obivious to try and merge with above action, however moving index.html is apparently really hard.
+          path: ./index.html
+          target: /app/index.html
+          exec:
+            command: deno task build
+
 volumes:
   app_database:
-  

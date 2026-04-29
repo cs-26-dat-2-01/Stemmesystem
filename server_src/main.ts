@@ -4,11 +4,8 @@ import { startServer } from "./server.ts";
 
 logger.info`Starting server! 🚀`;
 
-const databasePath: string = "./database/users.db";
 await Deno.mkdir("./database", { recursive: true }); // recursvive true so if the folder exists it wont fail.
-const DB: WebappDatabase = await WebappDatabase.initDatabase(
-  databasePath,
-);
+const DB: WebappDatabase = await WebappDatabase.initDatabase();
 
 const ac = new AbortController();
 

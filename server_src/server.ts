@@ -37,7 +37,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
 
     // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
-    const result = DB.getUserFromDB(userCredentials.username);
+    const result = await DB.getUserFromDB(userCredentials.username);
     if (result.httpStatusCode !== 200) {
       logger
         .info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
@@ -173,7 +173,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   });
 
   router.post("/api/poll/:pollId/open", (c) => {
-    return hasValidJWT(c, (payload) => {
+    return hasValidJWT(c, async (payload) => {
       // 1. parse pollId from URL
       const pollIdStr = c.req.param("pollId");
       const pollId = Number(pollIdStr);
@@ -185,7 +185,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       const userid = payload.userId as number;
 
       // 4. Call pollManager.openPoll(pollId, useriD, UUID)
-      const pollData = pollManager.openPoll(pollId, userid);
+      const pollData = await pollManager.openPoll(pollId, userid);
       // 5. if null -> 404  if obect --> c.json(result)
       if (pollData.errorMsg) {
         return c.body(pollData.errorMsg, 403);
@@ -226,7 +226,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       // 3. userId from payload
       const userid = payload.userId as number;
       // 4. await pollManager
-      const castedVote = pollManager.castVote(
+      const castedVote = await pollManager.castVote(
         pollId,
         userid,
         body.votes,

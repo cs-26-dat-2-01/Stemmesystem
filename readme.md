@@ -67,6 +67,7 @@ named `.env`, an example is shown below:
 ```
 JWT_SERVER_SECRET="secret-that-only-server-knows-and-no-one-else!"
 ADMIN_USER_PASSWORD="test"
+DATABASE_URL="file:./database/database.db"
 ```
 
 ### Deno Tasks
@@ -88,6 +89,8 @@ Most editors require Deno CLI to be installed as mentioned above in section
 
 ### VS Code
 
+#### Deno
+
 1. Install the
    [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
    for VS Code.
@@ -105,6 +108,20 @@ Most editors require Deno CLI to be installed as mentioned above in section
   // Disable built-in JavaScript and TypeScript validation since Deno provides its own.
   "js/ts.validate.enabled": false
 }
+```
+
+#### Prisma
+
+1. Install the
+   [Prisma extension](https://marketplace.visualstudio.com/items?itemName=Prisma.prisma)
+
+2. Add the following to the local workspace settings file at:
+   `.vscode/setting.json`
+
+````json
+"[prisma]": {
+  "editor.defaultFormatter": "Prisma.prisma"
+},
 ```
 
 ### Helix Editor
@@ -130,4 +147,4 @@ language-servers = ["deno-lsp"]
 command = "deno"
 args = ["lsp"]
 config.deno.enable = true
-```
+````
