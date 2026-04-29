@@ -168,8 +168,6 @@ export async function startServer() {
   });
 
   /* User opens the poll page for a specific poll
-    This will give the index.html and let bundle.js handle everything. This is because we need to do a post
-    with the UUID in, and that will retrieve the actual data.
   */
   router.get("/poll/:pollId", async (c) => {
     try {
@@ -180,46 +178,28 @@ export async function startServer() {
     }
   });
 
-  router.post("/api/poll/:pollId/open", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+  router.post("/api/poll/:pollId/open", (c) => {
+    return hasValidJWT(c, (payload) => {
       // 1. parse pollId from URL
       const pollIdStr = c.req.param("pollId");
       const pollId = Number(pollIdStr);
       if (Number.isNaN(pollId)) {
         return c.body("Invalid pollId", 400);
       }
-      // 2. Parse body --> (UUID: "...")
-      let body = undefined;
-      try {
-        body = await c.req.json();
-      } catch {
-        return c.body("Invalid JSON body", 400);
-      }
-
-      if (typeof body.UUID !== "string") {
-        return c.body("Missing or invalid UUID", 400);
-      }
-      // body.UUID er nu den klient-genererede UUID
 
       // 3. get userId from payload (payload.userId)
       const userid = payload.userId as number;
 
       // 4. Call pollManager.openPoll(pollId, useriD, UUID)
-      const pollData = pollManager.openPoll(pollId, userid, body.UUID);
+      const pollData = pollManager.openPoll(pollId, userid);
       // 5. if null -> 404  if obect --> c.json(result)
-      if (pollData === null) {
-        return c.body("Not eligible or poll unavailable", 403);
+      if (pollData.errorMsg) {
+        return c.body(pollData.errorMsg, 403);
       }
-      return c.json(pollData);
+      return c.json(pollData.result);
     });
   });
 
-  /* User casta a vote
-    1. We verify the login-JWT of the user and the vote-JWT which contains the pollId and voteToken.
-    2. We extract optionId from the request body
-    3- We cal pollManager.castVote(pollId, userId, optionId, voteToken) which will return true if the vote was succesfully casted and false if not.
-    4. We return a response to the client so the client knows if the vote was succesfully casted or not.
-  */
   router.post("/api/poll/:pollId/vote", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       // 1. parse polldId from URL + validate
@@ -236,20 +216,26 @@ export async function startServer() {
         return c.body("Invalid JSON body", 400);
       }
 
-      if (typeof body.UUID !== "string") {
-        return c.body("Missing or invalid UUID", 400);
+      if (!Array.isArray(body.votes)) {
+        return c.body("Missing or invalid votes array", 400);
       }
-      if (!Number.isInteger(body.optionId)) {
-        return c.body("Missing or invalid optionid", 400);
+      const hasValidVotes = body.votes.every((vote: unknown) => {
+        if (typeof vote !== "object" || vote == null) return false; // typeof null is "object" so we shall check vote ==== null explicit
+
+        const v = vote as { optionId?: unknown; UUID?: unknown };
+        return Number.isInteger(v.optionId) && typeof v.UUID === "string";
+      });
+
+      if (!hasValidVotes) {
+        return c.body("Invalid vote shape", 400);
       }
       // 3. userId from payload
       const userid = payload.userId as number;
       // 4. await pollManager
-      const castedVote = await pollManager.castVote(
+      const castedVote = pollManager.castVote(
         pollId,
         userid,
-        body.optionId,
-        body.UUID,
+        body.votes,
       );
 
       // 5. if result.success === false --> errormsg
