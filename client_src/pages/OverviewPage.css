@@ -1,10 +1,353 @@
-.content-block {
-  border: 2px solid black;
-  width: 150px;
-  height: 150px;
+/* ─── Layout ─────────────────────────────────────────────────── */
+.ov-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: calc(100vh - 52px);
+  border-top: 1px solid #d1d5db;
 }
 
-.content-block img {
-  width: 100px;
-  height: 100px;
+/* ─── Sidebar ────────────────────────────────────────────────── */
+.ov-sidebar {
+  border-right: 1px solid #d1d5db;
+  padding: 16px 12px;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Create button */
+.btn-create {
+  display: block;
+  text-align: center;
+  padding: 8px 14px;
+  background: #fff;
+  border: 2px solid #111827;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #111827;
+  text-decoration: none;
+  margin-bottom: 20px;
+  transition: background 0.15s;
+}
+.btn-create:hover {
+  background: #f3f4f6;
+}
+
+/* Filter nav */
+.ov-filter-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 28px;
+}
+.ov-filter-btn {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #374151;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.35;
+  transition: background 0.12s, color 0.12s;
+}
+.ov-filter-btn:hover {
+  background: #e5e7eb;
+}
+.ov-filter-btn--active {
+  background: #bfdbfe;
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
+/* Folders header */
+.ov-folders-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+.ov-folders-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #374151;
+}
+.ov-folder-add {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #6b7280;
+  line-height: 1;
+  padding: 0 2px;
+}
+.ov-folder-add:hover {
+  color: #111827;
+}
+
+/* Folder tree */
+.ov-folder-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ov-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+  color: #374151;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+.ov-folder-btn:hover {
+  background: #e5e7eb;
+}
+.ov-folder-arrow {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  width: 12px;
+  text-align: center;
+}
+.ov-folder-children {
+  border-left: 2px solid #d1d5db;
+  margin-left: 16px;
+  padding-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 1px;
+  margin-bottom: 2px;
+}
+.ov-folder-item {
+  display: block;
+  padding: 4px 6px;
+  font-size: 0.8rem;
+  color: #374151;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+.ov-folder-item:hover {
+  background: #e5e7eb;
+}
+.ov-folder-item--active {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+/* ─── Main ───────────────────────────────────────────────────── */
+.ov-main {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+}
+
+/* Search row */
+.ov-search-row {
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.ov-search-box {
+  position: relative;
+  width: 340px;
+}
+.ov-search-box svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: #9ca3af;
+  pointer-events: none;
+}
+.ov-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px 6px 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  outline: none;
+  background: #fff;
+  color: #111827;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ov-search-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* ─── Table ──────────────────────────────────────────────────── */
+.ov-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ov-table thead tr {
+  background: #f3f4f6;
+  border-bottom: 2px solid #d1d5db;
+}
+
+.ov-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.ov-table tbody tr {
+  border-bottom: 1px solid #e5e7eb;
+  transition: background 0.1s;
+}
+.ov-table tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+.ov-table tbody tr:hover {
+  background: #eff6ff;
+}
+
+.ov-table td {
+  padding: 11px 14px;
+  color: #374151;
+  vertical-align: middle;
+}
+
+/* Column-specific */
+.ov-col-title a {
+  color: #111827;
+  text-decoration: none;
+  font-weight: 500;
+}
+.ov-col-title a:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* "Du har stemt" label */
+.voted-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: #374151;
+}
+.voted-label svg {
+  width: 15px;
+  height: 15px;
+  color: #374151;
+  flex-shrink: 0;
+}
+
+/* Stem button */
+.btn-vote {
+  display: inline-block;
+  padding: 5px 18px;
+  background: #1d4ed8;
+  color: #fff;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.btn-vote:hover {
+  background: #1e40af;
+}
+
+/* Results button */
+.btn-results {
+  display: inline-block;
+  padding: 5px 14px;
+  background: #059669;
+  color: #fff;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.btn-results:hover {
+  background: #047857;
+}
+
+/* Check / cross icons */
+.icon-check {
+  width: 16px;
+  height: 16px;
+  color: #374151;
+}
+.icon-cross {
+  width: 16px;
+  height: 16px;
+  color: #374151;
+}
+
+/* ─── States ─────────────────────────────────────────────────── */
+.ov-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+.ov-empty {
+  padding: 32px 24px;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+/* Spinner */
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .ov-layout {
+    grid-template-columns: 1fr;
+  }
+  .ov-sidebar {
+    border-right: none;
+    border-bottom: 1px solid #d1d5db;
+    padding: 12px;
+  }
+  .ov-filter-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .ov-filter-btn {
+    width: auto;
+  }
 }
