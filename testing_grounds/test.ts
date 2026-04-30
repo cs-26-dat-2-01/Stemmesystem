@@ -58,7 +58,7 @@ async function createTestDatabaseUrl(): Promise<string> {
 
 async function pushPrismaSchema(databaseUrl: string): Promise<void> {
   const command = new Deno.Command("npx", {
-    args: ["prisma", "db", "push", "--skip-generate"],
+    args: ["prisma", "db", "push"],
     env: {
       ...Deno.env.toObject(),
       DATABASE_URL: databaseUrl,
@@ -66,9 +66,24 @@ async function pushPrismaSchema(databaseUrl: string): Promise<void> {
     stdout: "inherit", //display it in terminal - this is just for developing
     stderr: "inherit",
   });
+  console.log("Running prisma");
   const result = await command.output();
   if (!result.success) {
     throw new Error(`Failed to push Prisma schema to test DB`);
+  }
+}
+
+async function removeSqliteFiles(databaseUrl: string): Promise<void> {
+  const path = databaseUrl.replace("file:", "");
+
+  for (const suffix of ["", "-shm", "-wal"]) {
+    try {
+      await Deno.remove(`${path}${suffix}`);
+    } catch (err) {
+      if (!(err instanceof Deno.errors.NotFound)) {
+        throw err;
+      }
+    }
   }
 }
 
@@ -147,6 +162,7 @@ Deno.test({
       await server;
       await prisma.$disconnect();
       await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
     }
   },
 });
@@ -164,44 +180,57 @@ Deno.test({
     const server = startServer(DB, ac);
 
     try {
-      // seed data
-      // login
-      // open poll
-      // assertions
+      // Arrange
+      const admin = await prisma.user.findUniqueOrThrow(
+        { where: { username: "admin" } },
+      );
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [
+          { userId: admin.id, votesAllowed: 2 },
+        ],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      // ACT
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/open`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const body = await res.json();
+
+      // Assert
+      assertEquals(res.status, 200);
+      assertEquals(body.poll.id, poll.id);
+      assertEquals(body.poll.voteStatus, "started");
+      assertEquals(body.options.length, 3);
+      assertEquals(body.votesAllowed, 2);
+      assertEquals(body.votesRemaining, 2);
     } finally {
       ac.abort();
       await server;
       await prisma.$disconnect();
       await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
     }
   },
 });
 
-/*
-Deno.test({
-  name: "test template",
-  async fn() {
-    // Arrange
-    const databasePath: string = "./database/test.db";
-    const file = await Deno.create(databasePath); // Create the file, if exists truncate it.
-    file.close(); // Creating a file apperently opens it.
-    const DB: WebappDatabase = await WebappDatabase.initDatabase(
-      databasePath,
-    );
-
-    const ac = new AbortController();
-    const server = startServer(DB, ac);
-
-    try {
-    } finally {
-      ac.abort();
-      await server;
-      DB.closeDB();
-    }
-  },
-});
-*/
-
+/* I have commented old test out since i keep getting errors from them
 Deno.test({
   name: "test route: /api/admin/add-user",
   async fn() {
@@ -332,3 +361,5 @@ Deno.test({
     }
   },
 });
+
+*/
