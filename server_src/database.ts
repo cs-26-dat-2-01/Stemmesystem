@@ -61,9 +61,9 @@ export class WebappDatabase {
    *
    * @param adminPassword
    */
-  private constructor(adminPassword: string) {
+  private constructor(adminPassword: string, databaseUrl = env.DATABASE_URL) {
     this.prisma = new PrismaClient({
-      adapter: new PrismaLibSql({ url: env.DATABASE_URL }),
+      adapter: new PrismaLibSql({ url: databaseUrl }),
     });
 
     // Create admin user.
@@ -106,9 +106,11 @@ export class WebappDatabase {
    *
    * @param filePath the path to the database file. If not found a new file will be created.
    */
-  public static async initDatabase(): Promise<WebappDatabase> {
+  public static async initDatabase(
+    databaseUrl = env.DATABASE_URL,
+  ): Promise<WebappDatabase> {
     const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD); // https://github.com/ranisalt/node-argon2
-    const dbInstance = new WebappDatabase(adminPassword);
+    const dbInstance = new WebappDatabase(adminPassword, databaseUrl);
 
     // Get admin from database
     const { user, httpStatusCode, errorMsg } = await dbInstance.getUserFromDB(
