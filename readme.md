@@ -61,14 +61,6 @@ To download necessary build and dev dependencies run:
 deno install
 ```
 
-Prisma also needs to be initialized locally. This requires Node/npm so `npx` is available. 
-
-Generate the Prisma client and apply the schema to the configured database: 
-```shell 
-npx prisma generate
-npx prisma db push 
-```
-npx prisma generate updates the generated Prisma client in generated/prisma, and npx prisma db push applies prisma/schema.prisma to the database from DATABASE_URL. 
 
 The program require certain environment variables set for the program in a file
 named `.env`, an example is shown below:
@@ -78,6 +70,15 @@ JWT_SERVER_SECRET="secret-that-only-server-knows-and-no-one-else!"
 ADMIN_USER_PASSWORD="test"
 DATABASE_URL="file:./database/database.db"
 ```
+Prisma also needs to be initialized locally. This requires Node/npm so `npx` is available. 
+
+Generate the Prisma client and apply the schema to the configured database: 
+```shell 
+npx prisma generate
+npx prisma db push 
+```
+npx prisma generate updates the generated Prisma client in generated/prisma, and npx prisma db push applies prisma/schema.prisma to the database from DATABASE_URL. 
+
 
 ### Deno Tasks
 
