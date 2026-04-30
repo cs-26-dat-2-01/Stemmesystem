@@ -65,9 +65,10 @@ export class WebappDatabase {
     this.prisma = new PrismaClient({
       adapter: new PrismaLibSql({ url: databaseUrl }),
     });
+  }
 
-    // Create admin user.
-    this.prisma.user.upsert({
+  private async ensureAdminUser(adminPassword: string): Promise<void> {
+    await this.prisma.user.upsert({
       where: { username: "admin" },
       update: {}, // Do not update if admin user already exists
       create: {
@@ -81,26 +82,26 @@ export class WebappDatabase {
       logger.fatal`Error while creating admin user in database: ${errMsg}`;
       throw new Error("Error while creating admin user in database.");
     });
-
-    // Print all user entries using Prisma.
-    this.prisma.user.findMany({
-      select: { id: true, username: true, passwordHash: true },
-    }).then((rows) => {
+  }
+  private async logDatabaseState(): Promise<void> {
+    try {
+      const rows = await this.prisma.user.findMany({
+        select: { id: true, username: true, passwordHash: true },
+      });
       logger.trace("DB | Users: {rows}", { rows });
-    }).catch((err) => {
+    } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error`Error fetching users via Prisma: ${errMsg}`;
-    });
+    }
 
-    // Print all poll entries using Prisma.
-    this.prisma.poll.findMany().then((polls) => {
+    try {
+      const polls = await this.prisma.poll.findMany();
       logger.trace("DB | Polls: {polls}", { polls });
-    }).catch((err) => {
+    } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error`Error fetching polls via Prisma: ${errMsg}`;
-    });
+    }
   }
-
   /**
    * Initialize the SQLite database for the web application.
    *
@@ -111,6 +112,8 @@ export class WebappDatabase {
   ): Promise<WebappDatabase> {
     const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD); // https://github.com/ranisalt/node-argon2
     const dbInstance = new WebappDatabase(adminPassword, databaseUrl);
+    await dbInstance.ensureAdminUser(adminPassword);
+    await dbInstance.logDatabaseState();
 
     // Get admin from database
     const { user, httpStatusCode, errorMsg } = await dbInstance.getUserFromDB(
