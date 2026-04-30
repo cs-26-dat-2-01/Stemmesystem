@@ -6,6 +6,7 @@ import { WebappDatabase } from "../server_src/database.ts";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
 import { Prisma, PrismaClient } from "../generated/prisma/client.ts";
 import * as argon2 from "npm:argon2@0.44.0";
+import { createHash } from "node:crypto";
 /*
     "Testing is the future, and the future starts with you!"
     Arrange, Act, Assert!
@@ -35,7 +36,7 @@ async function fetchUserCredentials(
   } else {
     logger.error`"Login failed with status code: ${loginRes.status}`;
   }
-  console.log(await loginRes.text());
+  await loginRes.text();
 
   // Save the cookie string containing the JWT token
   const cookies = loginRes.headers.get("set-cookie");
@@ -63,12 +64,13 @@ async function pushPrismaSchema(databaseUrl: string): Promise<void> {
       ...Deno.env.toObject(),
       DATABASE_URL: databaseUrl,
     },
-    stdout: "inherit", //display it in terminal - this is just for developing
-    stderr: "inherit",
+    stdout: "piped",
+    stderr: "piped",
   });
-  console.log("Running prisma");
   const result = await command.output();
   if (!result.success) {
+    const stdout = new TextDecoder().decode(result.stdout);
+    const stderr = new TextDecoder().decode(result.stderr);
     throw new Error(`Failed to push Prisma schema to test DB`);
   }
 }
@@ -140,33 +142,18 @@ async function seedPoll(prisma: PrismaClient, input: {
   });
 }
 
-/* database test skeleton
-Deno.test({
-  name: "eligible user can open started poll",
-  async fn() {
-    const databaseUrl = await createTestDatabaseUrl();
-    await pushPrismaSchema(databaseUrl);
+// test helper
+function expectedVoteHash(
+  previousHash: string,
+  uuid: string,
+  optionId: number,
+  pollId: number,
+): string {
+  const hashMsg =
+    `PreviousHash:${previousHash}|UUID:${uuid}|pollOptionId:${optionId}|pollId:${pollId}`;
 
-    const DB = await WebappDatabase.initDatabase(databaseUrl);
-    const prisma = createPrismaForTest(databaseUrl);
-    const ac = new AbortController();
-    const server = startServer(DB, ac);
-
-    try {
-      // seed data
-      // login
-      // open poll
-      // assertions
-    } finally {
-      ac.abort();
-      await server;
-      await prisma.$disconnect();
-      await DB.closeDB();
-      await removeSqliteFiles(databaseUrl);
-    }
-  },
-});
-*/
+  return createHash("sha256").update(hashMsg, "utf8").digest("hex");
+}
 
 Deno.test({
   name: "eligible user can open started poll",
@@ -211,10 +198,15 @@ Deno.test({
         },
       );
 
-      const body = await res.json();
+      const text = await res.text();
 
       // Assert
-      assertEquals(res.status, 200);
+      assertEquals(
+        res.status,
+        200,
+        `Exptected open poll to succeed, got ${res.status}: ${text}`,
+      );
+      const body = JSON.parse(text);
       assertEquals(body.poll.id, poll.id);
       assertEquals(body.poll.voteStatus, "started");
       assertEquals(body.options.length, 3);
@@ -229,6 +221,1476 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "eligible user can cast one vote",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [
+          { userId: admin.id, votesAllowed: 1 },
+        ],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const voteUuid = crypto.randomUUID();
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [
+              {
+                optionId: poll.options[0].id,
+                UUID: voteUuid,
+              },
+            ],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected vote to succeed, got ${res.status}: ${text}`,
+      );
+
+      const voteCount = await prisma.vote.count({
+        where: { pollId: poll.id },
+      });
+
+      const tokenCount = await prisma.voteToken.count({
+        where: { pollId: poll.id, userId: admin.id },
+      });
+
+      assertEquals(voteCount, 1);
+      assertEquals(tokenCount, 1);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "eligible user can cast multiple votes up to votesAllowed",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [
+          { userId: admin.id, votesAllowed: 3 },
+        ],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [
+              { optionId: poll.options[0].id, UUID: crypto.randomUUID() },
+              { optionId: poll.options[1].id, UUID: crypto.randomUUID() },
+              { optionId: poll.options[2].id, UUID: crypto.randomUUID() },
+            ],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected vote batch to succeed, got ${res.status}: ${text}`,
+      );
+
+      assertEquals(
+        await prisma.vote.count({ where: { pollId: poll.id } }),
+        3,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "votesRemaining decreases after votes are cast",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [
+          { userId: admin.id, votesAllowed: 2 },
+        ],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const voteRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [
+              { optionId: poll.options[0].id, UUID: crypto.randomUUID() },
+            ],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      assertEquals(voteRes.status, 200, await voteRes.text());
+
+      const openRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/open`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const body = await openRes.json();
+
+      assertEquals(openRes.status, 200);
+      assertEquals(body.votesAllowed, 2);
+      assertEquals(body.votesRemaining, 1);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "unauthenticated user cannot open poll",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [
+          { userId: admin.id, votesAllowed: 2 },
+        ],
+      });
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/open`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        401,
+        `Expected unauthenticated open poll to fail, got ${res.status}: ${text}`,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Ineligible user cannot open poll",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const user = await seedUser(prisma, "not-eligible", "password123");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials("not-eligible", "password123");
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/open`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        403,
+        `Expected ineligible open to fail, got
+  ${res.status}: ${text}`,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Ineliglbe user cannot vote",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const user = await seedUser(prisma, "not-eligible-voter", "password123");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "not-eligible-voter",
+        "password123",
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{
+              optionId: poll.options[0].id,
+              UUID: crypto.randomUUID(),
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected ineligible vote to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+      assertEquals(
+        await prisma.voteToken.count({
+          where: { pollId: poll.id, userId: user.id },
+        }),
+        0,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "User cannot vote as another user by sending userId in body",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const attacker = await seedUser(prisma, "attacker", "password123");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials("attacker", "password123");
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            userId: admin.id,
+            votes: [{
+              optionId: poll.options[0].id,
+              UUID: crypto.randomUUID(),
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected spoofed userId vote to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+      assertEquals(
+        await prisma.voteToken.count({ where: { pollId: poll.id } }),
+        0,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Not-started poll does not leak details",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "draft",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/open`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        403,
+        `Expected closed poll open to fail, got
+  ${res.status}: ${text}`,
+      );
+      assert(!text.includes(poll.title));
+      assert(!text.includes("Ja"));
+      assert(!text.includes("Nej"));
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "JWT identity is source of truth, not body userId",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const otherUser = await seedUser(prisma, "other-user", "password123");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            userId: otherUser.id,
+            votes: [{
+              optionId: poll.options[0].id,
+              UUID: crypto.randomUUID(),
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected JWT-authenticated vote to succeed, got
+  ${res.status}: ${text}`,
+      );
+
+      assertEquals(
+        await prisma.voteToken.count({
+          where: { pollId: poll.id, userId: admin.id },
+        }),
+        1,
+      );
+
+      assertEquals(
+        await prisma.voteToken.count({
+          where: { pollId: poll.id, userId: otherUser.id },
+        }),
+        0,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Empty vote array is rejected",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({ votes: [] }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected empty vote array to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Cannot vote on poll that is not started",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "draft",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{
+              optionId: poll.options[0].id,
+              UUID: crypto.randomUUID(),
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected vote on non-started poll to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Cannot vote option outside poll",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const otherPoll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{
+              optionId: otherPoll.options[0].id,
+              UUID: crypto.randomUUID(),
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected foreign option vote to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Cannot exceed votesAllowed",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [
+              { optionId: poll.options[0].id, UUID: crypto.randomUUID() },
+              { optionId: poll.options[1].id, UUID: crypto.randomUUID() },
+            ],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected over-quota vote to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Batch is atomic when one vote is invalid",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
+      });
+
+      const otherPoll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [
+              { optionId: poll.options[0].id, UUID: crypto.randomUUID() },
+              { optionId: otherPoll.options[0].id, UUID: crypto.randomUUID() },
+            ],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected partially invalid batch to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+      assertEquals(
+        await prisma.voteToken.count({
+          where: { pollId: poll.id, userId: admin.id },
+        }),
+        0,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Duplicate UUID in same batch is rejected",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+      const duplicateUuid = crypto.randomUUID();
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [
+              { optionId: poll.options[0].id, UUID: duplicateUuid },
+              { optionId: poll.options[1].id, UUID: duplicateUuid },
+            ],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        400,
+        `Expected duplicate UUID batch to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "reusing UUID from previous request is rejected",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+      const reusedUuid = crypto.randomUUID();
+
+      const firstRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{ optionId: poll.options[0].id, UUID: reusedUuid }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      assertEquals(firstRes.status, 200, await firstRes.text());
+
+      const secondRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{ optionId: poll.options[1].id, UUID: reusedUuid }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await secondRes.text();
+
+      assertEquals(
+        secondRes.status,
+        400,
+        `Expected reused UUID to fail, got
+  ${secondRes.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 1);
+      assertEquals(
+        await prisma.voteToken.count({
+          where: { pollId: poll.id, userId: admin.id },
+        }),
+        1,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Audit log on successful voting excludes optionId and UUID",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+      const uuid = crypto.randomUUID();
+      const optionId = poll.options[0].id;
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{ optionId, UUID: uuid }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected vote to succeed, got ${res.status}:
+  ${text}`,
+      );
+
+      const auditLog = await prisma.auditLog.findFirst({
+        where: { action: "VOTES_CAST" },
+        orderBy: { id: "desc" },
+      });
+      assert(auditLog !== null);
+      assert(auditLog.details !== null);
+
+      assert(auditLog.details.includes(`pollId:${poll.id}`));
+      assert(auditLog.details.includes(`userId:${admin.id}`));
+      assert(auditLog.details.includes("voteCount:1"));
+
+      assert(!auditLog.details.includes(uuid));
+      assert(!auditLog.details.includes("UUID"));
+      assert(!auditLog.details.includes("optionId"));
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+Deno.test({
+  name: "HASH-test_First vote starts hash chain from genesis hash (0)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const uuid = crypto.randomUUID();
+      const optionId = poll.options[0].id;
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{ optionId, UUID: uuid }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected vote to succeed, got ${res.status}: ${text}`,
+      );
+
+      const vote = await prisma.vote.findUniqueOrThrow({
+        where: { id: uuid },
+      });
+
+      const expectedHash = expectedVoteHash("0", uuid, optionId, poll.id);
+
+      assertEquals(vote.previousHash, "0");
+      assertEquals(vote.currentHash, expectedHash);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "HASH-test_Votes in same batch form a hash chain",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const uuid1 = crypto.randomUUID();
+      const uuid2 = crypto.randomUUID();
+      const optionId1 = poll.options[0].id;
+      const optionId2 = poll.options[1].id;
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [
+              { optionId: optionId1, UUID: uuid1 },
+              { optionId: optionId2, UUID: uuid2 },
+            ],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected vote batch to succeed, got ${res.status}: ${text}`,
+      );
+
+      const vote1 = await prisma.vote.findUniqueOrThrow({
+        where: { id: uuid1 },
+      });
+      const vote2 = await prisma.vote.findUniqueOrThrow({
+        where: { id: uuid2 },
+      });
+
+      const expectedHash1 = expectedVoteHash("0", uuid1, optionId1, poll.id);
+      const expectedHash2 = expectedVoteHash(
+        expectedHash1,
+        uuid2,
+        optionId2,
+        poll.id,
+      );
+
+      assertEquals(vote1.previousHash, "0");
+      assertEquals(vote1.currentHash, expectedHash1);
+      assertEquals(vote2.previousHash, expectedHash1);
+      assertEquals(vote2.currentHash, expectedHash2);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "HASH-test_New vote batch continues hash chain from latest existing vote",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const firstUuid = crypto.randomUUID();
+      const firstOptionId = poll.options[0].id;
+
+      const firstRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{ optionId: firstOptionId, UUID: firstUuid }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const firstText = await firstRes.text();
+
+      assertEquals(
+        firstRes.status,
+        200,
+        `Expected first vote to succeed, got ${firstRes.status}: ${firstText}`,
+      );
+
+      const firstVote = await prisma.vote.findUniqueOrThrow({
+        where: { id: firstUuid },
+      });
+
+      const secondUuid = crypto.randomUUID();
+      const secondOptionId = poll.options[1].id;
+
+      const secondRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{ optionId: secondOptionId, UUID: secondUuid }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const secondText = await secondRes.text();
+
+      assertEquals(
+        secondRes.status,
+        200,
+        `Expected second vote to succeed, got ${secondRes.status}: ${secondText}`,
+      );
+
+      const secondVote = await prisma.vote.findUniqueOrThrow({
+        where: { id: secondUuid },
+      });
+
+      const expectedFirstHash = expectedVoteHash(
+        "0",
+        firstUuid,
+        firstOptionId,
+        poll.id,
+      );
+
+      const expectedSecondHash = expectedVoteHash(
+        expectedFirstHash,
+        secondUuid,
+        secondOptionId,
+        poll.id,
+      );
+
+      assertEquals(firstVote.previousHash, "0");
+      assertEquals(firstVote.currentHash, expectedFirstHash);
+
+      assertEquals(secondVote.previousHash, firstVote.currentHash);
+      assertEquals(secondVote.previousHash, expectedFirstHash);
+      assertEquals(secondVote.currentHash, expectedSecondHash);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+/* database test skeleton
+Deno.test({
+  name: "eligible user can open started poll",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      // seed data
+      // login
+      // open poll
+      // assertions
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+*/
 
 /* I have commented old test out since i keep getting errors from them
 Deno.test({
