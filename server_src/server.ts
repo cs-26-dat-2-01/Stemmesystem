@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { setCookie } from "@hono/hono/cookie";
+import { deleteCookie, setCookie } from "@hono/hono/cookie";
 import * as argon2 from "npm:argon2@0.44.0";
 import { logger, MIME_TYPES } from "./main_lib.ts";
 import { WebappDatabase } from "./database.ts";
@@ -22,8 +22,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   const pollManager = new PollManager(DB);
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {
-    logger
-      .info`Received login request. Attempting to parse JSON body for username and password.`;
+    logger.info`Received login request. Attempting to parse JSON body for username and password.`;
 
     // Parse user credential from request body. If parsing fails, then the user provided an invalid JSON body and a 400 response is returned.
     let userCredentials = undefined;
@@ -31,16 +30,14 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       userCredentials = await c.req.json();
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
+      logger.info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
       return c.body("Invalid JSON body", 400);
     }
 
     // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
     const result = await DB.getUserFromDB(userCredentials.username);
     if (result.httpStatusCode !== 200) {
-      logger
-        .info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
+      logger.info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
       return c.body(``, result.httpStatusCode);
     }
     const user = result.user as User; // This is safe because if httpStatusCode is 200.
@@ -58,14 +55,13 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
+      logger.error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
       return c.body("Internal Server Error", 500);
     }
 
-    if (argon2Result) { // Password matched.
-      logger
-        .debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
+    if (argon2Result) {
+      // Password matched.
+      logger.debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
 
       const token = await createJWT({
         userId: user.id,
@@ -81,6 +77,14 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
         maxAge: TOKEN_EXPIRE_TIME,
       });
 
+      // Username cookie for display purposes
+      setCookie(c, "user", user.name, {
+        secure: true,
+        httpOnly: false,
+        sameSite: "Strict",
+        maxAge: TOKEN_EXPIRE_TIME,
+      });
+
       // This cookie is not secret and is used for browser logic only.
       setCookie(c, "isLoggedIn", "true", {
         secure: true,
@@ -88,19 +92,17 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
         sameSite: "Strict",
         maxAge: TOKEN_EXPIRE_TIME,
       });
-      logger
-        .info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger.info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
 
       return c.body("login successful", 200);
-    } else { // password did not match
-      logger
-        .info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
+    } else {
+      // password did not match
+      logger.info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
       return c.body("Login incorrect", 401);
     }
 
     // deno-lint-ignore no-unreachable
-    logger
-      .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
+    logger.error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
   });
 
   /*
@@ -162,7 +164,31 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
-  /* User opens the poll page for a specific poll */
+  /*
+  Route: /logout
+  Description:
+    Clears the cookies on the server, which is needed for httpOnly cookies
+  */
+  router.post("/logout", (c) => {
+    deleteCookie(c, "JWT", {
+      secure: true,
+      sameSite: "Strict",
+    });
+    deleteCookie(c, "user", {
+      secure: true,
+      sameSite: "Strict",
+    });
+    deleteCookie(c, "isLoggedIn", {
+      secure: true,
+      sameSite: "Strict",
+    });
+
+    return c.body("Logged out", 200);
+  });
+  /* User opens the poll page for a specific poll
+    This will give the index.html and let bundle.js handle everything. This is because we need to do a post
+    with the UUID in, and that will retrieve the actual data.
+  */
   router.get("/poll/:pollId", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
