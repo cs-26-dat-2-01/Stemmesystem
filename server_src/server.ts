@@ -1,34 +1,28 @@
 import { Hono } from "@hono/hono";
-import { setCookie } from "@hono/hono/cookie";
+import { deleteCookie, setCookie } from "@hono/hono/cookie";
 import * as argon2 from "npm:argon2@0.44.0";
 import { logger, MIME_TYPES } from "./main_lib.ts";
-import { User, WebappDatabase } from "./database.ts";
+import { WebappDatabase } from "./database.ts";
+import { User } from "../client_src/WebLib.ts";
 import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
-import { getClientVersion, validateClientVersion } from "./api.ts";
-import { cors } from "@hono/hono/cors";
+import { addUser, assertClientVersion } from "./api.ts";
+import { PollManager } from "./pollManager.ts";
+
 /**
  * Start the web application.
+ *
+ * @param A instance of a WebappDatabase.
  */
-export async function startServer() {
+export function startServer(DB: WebappDatabase, ac: AbortController) {
+  const { signal } = ac;
   // logger.trace`testing that hot reload work`;
 
   const router = new Hono();
 
-  router.use("/*", cors({
-  origin: "http://localhost:5173",
-  credentials: true,
-}));
-
-  const databasePath: string = "./database/users.db";
-  const _file = await Deno.create(databasePath);
-  const DB: WebappDatabase = await WebappDatabase.initDatabase(
-    databasePath,
-  );
-
+  const pollManager = new PollManager(DB);
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {
-    logger
-      .info`Received login request. Attempting to parse JSON body for username and password.`;
+    logger.info`Received login request. Attempting to parse JSON body for username and password.`;
 
     // Parse user credential from request body. If parsing fails, then the user provided an invalid JSON body and a 400 response is returned.
     let userCredentials = undefined;
@@ -36,23 +30,19 @@ export async function startServer() {
       userCredentials = await c.req.json();
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
+      logger.info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
       return c.body("Invalid JSON body", 400);
     }
 
     // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
-    const result = DB.getUserFromDB(userCredentials.username);
+    const result = await DB.getUserFromDB(userCredentials.username);
     if (result.httpStatusCode !== 200) {
-      logger
-        .info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
+      logger.info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
       return c.body(``, result.httpStatusCode);
     }
     const user = result.user as User; // This is safe because if httpStatusCode is 200.
 
-    logger.debug(
-      `{id: ${user.id}, username: "${user.name}"} succesfully retrived from database.`,
-    );
+    logger.debug`User: ${user}, succesfully retrived from database.`;
 
     // Check that the password provided by the user match the stored password hash.
     // Also handle any unexpected errors from argon2 and return a 500 status code in that case.
@@ -65,14 +55,13 @@ export async function startServer() {
       );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
+      logger.error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
       return c.body("Internal Server Error", 500);
     }
 
-    if (argon2Result) { // Password matched.
-      logger
-        .debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
+    if (argon2Result) {
+      // Password matched.
+      logger.debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
 
       const token = await createJWT({
         userId: user.id,
@@ -88,26 +77,32 @@ export async function startServer() {
         maxAge: TOKEN_EXPIRE_TIME,
       });
 
+      // Username cookie for display purposes
+      setCookie(c, "user", user.name, {
+        secure: true,
+        httpOnly: false,
+        sameSite: "Strict",
+        maxAge: TOKEN_EXPIRE_TIME,
+      });
+
       // This cookie is not secret and is used for browser logic only.
       setCookie(c, "isLoggedIn", "true", {
-        secure: false,
+        secure: true,
         httpOnly: false, // Cookie has to be accessible by scripts.
         sameSite: "Strict",
         maxAge: TOKEN_EXPIRE_TIME,
       });
-      logger
-        .info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger.info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
 
       return c.body("login successful", 200);
-    } else { // password did not match
-      logger
-        .info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
+    } else {
+      // password did not match
+      logger.info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
       return c.body("Login incorrect", 401);
     }
 
     // deno-lint-ignore no-unreachable
-    logger
-      .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
+    logger.error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
   });
 
   /*
@@ -118,22 +113,44 @@ export async function startServer() {
   */
   router.get("/api/version", async (c) => {
     return await hasValidJWT(c, () => {
-      const clientVersion = getClientVersion(c);
+      const result = assertClientVersion(c);
+      return c.json(result);
+    });
+  });
 
-      if (clientVersion instanceof Error) {
-        logger.trace`${clientVersion}`;
-
-        if (clientVersion.cause === undefined) {
-          return c.body(JSON.stringify(clientVersion.message), 400, {
-            "Content-Type": "application/json",
-          });
-        }
-      } else {
-        logger.trace`fn getClientVersion succeeded: ${clientVersion}`;
-
-        const result = validateClientVersion(c, clientVersion);
-        return c.json(result.res, result.status);
+  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
+  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  router.get("/api/polls", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const userResult = await DB.getUserFromDB(payload.username);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
       }
+      const polls = await DB.getAllPolls(userResult.user.id);
+      return c.json(polls, 200);
+    });
+  });
+
+  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
+  router.get("/admin", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  router.post("/api/admin/add-user", async (c) => {
+    return await hasValidJWT(c, async (verifiedPayload) => {
+      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
+        logger.trace`Failed authenication atempt on admin API route.`;
+        return c.body("401 Unauthorized", 401);
+      }
+      const req = await c.req.json();
+
+      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
+      return c.body("", result);
     });
   });
 
@@ -152,7 +169,7 @@ export async function startServer() {
     // Sanitize URL path as only the directory "dist" is the only directory to be publicly served.
     // Deno permissions should also catch any attempts to reach any top level directory outside of "dist"
     const filePath = `./dist/${path}`;
-    logger.trace(`router.get("/assets/*", ...) resovled to path: ${filePath}`);
+    // logger.trace(`router.get("/assets/*", ...) resovled to path: ${filePath}`);
 
     try {
       const file = await Deno.readFile(filePath);
@@ -170,72 +187,119 @@ export async function startServer() {
     }
   });
 
-  // ─── Admin-routes ──────────────────────────────────────────────────────────
-  // Alle /admin/* routes kræver at brugeren har et gyldigt JWT-token (er logget ind).
-  // På sigt bør disse routes også tjekke om brugeren har admin-rettigheder.
-  // TODO: Tilføj rolle-baseret adgangskontrol (f.eks. isAdmin-felt i databasen).
+  /*
+  Route: /logout
+  Description:
+    Clears the cookies on the server, which is needed for httpOnly cookies
+  */
+  router.post("/logout", (c) => {
+    deleteCookie(c, "JWT", {
+      secure: true,
+      sameSite: "Strict",
+    });
+    deleteCookie(c, "user", {
+      secure: true,
+      sameSite: "Strict",
+    });
+    deleteCookie(c, "isLoggedIn", {
+      secure: true,
+      sameSite: "Strict",
+    });
 
-  // GET /admin/users — returnerer en liste af alle brugere (uden passwordHash)
-  router.get("/admin/users", async (c) => {
-    return await hasValidJWT(c, () => {
-      try {
-        // Hent alle brugere fra databasen — vi sender aldrig passwordHash til klienten
-        const brugere = DB.getAllUsers();
-        return c.json(brugere, 200);
-      } catch {
-        return c.body("Intern serverfejl", 500);
+    return c.body("Logged out", 200);
+  });
+  /* User opens the poll page for a specific poll
+    This will give the index.html and let bundle.js handle everything. This is because we need to do a post
+    with the UUID in, and that will retrieve the actual data.
+  */
+  router.get("/poll/:pollId", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  router.post("/api/poll/:pollId/open", (c) => {
+    return hasValidJWT(c, async (payload) => {
+      // 1. parse pollId from URL
+      const pollIdStr = c.req.param("pollId");
+      const pollId = Number(pollIdStr);
+      if (Number.isNaN(pollId)) {
+        return c.body("Invalid pollId", 400);
       }
+
+      // 3. get userId from payload (payload.userId)
+      const userid = payload.userId as number;
+
+      // 4. Call pollManager.openPoll(pollId, useriD, UUID)
+      const pollData = await pollManager.openPoll(pollId, userid);
+      // 5. if null -> 404  if obect --> c.json(result)
+      if (pollData.errorMsg) {
+        return c.body(pollData.errorMsg, 403);
+      }
+      return c.json(pollData.result);
     });
   });
 
-  // POST /admin/users — opretter en ny bruger med brugernavn og adgangskode
-  router.post("/admin/users", async (c) => {
-    return await hasValidJWT(c, async () => {
-      let body;
+  router.post("/api/poll/:pollId/vote", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      // 1. parse polldId from URL + validate
+      const pollIdStr = c.req.param("pollId");
+      const pollId = Number(pollIdStr);
+      if (Number.isNaN(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      // 2 parse body --> {optionId, UUID} + validate
+      let body = undefined;
       try {
         body = await c.req.json();
       } catch {
-        return c.body("Ugyldigt JSON", 400);
+        return c.body("Invalid JSON body", 400);
       }
 
-      const { username, password } = body;
+      if (!Array.isArray(body.votes)) {
+        return c.body("Missing or invalid votes array", 400);
+      }
+      const hasValidVotes = body.votes.every((vote: unknown) => {
+        if (typeof vote !== "object" || vote == null) return false; // typeof null is "object" so we shall check vote ==== null explicit
 
-      if (!username || !password) {
-        return c.body("Brugernavn og adgangskode er påkrævet", 400);
+        const v = vote as { optionId?: unknown; UUID?: unknown };
+        return Number.isInteger(v.optionId) && typeof v.UUID === "string";
+      });
+
+      if (!hasValidVotes) {
+        return c.body("Invalid vote shape", 400);
+      }
+      // 3. userId from payload
+      const userid = payload.userId as number;
+      // 4. await pollManager
+      const castedVote = await pollManager.castVote(
+        pollId,
+        userid,
+        body.votes,
+      );
+
+      // 5. if result.success === false --> errormsg
+      if (castedVote.success === false) {
+        return c.body(castedVote.errorMsg ?? "Vote failed", 400);
       }
 
-      // Tjek om brugernavnet allerede er taget
-      const eksisterende = DB.getUserFromDB(username);
-      if (eksisterende.httpStatusCode === 200) {
-        return c.body("Brugernavnet er allerede taget", 409);
-      }
-
-      await DB.addUserToDB(username, password);
-      return c.body("Bruger oprettet", 201);
+      // if success casted!
+      return c.body("Vote cast", 200);
     });
   });
 
-  // DELETE /admin/users/:username — sletter en bruger baseret på brugernavn
-  router.delete("/admin/users/:username", async (c) => {
-    return await hasValidJWT(c, () => {
-      const username = c.req.param("username");
+  // Deno.addSignalListener("SIGINT", () => {
+  //   logger.info`Caught SIGINT, shutting down...`;
+  //   ac.abort(); // Gracefully shut down server
+  //   DB.closeDB;
+  //   Deno.exit(0); // Ensure zero exit code
+  // });
 
-      // Beskyt admin-kontoen mod at blive slettet
-      if (username === "admin") {
-        return c.body("Admin-kontoen kan ikke slettes", 403);
-      }
+  const server = Deno.serve({ signal }, router.fetch);
+  return server.finished;
 
-      // Tjek at brugeren faktisk eksisterer inden vi forsøger at slette
-      const bruger = DB.getUserFromDB(username);
-      if (bruger.httpStatusCode !== 200) {
-        return c.body("Bruger ikke fundet", 404);
-      }
-
-      DB.deleteUserFromDB(username);
-      return c.body("Bruger slettet", 200);
-    });
-  });
-
-  Deno.serve(router.fetch);
   // closeDB(); // Figure out where to actually close this.
 }
