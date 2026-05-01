@@ -5,7 +5,12 @@
     "dist"
   ],
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "deno.ns", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "deno.ns",
+      "esnext"
+    ],
     "jsx": "react-jsx",
     "jsxImportSource": "react"
   },
@@ -19,15 +24,18 @@
   },
   "lint": {
     "rules": {
-      "tags": ["recommended"],
-      "include": ["camelcase"]
+      "tags": [
+        "recommended"
+      ],
+      "include": [
+        "camelcase"
+      ]
     }
   },
   "allowScripts": [
     "npm:@prisma/engines@4.16.2",
     "npm:@prisma/engines@7.8.0",
     "npm:argon2@0.44.0",
-    "npm:better-sqlite3@12.9.0",
     "npm:prisma@4.16.2",
     "npm:prisma@7.8.0"
   ]

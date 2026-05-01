@@ -74,10 +74,10 @@ Prisma also needs to be initialized locally. This requires Node/npm so `npx` is 
 
 Generate the Prisma client and apply the schema to the configured database: 
 ```shell 
-npx prisma generate
-npx prisma db push 
+deno run -A prisma generate
+deno run -A prisma db push 
 ```
-npx prisma generate updates the generated Prisma client in generated/prisma, and npx prisma db push applies prisma/schema.prisma to the database from DATABASE_URL. 
+`prisma generate` updates the generated Prisma client in generated/Prisma, and `npx prisma db push` applies `./prisma/schema.prisma` to the database from DATABASE_URL. 
 
 
 ### Deno Tasks
