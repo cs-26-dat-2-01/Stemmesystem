@@ -1,11 +1,8 @@
-// https://docs.deno.com/examples/sqlite/
-// https://nodejs.org/api/sqlite.html#sqlite
-import { DatabaseSync } from "node:sqlite";
-
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#password-hashing-algorithms
 // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 import * as argon2 from "npm:argon2@0.44.0"; // used for hashing
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { PrismaLibSql } from "@prisma/adapter-libsql";
 import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
 import {
@@ -17,6 +14,8 @@ import {
   User,
   Vote,
 } from "../client_src/WebLib.ts";
+
+import { Prisma, PrismaClient } from "../generated/prisma/client.ts";
 
 /**
  * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.
@@ -37,158 +36,95 @@ interface getPollFromDBResult {
   httpStatusCode: ContentfulStatusCode;
 }
 
-interface createVoteTokenResult {
-  token?: string;
-  alreadyExisted?: boolean; //true hvis vi bare læste eksisternde UUID fra DB, false hvis vi lavede en ny UUID og gemte i DB.
-  errorMsg?: string;
-  httpStatusCode: ContentfulStatusCode;
-}
-
-interface getVoteTokenResult {
-  UUID?: string;
-  used?: number;
-  errorMsg?: string;
-  httpStatusCode: ContentfulStatusCode;
-}
-
 export interface AuditLogEntry {
+  id: number;
   action: string;
-  UUID: string;
   timestamp: string;
   details: string | null;
+}
+
+export interface VoteInsert {
+  optionId: number;
+  UUID: string;
+  previousHash: string;
+  currentHash: string;
 }
 
 /**
  * Class for creating an ad hoc database object for the web application.
  */
 export class WebappDatabase {
-  private DB!: DatabaseSync;
+  private prisma!: PrismaClient;
 
   /**
    * Disabled public use of constructor due to async limitation.
    *
    * @param adminPassword
-   * @param filePath
    */
-  private constructor(adminPassword: string, filePath: string) {
-    this.DB = new DatabaseSync(filePath);
+  private constructor(adminPassword: string, databaseUrl = env.DATABASE_URL) {
+    this.prisma = new PrismaClient({
+      adapter: new PrismaLibSql({ url: databaseUrl }),
+    });
+  }
 
-    // Create database file. -------------------------------
-    // To-do: remove AUTOINCREMENT as it does not fit
-    // the use case. (See https://sqlite.org/autoinc.html)
-    // -----------------------------------------------------
-
-    //SQLite does not support foreign keys by default, so we need to enable it
-    // I think we need foreign keys since for example poll_option a vote without a valid poll_option should not be possible.
-    this.DB.exec("PRAGMA foreign_keys = ON;");
-
-    // jeg er tvivl om vi skal tage stilling til ON DELETE ved createdBy, synes ikke der er nogen optioner der giver mening f.eks.
-    // cascade er uønsket, set null så skal vi ihvertfald tillade den at være null og det tænker jeg ikke giver mening,
-    // restrict vil gøre at vi ikke kan slette brugere der har oprettet polls, og det synes jeg heller ikke er ønskeligt. Så måske skal vi bare lade være med at
-    // specificere det og så er det default som er no action? evt få en 'superadministrator' rolle, som den CreatedBy assignes til hvis brugeren slettes.
-
-    // Unique is voteTokens sørgerer for at bruger kan få to aktive tokens til samme afstemning.
-    this.DB.exec(
-      `
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT NOT NULL UNIQUE,
-          passwordHash TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS polls (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          title TEXT NOT NULL,
-          description TEXT NOT NULL,
-          voteStatus TEXT NOT NULL DEFAULT 'draft', 
-          createdBy INTEGER NOT NULL REFERENCES users(id),
-          createdAt TEXT NOT NULL DEFAULT (datetime('now')), 
-          startsAt TEXT, 
-          endsAt TEXT,
-          pollVisibility TEXT NOT NULL DEFAULT 'private',
-          ballotPrivacy TEXT NOT NULL DEFAULT 'secret',
-          showTopN INTEGER NOT NULL DEFAULT 0,
-          ballotLimit INTEGER NOT NULL DEFAULT 1,
-          useBuffer INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS pollEligibleVoters(
-          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
-          userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          PRIMARY KEY(pollId, userId)
-          );
-        CREATE TABLE IF NOT EXISTS pollOptions (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
-          optionText TEXT NOT NULL,
-          displayOrder INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS voteTokens (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
-          userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          UUID TEXT NOT NULL UNIQUE,
-          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-          used INTEGER NOT NULL DEFAULT 0,
-          UNIQUE(pollId, userId) 
-        );
-        CREATE TABLE IF NOT EXISTS votes (
-          id TEXT PRIMARY KEY REFERENCES voteTokens(UUID),
-          pollId INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
-          pollOptionId INTEGER NOT NULL REFERENCES pollOptions(id) ON DELETE CASCADE,
-          timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-          previousHash TEXT NOT NULL UNIQUE,
-          currentHash TEXT NOT NULL UNIQUE
-        );
-        CREATE TABLE IF NOT EXISTS auditLog(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        action TEXT NOT NULL,
-        UUID TEXT NOT NULL References votetokens(UUID),
-        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-        details TEXT 
-        );
-     `,
-    );
-
-    // Create admin user.
-    try {
-      // https://github.com/ranisalt/node-argon2
-
-      this.DB.prepare(
-        `
-          INSERT INTO users (username, passwordHash)
-          VALUES (?, ?)
-          ON CONFLICT(username) DO NOTHING
-        `,
-      ).run("admin", adminPassword);
-    } catch (err) {
+  private async ensureAdminUser(adminPassword: string): Promise<void> {
+    await this.prisma.user.upsert({
+      where: { username: "admin" },
+      update: {}, // Do not update if admin user already exists
+      create: {
+        username: "admin",
+        passwordHash: adminPassword,
+      },
+    }).then(() => {
+      logger.info("Admin user created or already exists in database.");
+    }).catch((err: { message: string }) => {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger.fatal`Error while creating admin user in database: ${errMsg}`;
       throw new Error("Error while creating admin user in database.");
+    });
+  }
+  private async logDatabaseState(): Promise<void> {
+    try {
+      const rows = await this.prisma.user.findMany({
+        select: { id: true, username: true, passwordHash: true },
+      });
+      logger.trace("DB | Users: {rows}", { rows });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error`Error fetching users via Prisma: ${errMsg}`;
     }
 
-    // Print all user entries.
-    const rows = this.DB.prepare(
-      "SELECT id, username, passwordHash FROM users",
-    ).all();
-    logger.trace("DB | Users: {rows}", { rows });
-
-    // Print all user entries.
-    const polls = this.DB.prepare("SELECT * FROM polls").all();
-    logger.trace`"DB | Polls: ${polls}"`;
+    try {
+      const polls = await this.prisma.poll.findMany();
+      logger.trace("DB | Polls: {polls}", { polls });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error`Error fetching polls via Prisma: ${errMsg}`;
+    }
   }
-
   /**
    * Initialize the SQLite database for the web application.
    *
    * @param filePath the path to the database file. If not found a new file will be created.
    */
-  public static async initDatabase(filePath: string): Promise<WebappDatabase> {
-    const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD);
-    const dbInstance = new WebappDatabase(adminPassword, filePath);
+  public static async initDatabase(
+    databaseUrl = env.DATABASE_URL,
+  ): Promise<WebappDatabase> {
+    const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD); // https://github.com/ranisalt/node-argon2
+    const dbInstance = new WebappDatabase(adminPassword, databaseUrl);
+    await dbInstance.ensureAdminUser(adminPassword);
+    await dbInstance.logDatabaseState();
 
     // Get admin from database
-    const { user, httpStatusCode, errorMsg } = dbInstance.getUserFromDB(
+    const { user, httpStatusCode, errorMsg } = await dbInstance.getUserFromDB(
       "admin",
     );
+
+    if (!user) {
+      logger
+        .fatal`Admin user not found in database after initialization. Status code: ${httpStatusCode}, error message: ${errorMsg}`;
+      throw new Error("Admin user not found in database after initialization.");
+    }
 
     // Check if admin user is in database
     if (httpStatusCode !== 200) {
@@ -217,35 +153,30 @@ export class WebappDatabase {
    *
    * @param username used that will be looked up and fetched from the db.
    */
-  public getUserFromDB(username: string): getUserFromDBResult {
-    const sqlResult = this.DB.prepare(
-      "SELECT id, username, passwordHash FROM users WHERE username = (?)",
-    ).get(username);
+  public async getUserFromDB(username: string): Promise<getUserFromDBResult> {
+    try {
+      const sqlResult = await this.prisma.user.findUnique({
+        where: { username },
+        select: { id: true, username: true, passwordHash: true },
+      });
 
-    if (typeof sqlResult === "undefined") {
-      logger.info`User with username: ${username} not found in database.`;
-      return { errorMsg: "User not found in database", httpStatusCode: 400 };
+      if (typeof sqlResult === "undefined" || sqlResult === null) {
+        logger.info`User with username: ${username} not found in database.`;
+        return { errorMsg: "User not found in database", httpStatusCode: 400 };
+      }
+
+      const user: User = {
+        id: sqlResult.id,
+        name: sqlResult.username,
+        passwordHash: sqlResult.passwordHash,
+      };
+
+      return { user, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error`Error fetching user via Prisma: ${errMsg}`;
+      return { errorMsg: "Error fetching user", httpStatusCode: 500 };
     }
-
-    const { id, username: fetchedUsername, passwordHash } = sqlResult;
-
-    const hasValidShape = typeof id === "number" &&
-      typeof fetchedUsername === "string" &&
-      typeof passwordHash === "string";
-
-    if (!hasValidShape) {
-      logger
-        .error`500 Internal Server Error: User object cannot get created correctly, user does not exist in database.`;
-      return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
-    }
-
-    const user: User = {
-      id,
-      name: fetchedUsername,
-      passwordHash,
-    };
-
-    return { user, httpStatusCode: 200 };
   }
 
   /**
@@ -260,22 +191,40 @@ export class WebappDatabase {
     password: string,
   ): Promise<ContentfulStatusCode> {
     try {
+      // Check existence of user first to avoid duplicate and unnecessary work.
+      const exists = await this.prisma.user.findUnique({
+        where: { username },
+      });
+      if (exists) {
+        logger.info`User with username: ${username} already exists.`;
+        return 200; // user already present
+      }
+
       // https://github.com/ranisalt/node-argon2
-      this.DB.prepare(
-        `
-        INSERT INTO users (username, passwordHash)
-        VALUES (?, ?)
-        ON CONFLICT(username) DO NOTHING
-        `,
-      ).run(username, await argon2.hash(password));
+      const passwordHash = await argon2.hash(password);
+
+      // Attempt to create; handle possible race where user was created concurrently
+      try {
+        await this.prisma.user.create({ data: { username, passwordHash } });
+        logger.info`Created user in database with username: ${username}`;
+        return 201;
+      } catch (createErr) {
+        // Prisma unique constraint error code `P2002` means username was created concurrently.
+        const errorCode = (createErr as Prisma.PrismaClientKnownRequestError)
+          ?.code;
+        if (errorCode === "P2002") {
+          logger
+            .info`User with username: ${username} already exists (concurrent create).`;
+          return 200;
+        }
+        throw createErr;
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
       return 500;
     }
-    logger.info`Added user to database with username: ${username}`;
-    return 201;
   }
 
   /**
@@ -283,12 +232,20 @@ export class WebappDatabase {
    *
    * @param username of the user going to be deleted from the database
    */
-  public deleteUserFromDB(username: string) {
-    const _sqlResult = this.DB.prepare(
-      "DELETE FROM users WHERE username = (?)",
-    ).run(username);
-
-    logger.info(`Deleted user from database with username: {{${username}}}`);
+  public async deleteUserFromDB(username: string) {
+    try {
+      await this.prisma.user.delete({ where: { username } });
+      logger.info`Deleted user from database with username: ${username}`;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      // If the user does not exist Prisma throws a `P2025` error; log as info.
+      if ((err as Prisma.PrismaClientKnownRequestError)?.code === "P2025") {
+        logger.info`User with username: ${username} not found while deleting.`;
+        return;
+      }
+      logger
+        .error`Error deleting user with username: ${username}. Error: ${errMsg}`;
+    }
   }
 
   /**
@@ -297,249 +254,174 @@ export class WebappDatabase {
    * @todo tie this in with a proper destructor.
    */
   public closeDB() {
-    this.DB.close();
+    return this.prisma.$disconnect();
   }
 
-  public getPollFromDB(pollId: number): getPollFromDBResult {
-    const sqlResult = this.DB.prepare(
-      "SELECT id, title, description, voteStatus, createdBy, createdAt, startsAt, endsAt, pollVisibility, ballotPrivacy, showTopN, ballotLimit, useBuffer FROM polls WHERE id = (?)",
-    ).get(pollId);
-
-    if (typeof sqlResult === "undefined") {
-      logger.info`Poll with ID: ${pollId} not found in database.`;
-      return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
-    }
-
-    const {
-      id,
-      title,
-      description,
-      voteStatus,
-      createdBy,
-      createdAt,
-      startsAt,
-      endsAt,
-      pollVisibility,
-      ballotPrivacy,
-      showTopN,
-      ballotLimit,
-      useBuffer,
-    } = sqlResult;
-
-    const validStatuses = [
-      "draft",
-      "saved",
-      "not started",
-      "started",
-      "finished",
-    ];
-    const validVisibilities = ["public", "private"];
-    const validPrivacies = ["secret", "open"];
-
-    const hasValidShape = typeof id === "number" &&
-      typeof title === "string" &&
-      typeof description === "string" &&
-      typeof voteStatus === "string" && validStatuses.includes(voteStatus) &&
-      typeof createdBy === "number" &&
-      typeof createdAt === "string" &&
-      (typeof startsAt === "string" || startsAt === null) &&
-      (typeof endsAt === "string" || endsAt === null) &&
-      typeof pollVisibility === "string" &&
-      validVisibilities.includes(pollVisibility) &&
-      typeof ballotPrivacy === "string" &&
-      validPrivacies.includes(ballotPrivacy) &&
-      typeof showTopN === "number" &&
-      typeof ballotLimit === "number" &&
-      typeof useBuffer === "number";
-
-    if (!hasValidShape) {
-      logger
-        .error`500 Internal Server Error: Poll object cannot get created correctly, poll does not exist in database.`;
-      return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
-    }
-
-    const poll: Poll = {
-      id,
-      title,
-      description,
-      voteStatus: voteStatus as pollStatus,
-      createdBy,
-      createdAt,
-      startsAt: startsAt ?? undefined,
-      endsAt: endsAt ?? undefined,
-      pollVisibility: pollVisibility as pollVisibility,
-      ballotPrivacy: ballotPrivacy as ballotPrivacy,
-      showTopN,
-      ballotLimit,
-      useBuffer,
-    };
-
-    return { poll, httpStatusCode: 200 };
-  }
-
-  public getPollOptionsFromDB(pollId: number): PollOption[] {
-    const sqlResults = this.DB.prepare(
-      "SELECT id, pollId, optionText, displayOrder FROM pollOptions WHERE pollId = (?) ORDER BY displayOrder ASC",
-    ).all(pollId);
-
-    if (typeof sqlResults === "undefined") {
-      logger.info`Poll with ID: ${pollId} not found in database.`;
-      // return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
-    }
-
-    const pollOptions: PollOption[] = [];
-    for (const row of sqlResults) {
-      const { id, pollId, optionText, displayOrder } = row;
-
-      const hasValidShape = typeof id === "number" &&
-        typeof pollId === "number" &&
-        typeof optionText === "string" &&
-        typeof displayOrder === "number";
-
-      if (!hasValidShape) {
-        logger
-          .error`500 Internal Server Error: PollOption object cannot get created correctly, poll option does not exist in database.`;
-        continue;
-      }
-      pollOptions.push({
-        id,
-        pollId,
-        optionText,
-        displayOrder,
+  public async getPollFromDB(pollId: number): Promise<getPollFromDBResult> {
+    try {
+      const sqlResult = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          voteStatus: true,
+          createdBy: true,
+          createdAt: true,
+          startsAt: true,
+          endsAt: true,
+          pollVisibility: true,
+          ballotPrivacy: true,
+          showTopN: true,
+          ballotLimit: true,
+          useBuffer: true,
+        },
       });
-    }
 
-    return pollOptions;
+      if (!sqlResult) {
+        logger.info`Poll with ID: ${pollId} not found in database.`;
+        return { errorMsg: "Poll not found in database", httpStatusCode: 400 };
+      }
+
+      const poll: Poll = {
+        id: sqlResult.id,
+        title: sqlResult.title,
+        description: sqlResult.description,
+        voteStatus: sqlResult.voteStatus as pollStatus,
+        createdBy: sqlResult.createdBy,
+        createdAt: sqlResult.createdAt.toString(),
+        startsAt: sqlResult.startsAt
+          ? sqlResult.startsAt.toString()
+          : undefined,
+        endsAt: sqlResult.endsAt ? sqlResult.endsAt.toString() : undefined,
+        pollVisibility: sqlResult.pollVisibility as pollVisibility,
+        ballotPrivacy: sqlResult.ballotPrivacy as ballotPrivacy,
+        showTopN: sqlResult.showTopN,
+        ballotLimit: sqlResult.ballotLimit,
+        useBuffer: sqlResult.useBuffer,
+      };
+
+      return { poll, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error`Error fetching poll via Prisma: ${errMsg}`;
+      return { errorMsg: "Error fetching poll", httpStatusCode: 500 };
+    }
   }
 
-  public createVoteToken(
+  /**
+   * Fetches the poll options for a given poll from the database.
+   * Returns an empty array if no options are found or if an error occurs during fetching.
+   * The options are ordered by their `displayOrder` in ascending order.
+   *
+   * @param pollId the ID of the poll for which the options should be fetched.
+   * @returns Promise<PollOption[]> a promise that resolves to an array of PollOption objects representing the options for the specified poll. If no options are found or if an error occurs, the promise resolves to an empty array.
+   */
+  public async getPollOptionsFromDB(pollId: number): Promise<PollOption[]> {
+    try {
+      return await this.prisma.pollOption.findMany({
+        where: { pollId },
+        select: {
+          id: true,
+          pollId: true,
+          optionText: true,
+          displayOrder: true,
+        },
+        orderBy: { displayOrder: "asc" },
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger
+        .error`Error fetching poll options via Prisma for poll ID: ${pollId}. Error: ${errMsg}`;
+      return [];
+    }
+  }
+
+  /**
+   * Inserts a batch of votes into the database.
+   *
+   * @param pollId
+   * @param userId
+   * @param votes
+   * @returns An object indicating the success of the operation, an optional error message if the operation failed, and an HTTP status code representing the result of the operation.
+   */
+  public async insertVoteBatch(
     pollId: number,
     userId: number,
-    ClientUUID: string,
-  ): createVoteTokenResult {
-    try {
-      const sqlResult = this.DB.prepare(`
-        INSERT INTO voteTokens (pollId, userId, UUID)
-        VALUES (?, ?, ?)
-        ON CONFLICT(pollId, userId) DO UPDATE SET UUID = UUID
-        RETURNING UUID
-        `).get(pollId, userId, ClientUUID);
-
-      if (!sqlResult || typeof sqlResult.UUID !== "string") {
-        return { errorMsg: "Failed to store vote token", httpStatusCode: 500 };
-      }
-
-      const storedUUID = sqlResult.UUID as string;
-      const alreadyExisted = storedUUID !== ClientUUID;
-
-      return { token: storedUUID, alreadyExisted, httpStatusCode: 200 };
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while creating vote token for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
-      return {
-        errorMsg: "Error while creating vote token",
-        httpStatusCode: 500,
-      };
-    }
-  }
-
-  public getVoteToken(pollId: number, userId: number): getVoteTokenResult {
-    try {
-      const sqlResult = this.DB.prepare(`
-        SELECT UUID, used FROM voteTokens
-        WHERE pollId = ? AND userId = ?
-        `).get(pollId, userId);
-
-      if (typeof sqlResult === "undefined") {
-        logger
-          .info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database.`;
-        return {
-          errorMsg: "Vote token not found in database",
-          httpStatusCode: 400,
-        };
-      }
-
-      const { UUID, used } = sqlResult;
-      const hasValidShape = typeof UUID === "string" &&
-        typeof used === "number";
-
-      if (!hasValidShape) {
-        logger.error`500 Internal Server Error: VoteToken has invalid shape.`;
-        return { errorMsg: "500 Internal Server Error", httpStatusCode: 500 };
-      }
-
-      return { UUID, used, httpStatusCode: 200 };
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while fetching vote token for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
-      return {
-        errorMsg: "Error while fetching vote token",
-        httpStatusCode: 500,
-      };
-    }
-  }
-
-  public markTokenUsed(
-    pollId: number,
-    userId: number,
-  ): {
+    votes: VoteInsert[],
+  ): Promise<{
     success: boolean;
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
-  } {
+  }> {
     try {
-      const sqlResult = this.DB.prepare(`
-        UPDATE voteTokens
-        SET used = 1
-        WHERE pollId = ? AND userId = ?
-        `).run(pollId, userId);
+      await this.prisma.$transaction(async (tx) => {
+        const eligibleVoter = await tx.pollEligibleVoter.findUnique({
+          where: {
+            pollId_userId: {
+              pollId,
+              userId,
+            },
+          },
+          select: { votesAllowed: true },
+        });
 
-      if (sqlResult.changes === 0) {
-        logger
-          .info`Vote token for poll with ID: ${pollId} and user with ID: ${userId} not found in database, cannot mark as used.`;
+        const votesAllowed = eligibleVoter?.votesAllowed ?? 0;
+        const alreadyCast = await tx.voteToken.count({
+          where: { pollId, userId },
+        });
+
+        if (votesAllowed <= 0) {
+          throw new Error("NO_VOTING_POWER");
+        }
+
+        // Does not have partial acceptance. If user tries to cast more votes than allowed, the entire batch is rejected?
+        if (votes.length + alreadyCast > votesAllowed) {
+          throw new Error("QUOTA_EXCEEDED");
+        }
+
+        for (const v of votes) {
+          await tx.voteToken.create({
+            data: {
+              pollId,
+              userId,
+              uuid: v.UUID,
+            },
+          });
+
+          await tx.vote.create({
+            data: {
+              id: v.UUID,
+              pollId,
+              pollOptionId: v.optionId,
+              previousHash: v.previousHash,
+              currentHash: v.currentHash,
+            },
+          });
+        }
+      });
+
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      if (errMsg === "NO_VOTING_POWER") {
         return {
           success: false,
-          errorMsg: "Vote token not found in database",
+          errorMsg: "User has no voting power for this poll.",
+          httpStatusCode: 403,
+        };
+      }
+
+      if (errMsg === "QUOTA_EXCEEDED") {
+        return {
+          success: false,
+          errorMsg: "Quota exceeded.",
           httpStatusCode: 400,
         };
       }
-      return { success: true, httpStatusCode: 200 };
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while marking vote token as used for poll with ID: ${pollId} and user with ID: ${userId}. Error: ${errMsg}`;
-      return {
-        success: false,
-        errorMsg: "Error while marking vote token as used",
-        httpStatusCode: 500,
-      };
-    }
-  }
 
-  public insertVote(
-    pollId: number,
-    pollOptionId: number,
-    voteId: string,
-    previousHash: string,
-    currentHash: string,
-  ): {
-    success: boolean;
-    errorMsg?: string;
-    httpStatusCode: ContentfulStatusCode;
-  } {
-    try {
-      this.DB.prepare(`
-        INSERT INTO votes (pollId, pollOptionId, id, previousHash, currentHash)
-        VALUES (?, ?, ?, ?, ?)
-        `).run(pollId, pollOptionId, voteId, previousHash, currentHash);
-
-      return { success: true, httpStatusCode: 200 };
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
-        .error`Error while inserting vote for poll with ID: ${pollId} and poll option with ID: ${pollOptionId}. Error: ${errMsg}`;
+        .error`InsertVoteBatch failed for pollId ${pollId}. Error: ${errMsg}`;
       return {
         success: false,
         errorMsg: "Error while inserting vote",
@@ -547,32 +429,27 @@ export class WebappDatabase {
       };
     }
   }
-  public getLatestHash(
+
+  public async getLatestHash(
     pollId: number,
-  ): {
+  ): Promise<{
     hash: string | null;
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
-  } {
+  }> {
     try {
-      const sqlResult = this.DB.prepare(`
-        SELECT currentHash FROM votes
-        WHERE pollId = ?
-        ORDER BY timestamp DESC, id DESC
-        LIMIT 1
-      `).get(pollId);
+      const sqlResult = await this.prisma.vote.findFirst({
+        where: { pollId },
+        select: { currentHash: true },
+        orderBy: [
+          { timestamp: "desc" },
+          { id: "desc" },
+        ],
+      });
 
-      if (typeof sqlResult === "undefined") {
+      if (!sqlResult) {
         // Ingen stemmer endnu → "genesis" — første stemme i kæden
         return { hash: null, httpStatusCode: 200 };
-      }
-
-      if (typeof sqlResult.currentHash !== "string") {
-        return {
-          hash: null,
-          errorMsg: "Invalid hash shape",
-          httpStatusCode: 500,
-        };
       }
 
       return { hash: sqlResult.currentHash, httpStatusCode: 200 };
@@ -582,32 +459,33 @@ export class WebappDatabase {
         .error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         hash: null,
-        errorMsg: "Error fetching latest hash",
+        errorMsg: "Error fetching latest hash.",
         httpStatusCode: 500,
       };
     }
   }
 
-  public insertAuditLog(
+  public async insertAuditLog(
     action: string,
-    UUID: string,
     details: string | null,
-  ): {
+  ): Promise<{
     success: boolean;
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
-  } {
+  }> {
     try {
-      this.DB.prepare(`
-        INSERT INTO auditLog (action, UUID, details)
-        VALUES (?, ?, ?)
-        `).run(action, UUID, details);
+      await this.prisma.auditLog.create({
+        data: {
+          action,
+          details,
+        },
+      });
 
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
-        .error`Error while inserting audit log with action: ${action}, UUID: ${UUID}. Error: ${errMsg}`;
+        .error`Error while inserting audit log with action: ${action}, Error: ${errMsg}`;
       return {
         success: false,
         errorMsg: "Error while inserting audit log",
@@ -616,44 +494,37 @@ export class WebappDatabase {
     }
   }
 
-  public getAuditLog(
-    pollId: number,
-  ): {
+  public async getAuditLog(): Promise<{
     logs: AuditLogEntry[];
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
-  } {
+  }> {
     try {
-      const sqlResults = this.DB.prepare(`
-        SELECT action, UUID, timestamp, details FROM auditLog
-        WHERE UUID IN (SELECT UUID FROM voteTokens WHERE pollId = ?)
-        ORDER BY timestamp DESC
-      `).all(pollId);
-
-      const logs: AuditLogEntry[] = [];
-
-      for (const row of sqlResults) {
-        const { action, UUID, timestamp, details } = row;
-
-        const hasValidShape = typeof action === "string" &&
-          typeof UUID === "string" &&
-          typeof timestamp === "string" &&
-          (typeof details === "string" || details === null);
-
-        if (!hasValidShape) {
-          logger
-            .error`500 Internal Server Error: AuditLogEntry has invalid shape.`;
-          continue; // Skip this entry but continue processing the rest of the entries.
-        }
-
-        logs.push({ action, UUID, timestamp, details });
-      }
-
-      return { logs, httpStatusCode: 200 };
+      const logs = await this.prisma.auditLog.findMany({
+        select: {
+          id: true,
+          action: true,
+          timestamp: true,
+          details: true,
+        },
+        orderBy: [
+          { timestamp: "desc" },
+          { id: "desc" },
+        ],
+      });
+      return {
+        logs: logs.map((log) => ({
+          id: log.id,
+          action: log.action,
+          timestamp: log.timestamp.toString(), // This date type is the cause of the need for a map to assert types of SQL result.
+          details: log.details,
+        })),
+        httpStatusCode: 200,
+      };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching audit log for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching audit log. Error: ${errMsg}`;
+
       return {
         logs: [],
         errorMsg: "Error fetching audit log",
@@ -667,23 +538,23 @@ export class WebappDatabase {
     Har valgt at det skal være stigende grad istedet for faldende. For verifikation vil man gerne følge kæden fra start til slut: vote 1 --> vote 2 --> vote 3, hver stemmes previousHash skal matche den forriges currentHash.
 
   */
-  public listVotesForPoll(pollId: number): {
+  public async listVotesForPoll(pollId: number): Promise<{
     votes: Vote[];
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
-  } {
+  }> {
     try {
-      // tjek først om afstemningn er 'finished'
-      const pollStatus = this.DB.prepare(
-        `SELECT voteStatus FROM polls WHERE id = ?`,
-      ).get(pollId);
+      const poll = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: { voteStatus: true },
+      });
 
-      if (typeof pollStatus === "undefined") {
+      if (!poll) {
         return { votes: [], errorMsg: "Poll not found", httpStatusCode: 404 };
       }
 
-      //Skal return forbidden hvis ikke voteStatus er finished.
-      if (pollStatus.voteStatus !== "finished") {
+      // Must return forbidden if voteStatus is not finished.
+      if (poll.voteStatus !== "finished") {
         return {
           votes: [],
           errorMsg:
@@ -691,47 +562,28 @@ export class WebappDatabase {
           httpStatusCode: 403,
         };
       }
-      // voteStatus er nu "finished" og vi skal return votes.
-      const sqlResults = this.DB.prepare(`
-        SELECT id, pollId, pollOptionId, timestamp, previousHash, currentHash 
-        FROM votes
-        WHERE pollId = ?
-        ORDER BY timestamp ASC, rowid ASC
-      `).all(pollId);
+      const sqlResults = await this.prisma.vote.findMany({
+        where: { pollId },
+        select: {
+          id: true,
+          pollId: true,
+          pollOptionId: true,
+          timestamp: true,
+          previousHash: true,
+          currentHash: true,
+        },
+        orderBy: [{ timestamp: "asc" }, { id: "asc" }],
+      });
 
-      const votes: Vote[] = [];
+      const votes: Vote[] = sqlResults.map((row) => ({
+        id: row.id,
+        pollId: row.pollId,
+        pollOptionId: row.pollOptionId,
+        timestamp: row.timestamp.toString(), // This date type is the cause of the need for a map to assert types of SQL result.
+        previousHash: row.previousHash,
+        currentHash: row.currentHash,
+      }));
 
-      for (const row of sqlResults) {
-        const {
-          id,
-          pollId,
-          pollOptionId,
-          timestamp,
-          previousHash,
-          currentHash,
-        } = row;
-
-        const hasValidShape = typeof id === "string" &&
-          typeof pollId === "number" &&
-          typeof pollOptionId === "number" &&
-          typeof timestamp === "string" &&
-          typeof previousHash === "string" &&
-          typeof currentHash === "string";
-
-        if (!hasValidShape) {
-          logger.error`500 Internal Server Error: Vote row has invalid shape.`;
-          continue;
-        }
-
-        votes.push({
-          id,
-          pollId,
-          pollOptionId,
-          timestamp,
-          previousHash,
-          currentHash,
-        });
-      }
       return { votes, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
@@ -745,18 +597,90 @@ export class WebappDatabase {
     }
   }
 
-  public isUserEligible(pollId: number, userId: number): boolean {
+  public async isUserEligible(
+    pollId: number,
+    userId: number,
+  ): Promise<boolean> {
     try {
-      const sqlResult = this.DB.prepare(`
-        SELECT 1 FROM pollEligibleVoters
-        WHERE pollId = ? AND userId = ? `).get(pollId, userId);
+      const sqlResult = await this.prisma.pollEligibleVoter.findUnique({
+        where: {
+          pollId_userId: {
+            pollId,
+            userId,
+          },
+        },
+        select: { pollId: true },
+      });
 
-      return typeof sqlResult !== "undefined";
+      return sqlResult !== null;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Uknown error";
       logger
         .error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
-      return false; // Fail-safe: ved fejl nægter vi adgang
+      return false; // Fail-safe: on error refuse to access to the poll.
+    }
+  }
+
+  /**
+   * Unsafe function to run custom SQL on the database, use with caution.
+   * This function was for testing and debugging purposes but have not been translated into prisma yet,
+   * as the entire testing database setup is not yet migrated.
+   *
+   * @param customSQL A custom SQL statements to be run on the database.
+   */
+  // public runCustomSQL(customSQL: string) {
+  //   logger.info`Running custom SQL statement: \n ${customSQL}`;
+  //   this.DB.exec(customSQL);
+  // }
+
+  public async getVotesAllowed(
+    pollId: number,
+    userId: number,
+  ): Promise<number> {
+    try {
+      const sqlResult = await this.prisma.pollEligibleVoter.findUnique({
+        where: {
+          pollId_userId: {
+            pollId,
+            userId,
+          },
+        },
+        select: { votesAllowed: true },
+      });
+      if (!sqlResult) {
+        return 0;
+      }
+      return sqlResult.votesAllowed;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      return 0;
+    }
+  }
+
+  /**
+   * Returns the number of votes a current User already has "cast"
+   *
+   * @param pollId
+   * @param userId
+   *
+   * @returns the number of votes a current User already has "cast" for a given poll. Returns 0 if an error occurs during fetching.
+   */
+  public async countCastVotes(
+    pollId: number,
+    userId: number,
+  ): Promise<number> {
+    try {
+      const count = await this.prisma.voteToken.count({
+        where: { pollId, userId },
+      });
+      return count;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      return 0;
     }
   }
 }

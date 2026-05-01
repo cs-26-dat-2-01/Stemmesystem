@@ -5,23 +5,38 @@
     "dist"
   ],
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "deno.ns", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "deno.ns",
+      "esnext"
+    ],
     "jsx": "react-jsx",
     "jsxImportSource": "react"
   },
   "imports": {
-    "@hono/hono": "jsr:@hono/hono@^4.12.12",
+    "@hono/hono": "jsr:@hono/hono@^4.12.15",
     "@logtape/logtape": "jsr:@logtape/logtape@^2.0.5",
     "@logtape/redaction": "jsr:@logtape/redaction@^2.0.5",
-    "@panva/jose": "jsr:@panva/jose@^6.2.2",
+    "@panva/jose": "jsr:@panva/jose@^6.2.3",
     "@std/assert": "jsr:@std/assert@^1.0.19",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.6"
   },
   "lint": {
     "rules": {
-      "tags": ["recommended"],
-      "include": ["camelcase"]
+      "tags": [
+        "recommended"
+      ],
+      "include": [
+        "camelcase"
+      ]
     }
   },
-  "allowScripts": ["npm:argon2@0.44.0"]
+  "allowScripts": [
+    "npm:@prisma/engines@4.16.2",
+    "npm:@prisma/engines@7.8.0",
+    "npm:argon2@0.44.0",
+    "npm:prisma@4.16.2",
+    "npm:prisma@7.8.0"
+  ]
 }

@@ -1,6 +1,12 @@
-import { Poll, PollOption } from "../client_src/WebLib.ts";
-import { WebappDatabase } from "./database.ts";
+import {
+  OpenpollResult,
+  Poll,
+  PollOption,
+  VoteInput,
+} from "../client_src/WebLib.ts";
+import { VoteInsert, WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
+import { createHash } from "node:crypto";
 
 export class PollManager {
   private DB: WebappDatabase;
@@ -9,186 +15,177 @@ export class PollManager {
     this.DB = db;
   }
 
+  private createVoteHash(
+    previoushHash: string,
+    UUID: string,
+    optionId: number,
+    pollId: number,
+  ): string {
+    const hashMsg =
+      `PreviousHash:${previoushHash}|UUID:${UUID}|pollOptionId:${optionId}|pollId:${pollId}`;
+    return createHash("sha256").update(hashMsg, "utf8").digest("hex");
+  }
+
   public async castVote(
     pollId: number,
     userId: number,
-    optionId: number,
-    UUID: string,
+    votes: VoteInput[],
   ): Promise<{ success: boolean; errorMsg?: string }> {
-    const pollResult = this.DB.getPollFromDB(pollId);
-    // 1. First check if poll is open for voting
+    // 1. Validate input
+    if (votes.length === 0) {
+      return { success: false, errorMsg: "No valid input" };
+    }
+    const pollResult = await this.DB.getPollFromDB(pollId);
+    // 2. check if poll is open for voting
     if (pollResult.httpStatusCode !== 200 || !pollResult.poll) {
       return { success: false, errorMsg: "Poll not found." };
     }
-    if (pollResult.poll.voteStatus !== "started") {
+    if (pollResult.poll?.voteStatus !== "started") {
       return { success: false, errorMsg: "Voting is not open for this poll." };
     }
 
-    // 2. check if user i eligble to vote
-    const eligible = this.DB.isUserEligible(pollId, userId);
+    // 3. check if user i eligble to vote
+    const eligible = await this.DB.isUserEligible(pollId, userId);
     if (eligible === false) {
       return { success: false, errorMsg: "User not eliglbe" };
     }
-
-    // 3. get UUID from database (remember Openpoll handles creation of UUID from user)
-    const tokenFromDB = this.DB.getVoteToken(pollId, userId);
-    if (tokenFromDB.httpStatusCode !== 200) {
-      return { success: false, errorMsg: "Vote token not found." };
+    // 4. Check quota
+    const votesAllowed = await this.DB.getVotesAllowed(pollId, userId);
+    const alreadyCast = await this.DB.countCastVotes(pollId, userId);
+    if (votes.length + alreadyCast > votesAllowed) {
+      return { success: false, errorMsg: "Too many votes casted already" };
     }
-
-    // 4. Check to see if UUID matches or has been used before
-    if (tokenFromDB.UUID !== UUID) {
-      return { success: false, errorMsg: "Invalid vote token." };
+    // 5. validate UUID inside of batch  and validate options ids
+    // we use Set since is lets us store unique values so its a quick way to see if UUID send from client is the same
+    const seen = new Set<string>();
+    const validOptionIds = new Set(
+      (await this.DB.getPollOptionsFromDB(pollId)).map((o) => o.id),
+    );
+    for (const v of votes) {
+      if (typeof v.UUID !== "string" || v.UUID.length === 0) {
+        return { success: false, errorMsg: "Invalid UUID in votes." };
+      }
+      if (seen.has(v.UUID)) {
+        return { success: false, errorMsg: "Duplicate UUID in batch" };
+      }
+      if (!validOptionIds.has(v.optionId)) {
+        return {
+          success: false,
+          errorMsg: `Option ${v.optionId} does not belong to poll ${pollId}.`,
+        };
+      }
+      seen.add(v.UUID);
     }
-    if (tokenFromDB.used === 1) {
-      return { success: false, errorMsg: "Vote token already used." };
-    }
-    // 5. get latest hash from DB and hash!
-    const latestHashFromDB = this.DB.getLatestHash(pollId);
-    if (latestHashFromDB.httpStatusCode !== 200) {
+    // 6. Create hash for votes
+    const latesthashFromDB = await this.DB.getLatestHash(pollId);
+    if (latesthashFromDB.httpStatusCode !== 200) {
       return { success: false, errorMsg: "Could not retrieve latest hash" };
     }
-    const previousHash = latestHashFromDB.hash ?? "0";
 
-    /* The following comments is way too extensive and will be moved to report after the code has been reviewed
-        We hash a string which consists of previous hash if no hash (first vote), its a 0. UUID, pollOptionId and pollId, between each value we have |
-        which is there because if we have pollOptionid: 1 and pollId: 11, and then have pollOptionId: 11 and pollId: 1, if there werent
-        any seperating this would become the same string, and therefore there is a chance (small!) to get a first hash that is the same, however UUID would be unique, but still, we dont
-        wanna risk anything :P
+    let previousHash = latesthashFromDB.hash ?? "0";
+    const votesToInsert: VoteInsert[] = [];
 
-        */
+    for (const vote of votes) {
+      const currentHash = this.createVoteHash(
+        previousHash,
+        vote.UUID,
+        vote.optionId,
+        pollId,
+      );
+      votesToInsert.push({
+        optionId: vote.optionId,
+        UUID: vote.UUID,
+        previousHash,
+        currentHash,
+      });
+      previousHash = currentHash;
+    }
 
-    const hashMsg =
-      `PreviousHash:${previousHash}|UUID:${UUID}|pollOptionId:${optionId}|pollId:${pollId}`;
-    // We will use crypto.subtle.digest, but it doesnt take a string, it however takes a Uint8Array, so
-    // We converts our string to a Uint8Array so we can hash it
-    const hashMsgBuffer = new TextEncoder().encode(hashMsg);
-    // we hash, and crypto.subtle.digest returns an arraybuffer
-    const hashResultBuffer = await crypto.subtle.digest(
-      "SHA-256",
-      hashMsgBuffer,
-    );
-    // convert the array first to an actually uint8Array and then we convert that to an actual array which consist of numbers.
-    const hashnumberarray = Array.from(new Uint8Array(hashResultBuffer));
-    /* SHA-256 produces 32 bytes, so we now have an array with 32 element, where each element is a nyumber between 0 and 255. SO for example we have:
-    [227,176,196,....]
-    We now need to convert it to a string, however we need to be careful however what we convert it to
-    if we simply converts it to UTF-8 we would run in to trouble, first for example byte-value 34 is " in ASCII/UTF-8 which could break our JSON but more
-    importantly we get returned 0 255, but UTF-8 only the first 128 bytes is a single byte (to conserve backwards compability to ASCII, that means 129 in value is not actual correct UTF-8 )
-    https://en.wikipedia.org/wiki/UTF-8#Examples
-    Our hash produces random bytes, so around 50 % of them would be invalid UTF-8. We need to convert to something else and i have chosen hex, since every byte = 8 bits = 2 hex-characherters since hex can only be 0-9 and a-f.
-    See https://www.rapidtables.com/convert/number/decimal-to-hex.html?x=44
-    so we use map which runs the callback func for every byte. We use tostring to convert our bytes to hex and we use padstart to ensure that we always have 2 characters of hex.
-    For example we can have byte 5, which is simply in hex 5, but we can then run into problems of creating the same hash so we want single charachter to be 05 instead.
-    We use .join to make one string out of our string[] array.
-    */
-    const currentHash = hashnumberarray.map((b) =>
-      b.toString(16).padStart(2, "0")
-    ).join("");
-    // 6. Insert vote
-    const insertVote = this.DB.insertVote(
+    // 7. insert the votes to DB
+    const insertResult = await this.DB.insertVoteBatch(
       pollId,
-      optionId,
-      UUID,
-      previousHash,
-      currentHash,
+      userId,
+      votesToInsert,
     );
-    if (insertVote.success === false && insertVote.httpStatusCode !== 200) {
-      logger.error(
-        `Failed to insertVote with pollId ${pollId}, with optionId ${optionId}, voteId: ${UUID}, previousHash: ${previousHash} and currentHash: ${currentHash} httpStatuscode: ${insertVote.httpStatusCode}`,
-      );
-      return { success: false, errorMsg: "Error while inserting vote" };
+    if (!insertResult.success) {
+      return {
+        success: false,
+        errorMsg: insertResult.errorMsg ?? "Error while inserting votes",
+      };
     }
-    // 7. Mark token (UUID) as used in DB
-    const markTokenUsed = this.DB.markTokenUsed(pollId, userId);
-    if (
-      markTokenUsed.success === false && markTokenUsed.httpStatusCode !== 200
-    ) {
-      logger.error(
-        `Failed to marktokenused, with pollId ${pollId}, userId: ${userId}, httpStatuscode: ${markTokenUsed.httpStatusCode}`,
-      );
-      return { success: false, errorMsg: "Error while marking token as used" };
-    }
-    // 8. submit to audit log that the vote has been cast and how it has.
+
+    // 8. submit to audit log
     this.DB.insertAuditLog(
-      "VOTE_CAST",
-      UUID,
-      `pollId:${pollId},pollOptionId:${optionId}`,
+      "VOTES_CAST",
+      `pollId:${pollId}, userId:${userId}, voteCount:${votes.length}`,
     );
 
     return { success: true };
   }
 
-  public openPoll(
+  public async openPoll(
     pollId: number,
     userId: number,
-    clientUUID: string,
-  ): {
-    poll: Poll;
-    options: PollOption[];
-    voteToken: string;
-    alreadyExisted: boolean;
-  } | null {
-    const isUserEligible = this.DB.isUserEligible(pollId, userId);
-    // 1. Check if user is eliglbe for opening the vote
+  ): Promise<{ result?: OpenpollResult; errorMsg?: string }> {
+    const isUserEligible = await this.DB.isUserEligible(pollId, userId);
+    // 1. Check if user is eligible for opening the vote.
     if (!isUserEligible) {
       logger.warn(`User ${userId} is not eligible for poll ${pollId}.`);
-      return null;
+      return { errorMsg: "User is not eligible for poll" };
     }
-    // 2. Check if user already has voted
-    const existingToken = this.DB.getVoteToken(pollId, userId);
-    if (existingToken.httpStatusCode === 200 && existingToken.used === 1) {
-      logger.warn(`User ${userId} has already voted in poll ${pollId}.`);
-      return null;
-    }
-
-    // 3. Get poll data
-    const { poll: pollFromDB, httpStatusCode: pollStatuscode } = this.DB
+    // 2. Get poll data.
+    const { poll, httpStatusCode: pollStatuscode } = await this.DB
       .getPollFromDB(pollId);
     if (pollStatuscode !== 200) {
       logger.error(
         `Failed to retrieve poll with ID ${pollId} from database. Status code: ${pollStatuscode}`,
       );
-      return null;
+      return { errorMsg: "Could not retrieve pollData" };
     }
 
-    // 4. Check if poll is close
-    if (!pollFromDB || pollFromDB.voteStatus !== "started") {
+    // 3. Check if poll is close.
+    if (!poll || poll.voteStatus !== "started") {
       logger.warn(
         `Attempted to open poll with ID ${pollId}, but it is closed.`,
       );
-      return null;
+      return { errorMsg: "Poll is closed" };
     }
 
-    // 5. get polloptions
-    const optionsFromDB = this.DB.getPollOptionsFromDB(pollId);
-    if (optionsFromDB.length === 0) {
+    // 4. get poll options.
+    const options = await this.DB.getPollOptionsFromDB(pollId);
+    if (options.length === 0) {
       logger.warn(`No options found for poll with ID ${pollId}.`);
-      return null;
+      return { errorMsg: "No options found" };
     }
-    // 6. create the clientUUID in Database
-    const voteToken = this.DB.createVoteToken(pollId, userId, clientUUID);
-    if (
-      voteToken.httpStatusCode !== 200 || !voteToken.token ||
-      voteToken.alreadyExisted === undefined
-    ) {
-      logger.error(
-        `Failed to create vote token for poll ID ${pollId} and user ID ${userId}. Status code: ${voteToken.httpStatusCode}`,
-      );
-      return null;
+    // 5 . Get allowed votes.
+    const votesAllowed = await this.DB.getVotesAllowed(pollId, userId);
+    if (votesAllowed <= 0) {
+      logger.warn(`votesAllowed is 0`);
+      return { errorMsg: "VotesAllowed is 0" };
     }
-    // 7. auditlog
+
+    // 6. Calculate votes remaining.
+    const alreadyCast = await this.DB.countCastVotes(pollId, userId);
+    const votesRemaining = votesAllowed - alreadyCast;
+
+    if (votesRemaining < 0) {
+      logger.warn`Negative votesRemaining for poll ${pollId}, user ${userId}`;
+      return { errorMsg: "Votes remaining is negative" };
+    }
+
+    // 7. Audit log.
     this.DB.insertAuditLog(
-      "TOKEN_ISSUED",
-      clientUUID,
-      `pollId:${pollId},userId:${userId}`,
+      "POLL_OPENED",
+      `pollId:${pollId}, userId:${userId}, votesAllowed:${votesAllowed},votesRemaining:${votesRemaining}`,
     );
 
     return {
-      poll: pollFromDB,
-      options: optionsFromDB,
-      voteToken: voteToken.token,
-      alreadyExisted: voteToken.alreadyExisted,
+      result: {
+        poll,
+        options,
+        votesAllowed,
+        votesRemaining,
+      },
     };
   }
 }

@@ -10,15 +10,14 @@ import { PollManager } from "./pollManager.ts";
 
 /**
  * Start the web application.
+ *
+ * @param A instance of a WebappDatabase.
  */
-export async function startServer() {
+export function startServer(DB: WebappDatabase, ac: AbortController) {
+  const { signal } = ac;
   // logger.trace`testing that hot reload work`;
 
   const router = new Hono();
-
-  const databasePath: string = "./database/users.db";
-  const _file = await Deno.create(databasePath);
-  const DB: WebappDatabase = await WebappDatabase.initDatabase(databasePath);
 
   const pollManager = new PollManager(DB);
   // Create a JWT if a user provide a username and password which exists in the users database.
@@ -36,16 +35,14 @@ export async function startServer() {
     }
 
     // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
-    const result = DB.getUserFromDB(userCredentials.username);
+    const result = await DB.getUserFromDB(userCredentials.username);
     if (result.httpStatusCode !== 200) {
       logger.info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
       return c.body(``, result.httpStatusCode);
     }
     const user = result.user as User; // This is safe because if httpStatusCode is 200.
 
-    logger.debug(
-      `{id: ${user.id}, username: "${user.name}"} succesfully retrived from database.`,
-    );
+    logger.debug`User: ${user}, succesfully retrived from database.`;
 
     // Check that the password provided by the user match the stored password hash.
     // Also handle any unexpected errors from argon2 and return a 500 status code in that case.
@@ -149,7 +146,7 @@ export async function startServer() {
     // Sanitize URL path as only the directory "dist" is the only directory to be publicly served.
     // Deno permissions should also catch any attempts to reach any top level directory outside of "dist"
     const filePath = `./dist/${path}`;
-    logger.trace(`router.get("/assets/*", ...) resovled to path: ${filePath}`);
+    // logger.trace(`router.get("/assets/*", ...) resovled to path: ${filePath}`);
 
     try {
       const file = await Deno.readFile(filePath);
@@ -201,46 +198,28 @@ export async function startServer() {
     }
   });
 
-  router.post("/api/poll/:pollId/open", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+  router.post("/api/poll/:pollId/open", (c) => {
+    return hasValidJWT(c, async (payload) => {
       // 1. parse pollId from URL
       const pollIdStr = c.req.param("pollId");
       const pollId = Number(pollIdStr);
       if (Number.isNaN(pollId)) {
         return c.body("Invalid pollId", 400);
       }
-      // 2. Parse body --> (UUID: "...")
-      let body = undefined;
-      try {
-        body = await c.req.json();
-      } catch {
-        return c.body("Invalid JSON body", 400);
-      }
-
-      if (typeof body.UUID !== "string") {
-        return c.body("Missing or invalid UUID", 400);
-      }
-      // body.UUID er nu den klient-genererede UUID
 
       // 3. get userId from payload (payload.userId)
       const userid = payload.userId as number;
 
       // 4. Call pollManager.openPoll(pollId, useriD, UUID)
-      const pollData = pollManager.openPoll(pollId, userid, body.UUID);
+      const pollData = await pollManager.openPoll(pollId, userid);
       // 5. if null -> 404  if obect --> c.json(result)
-      if (pollData === null) {
-        return c.body("Not eligible or poll unavailable", 403);
+      if (pollData.errorMsg) {
+        return c.body(pollData.errorMsg, 403);
       }
-      return c.json(pollData);
+      return c.json(pollData.result);
     });
   });
 
-  /* User casta a vote
-    1. We verify the login-JWT of the user and the vote-JWT which contains the pollId and voteToken.
-    2. We extract optionId from the request body
-    3- We cal pollManager.castVote(pollId, userId, optionId, voteToken) which will return true if the vote was succesfully casted and false if not.
-    4. We return a response to the client so the client knows if the vote was succesfully casted or not.
-  */
   router.post("/api/poll/:pollId/vote", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       // 1. parse polldId from URL + validate
@@ -257,11 +236,18 @@ export async function startServer() {
         return c.body("Invalid JSON body", 400);
       }
 
-      if (typeof body.UUID !== "string") {
-        return c.body("Missing or invalid UUID", 400);
+      if (!Array.isArray(body.votes)) {
+        return c.body("Missing or invalid votes array", 400);
       }
-      if (!Number.isInteger(body.optionId)) {
-        return c.body("Missing or invalid optionid", 400);
+      const hasValidVotes = body.votes.every((vote: unknown) => {
+        if (typeof vote !== "object" || vote == null) return false; // typeof null is "object" so we shall check vote ==== null explicit
+
+        const v = vote as { optionId?: unknown; UUID?: unknown };
+        return Number.isInteger(v.optionId) && typeof v.UUID === "string";
+      });
+
+      if (!hasValidVotes) {
+        return c.body("Invalid vote shape", 400);
       }
       // 3. userId from payload
       const userid = payload.userId as number;
@@ -269,8 +255,7 @@ export async function startServer() {
       const castedVote = await pollManager.castVote(
         pollId,
         userid,
-        body.optionId,
-        body.UUID,
+        body.votes,
       );
 
       // 5. if result.success === false --> errormsg
@@ -283,6 +268,15 @@ export async function startServer() {
     });
   });
 
-  Deno.serve(router.fetch);
+  // Deno.addSignalListener("SIGINT", () => {
+  //   logger.info`Caught SIGINT, shutting down...`;
+  //   ac.abort(); // Gracefully shut down server
+  //   DB.closeDB;
+  //   Deno.exit(0); // Ensure zero exit code
+  // });
+
+  const server = Deno.serve({ signal }, router.fetch);
+  return server.finished;
+
   // closeDB(); // Figure out where to actually close this.
 }

@@ -1,0 +1,103 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+  runtime  = "deno"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Create database file. -------------------------------
+// To-do: remove AUTOINCREMENT as it does not fit
+// the use case. (See https://sqlite.org/autoinc.html)
+// -----------------------------------------------------
+model User {
+  id           Int    @id @default(autoincrement())
+  username     String @unique
+  passwordHash String
+
+  createdPolls         Poll[]
+  eligibleVoterFor     PollEligibleVoter[]
+  voteTokens           VoteToken[]
+}
+
+model Poll {
+  id              Int     @id @default(autoincrement())
+  title           String
+  description     String
+  voteStatus      String  @default("draft")
+  createdBy       Int
+  creator         User    @relation(fields: [createdBy], references: [id])
+  createdAt       DateTime @default(now())
+  startsAt        DateTime?
+  endsAt          DateTime?
+  pollVisibility  String  @default("private")
+  ballotPrivacy   String  @default("secret")
+  showTopN        Int     @default(0)
+  ballotLimit     Int     @default(1)
+  useBuffer       Int     @default(0)
+
+  options          PollOption[]
+  eligibleVoters   PollEligibleVoter[]
+  voteTokens       VoteToken[]
+  votes            Vote[]
+  auditLogs        AuditLog[]
+}
+
+model PollEligibleVoter {
+  pollId       Int
+  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  userId       Int
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votesAllowed Int
+
+  @@id([pollId, userId])
+}
+
+model PollOption {
+  id           Int    @id @default(autoincrement())
+  pollId       Int
+  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  optionText   String
+  displayOrder Int    @default(0)
+
+  votes Vote[]
+}
+
+model VoteToken {
+  id        Int    @id @default(autoincrement())
+  pollId    Int
+  poll      Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  uuid      String @unique
+  createdAt DateTime @default(now())
+  used      Int    @default(0)
+
+  vote Vote?
+}
+
+model Vote {
+  id            String @id
+  voteToken     VoteToken @relation(fields: [id], references: [uuid])
+  pollId        Int
+  poll          Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollOptionId  Int
+  option        PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  timestamp     DateTime @default(now())
+  previousHash  String
+  currentHash   String @unique
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  action    String
+  timestamp DateTime @default(now())
+  details   String?
+
+  polls Poll[]
+} 

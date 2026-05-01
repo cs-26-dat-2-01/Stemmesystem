@@ -1,6 +1,6 @@
 // Note that this package is experimental!
 // https://docs.deno.com/runtime/reference/env_variables/
-import { load } from "jsr:@std/dotenv";
+import { load } from "@std/dotenv";
 import { logger } from "./main_lib.ts";
 
 /**
@@ -18,6 +18,7 @@ export async function initializeEnvVars() {
   const requiredEnvVars: string[] = [
     "JWT_SERVER_SECRET",
     "ADMIN_USER_PASSWORD",
+    "DATABASE_URL",
   ];
   requiredEnvVars.forEach((env) => {
     if (!(env in rawEnv)) {

@@ -61,13 +61,24 @@ To download necessary build and dev dependencies run:
 deno install
 ```
 
+
 The program require certain environment variables set for the program in a file
 named `.env`, an example is shown below:
 
 ```
 JWT_SERVER_SECRET="secret-that-only-server-knows-and-no-one-else!"
 ADMIN_USER_PASSWORD="test"
+DATABASE_URL="file:./database/database.db"
 ```
+Prisma also needs to be initialized locally. This requires Node/npm so `npx` is available. 
+
+Generate the Prisma client and apply the schema to the configured database: 
+```shell 
+deno run -A prisma generate
+deno run -A prisma db push 
+```
+`prisma generate` updates the generated Prisma client in generated/Prisma, and `npx prisma db push` applies `./prisma/schema.prisma` to the database from DATABASE_URL. 
+
 
 ### Deno Tasks
 
@@ -88,6 +99,8 @@ Most editors require Deno CLI to be installed as mentioned above in section
 
 ### VS Code
 
+#### Deno
+
 1. Install the
    [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
    for VS Code.
@@ -105,6 +118,20 @@ Most editors require Deno CLI to be installed as mentioned above in section
   // Disable built-in JavaScript and TypeScript validation since Deno provides its own.
   "js/ts.validate.enabled": false
 }
+```
+
+#### Prisma
+
+1. Install the
+   [Prisma extension](https://marketplace.visualstudio.com/items?itemName=Prisma.prisma)
+
+2. Add the following to the local workspace settings file at:
+   `.vscode/setting.json`
+
+```json
+"[prisma]": {
+  "editor.defaultFormatter": "Prisma.prisma"
+},
 ```
 
 ### Helix Editor
