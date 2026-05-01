@@ -128,7 +128,7 @@ Most editors require Deno CLI to be installed as mentioned above in section
 2. Add the following to the local workspace settings file at:
    `.vscode/setting.json`
 
-````json
+```json
 "[prisma]": {
   "editor.defaultFormatter": "Prisma.prisma"
 },
@@ -157,4 +157,4 @@ language-servers = ["deno-lsp"]
 command = "deno"
 args = ["lsp"]
 config.deno.enable = true
-````
+```
