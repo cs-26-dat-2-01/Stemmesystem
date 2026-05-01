@@ -22,7 +22,8 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   const pollManager = new PollManager(DB);
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {
-    logger.info`Received login request. Attempting to parse JSON body for username and password.`;
+    logger
+      .info`Received login request. Attempting to parse JSON body for username and password.`;
 
     // Parse user credential from request body. If parsing fails, then the user provided an invalid JSON body and a 400 response is returned.
     let userCredentials = undefined;
@@ -30,14 +31,16 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       userCredentials = await c.req.json();
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
+      logger
+        .info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
       return c.body("Invalid JSON body", 400);
     }
 
     // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
     const result = await DB.getUserFromDB(userCredentials.username);
     if (result.httpStatusCode !== 200) {
-      logger.info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
+      logger
+        .info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
       return c.body(``, result.httpStatusCode);
     }
     const user = result.user as User; // This is safe because if httpStatusCode is 200.
@@ -55,13 +58,15 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
+      logger
+        .error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
       return c.body("Internal Server Error", 500);
     }
 
     if (argon2Result) {
       // Password matched.
-      logger.debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger
+        .debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
 
       const token = await createJWT({
         userId: user.id,
@@ -92,17 +97,20 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
         sameSite: "Strict",
         maxAge: TOKEN_EXPIRE_TIME,
       });
-      logger.info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger
+        .info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
 
       return c.body("login successful", 200);
     } else {
       // password did not match
-      logger.info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger
+        .info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
       return c.body("Login incorrect", 401);
     }
 
     // deno-lint-ignore no-unreachable
-    logger.error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
+    logger
+      .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
   });
 
   /*
@@ -130,7 +138,32 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       return c.body("", result);
     });
   });
-
+  /**
+   * Serves the SPA shell (`dist/index.html`) for the root URL.
+   *
+   * @remarks
+   * This server hosts a Single Page Application (SPA). All HTML routes
+   * (this one, `/poll/:pollId`, etc.) return the *same* `dist/index.html`
+   * the server never renders different HTML per route.
+   *
+   * The end-to-end flow:
+   *  1. Browser requests an HTML route → server returns `dist/index.html`.
+   *  2. The HTML contains a `<script>` tag pointing at the bundled JS,
+   *     which Vite builds from `client_src/main.tsx` (and everything it
+   *     imports transitively, including `App.tsx`).
+   *  3. Browser fetches and executes the bundle. React mounts `<App />`
+   *     into `<div id="root">` via `createRoot(...).render(...)`.
+   *  4. `App.tsx` reads `window.location.pathname` and chooses which
+   *     page-component to render (LoginPage, OverviewPage, BallotPage…).
+   *  5. The rendered component fetches its data via seperate
+   *  	  data-routes (by convention prefixed `/api/...` , though some like /login are note).
+   *  	  Those routes run real server logic and return JSON or status code - unlike the
+   *  	  HTML routes, which only serve the SPA shell.
+   *
+   * Consequence: user-visible URL routing lives entirely in
+   * `client_src/App.tsx`. The server only needs to (a) serve the SPA
+   * shell for any URL the SPA owns, and (b) serve `/api/...` data.
+   */
   router.get("/", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -185,10 +218,17 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
 
     return c.body("Logged out", 200);
   });
-  /* User opens the poll page for a specific poll
-    This will give the index.html and let bundle.js handle everything. This is because we need to do a post
-    with the UUID in, and that will retrieve the actual data.
-  */
+
+  /**
+   * Serves the SPA shell for a specific poll's ballot page .
+   *
+   * @remarks
+   * The `:pollId` parameter is intentionally unused here -> see the SPA description
+   * on {@link `router.get("/")`}. The pollId is
+   * parsed from `window.location.pathname` in `App.tsx` and passed to
+   * `BallotPage pollId={...} which then calls `POST /api/poll/:pollId/open`to
+   * fetch the actual poll data.
+   */
   router.get("/poll/:pollId", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -198,21 +238,39 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
+  /**
+   * Opens a poll for a specific user, returning the data the client needs to render the ballot (options, votes remaining, etc.).
+   *
+   * @remarks
+   * Called by the SPA after `App.tsx` has rendered `<BallotPage pollId={...} />`
+   * (See {@link router.get | `router.get("/poll/:pollId")`} for the routing flow).
+   *
+   * Authentication: requres a valid JWT cookie. The `userId` is read from the
+   * JWT payload - never from the request body - so a client cannot open a poll
+   * on someone else's behalf.
+   *
+   * Eligibility, poll-state, and vote-count checks are delegated to
+   * {@link PollManager.openPoll}; this handler only deals with HTTP-level
+   * parsing and status-code mapping.
+   *
+   * @returns
+   * - `200` + JSON `OpenpollResult - poll opened successfully
+   *   `400` "Invalid pollId" - `:pollId`URL segment is not a number.
+   *   `401` - missing or invalid JWT (handled by `hasValidJWT`).
+   *   `403` + error message - user is not eligible, poll closed, no options,
+   *   no votes remaining, etc. (the message comes from `pollManager.openPoll`).
+   *
+   * @param c - Hono request context. Expects `:pollId`as a URL parameter and a valid `JWT`cookie
+   */
   router.post("/api/poll/:pollId/open", (c) => {
     return hasValidJWT(c, async (payload) => {
-      // 1. parse pollId from URL
-      const pollIdStr = c.req.param("pollId");
-      const pollId = Number(pollIdStr);
-      if (Number.isNaN(pollId)) {
+      const parsePollIdFromURL = c.req.param("pollId");
+      const pollId = Number(parsePollIdFromURL);
+      if (Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
       }
-
-      // 3. get userId from payload (payload.userId)
-      const userid = payload.userId as number;
-
-      // 4. Call pollManager.openPoll(pollId, useriD, UUID)
-      const pollData = await pollManager.openPoll(pollId, userid);
-      // 5. if null -> 404  if obect --> c.json(result)
+      const userId = payload.userId as number;
+      const pollData = await pollManager.openPoll(pollId, userId);
       if (pollData.errorMsg) {
         return c.body(pollData.errorMsg, 403);
       }
@@ -220,28 +278,47 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+  /*
+   * Cast a vote for a specific user, and a specific poll.
+   *
+   * @remarks
+   * The server tries to validate the given data to see if fits the requirements before
+   * the actual inserting of the vote is handed of to {@link PollManager.castVote}.
+   * First we parse the pollId from the URL and validate if its an actual pollId.
+   * Then we parse the body to see if its an actual array of votes. Each vote is an
+   * object which includes optionId and a UUID. so each vote should be an object.
+   * However null is only returned as an object and therefore we must ensure that the votes is not null,
+   * if it is we need to reject the vote.
+   * Next up we validate the contents of each vote is the correct type (pollOptionId should be an integer
+   * and UUID is a string.
+   *
+   * @param c - Hono context. Expects:
+   * - URL parameter `:pollId`(integer)
+   * - Cookie `JWT` (signed token whose payload supplies `userId`).
+   * - JSON body of shape `{votes: Array<{optionId: number, UUID: string}>}`
+   *
+   * @returns
+   * Returns a hono context object with a body of a string and a status code.
+   * `200` means it was succesfull, `400` there was an error, and the string is an error message.
+   */
   router.post("/api/poll/:pollId/vote", async (c) => {
     return await hasValidJWT(c, async (payload) => {
-      // 1. parse polldId from URL + validate
-      const pollIdStr = c.req.param("pollId");
-      const pollId = Number(pollIdStr);
-      if (Number.isNaN(pollId)) {
+      const pollIdFromURL = c.req.param("pollId");
+      const pollId = Number(pollIdFromURL);
+      if (Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
       }
-      // 2 parse body --> {optionId, UUID} + validate
       let body = undefined;
       try {
         body = await c.req.json();
       } catch {
         return c.body("Invalid JSON body", 400);
       }
-
       if (!Array.isArray(body.votes)) {
         return c.body("Missing or invalid votes array", 400);
       }
       const hasValidVotes = body.votes.every((vote: unknown) => {
-        if (typeof vote !== "object" || vote == null) return false; // typeof null is "object" so we shall check vote ==== null explicit
-
+        if (typeof vote !== "object" || vote == null) return false;
         const v = vote as { optionId?: unknown; UUID?: unknown };
         return Number.isInteger(v.optionId) && typeof v.UUID === "string";
       });
@@ -249,21 +326,15 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       if (!hasValidVotes) {
         return c.body("Invalid vote shape", 400);
       }
-      // 3. userId from payload
       const userid = payload.userId as number;
-      // 4. await pollManager
       const castedVote = await pollManager.castVote(
         pollId,
         userid,
         body.votes,
       );
-
-      // 5. if result.success === false --> errormsg
       if (castedVote.success === false) {
         return c.body(castedVote.errorMsg ?? "Vote failed", 400);
       }
-
-      // if success casted!
       return c.body("Vote cast", 200);
     });
   });
