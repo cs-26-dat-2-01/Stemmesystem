@@ -1,0 +1,24 @@
+/*
+  Usage:
+  1. Import this file in at the start of your CSS:
+     @import './variables.css';
+
+  2. Use variables with the var() function:
+     .someClass {
+       background: var(--primary-color);
+     }
+
+  Notes:
+  - Variables are defined in :root and are globally available
+  - You can provide a fallback value:
+      var(--primary-color, blue)
+
+  Documentation:
+  https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_cascading_variables/Using_CSS_custom_properties
+*/
+
+:root {
+  --primary-background-color: #fff;
+  --blue-button-color: cornflowerblue;
+  --blue-button-hover: rgb(119, 159, 234);
+}
