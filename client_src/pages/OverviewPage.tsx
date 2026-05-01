@@ -6,23 +6,21 @@ import "./OverviewPage.css";
 // Poll-interfacet beskriver formen på et afstemnings-objekt som vi forventer
 // at modtage fra API-endpointet GET /api/polls.
 // Alle felter skal matche hvad serveren sender – ellers får vi TypeScript-fejl.
-interface Poll {
-  id: number;
-  title: string;
-  // "active" = afstemning er i gang, "finished" = afsluttet, "not_started" = endnu ikke åbnet
-  status: "active" | "finished" | "not_started";
-  // Hvor mange har stemt ud af det totale antal stemmeberettigede, f.eks. "3/14"
-  voteProgress: string;
-  // Resterende tid som en formateret streng, f.eks. "02:14:33" (timer:minutter:sekunder)
-  timeLeft: string;
-  isPublic: boolean;
-  isAnonymous: boolean;
-  owner: string;
-  // Om den indloggede bruger selv har afgivet stemme i denne afstemning
-  hasVoted: boolean;
-  // Hvilken mappe afstemningen evt. er placeret i – valgfri (undefined = ingen mappe)
-  folder?: string;
-}
+ export interface Poll { 
+   id: pollId; 
+   title: string; 
+   description: string; 
+   voteStatus: pollStatus; 
+   createdBy: userId; 
+   createdAt: string; 
+   startsAt?: string; 
+   endsAt?: string; 
+   pollVisibility: pollVisibility; 
+   ballotPrivacy: ballotPrivacy; 
+   showTopN: number; 
+   ballotLimit: number; 
+   useBuffer: number; 
+ } 
 
 // De tre filtermuligheder brugeren kan vælge i sidebaren
 type FilterType = "all" | "eligible" | "drafts";
