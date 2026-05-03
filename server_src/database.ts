@@ -590,6 +590,7 @@ export class WebappDatabase {
           votes: [],
           errorMsg:
             "Polls is not finished - votes are not public until voting closes",
+
           httpStatusCode: 403,
         };
       }
@@ -625,6 +626,36 @@ export class WebappDatabase {
         errorMsg: "Error listing votes",
         httpStatusCode: 500,
       };
+    }
+  }
+
+  /**
+   * Aggregates the vote counts for each option in a given poll, by grouping the `vote` table on `pollOptionId`.
+   * Options with zero votes are not included in the result — callers that need a complete list (e.g. for displaying every option even when no one voted for it) should join this with `getPollOptionsFromDB`.
+   * Access control (e.g. only exposing counts when the poll is finished) is the responsibility of the caller, not this function.
+   *
+   * @param pollId the ID of the poll for which the result counts should be aggregated.
+   * @returns Promise<{ optionId: number; count: number }[]> a promise that resolves to an array of objects, each containing the ID of an option and the number of votes cast for it. Returns an empty array if no votes exist or if an error occurs during fetching.
+   */
+  public async getPollResultCounts(
+    pollId: number,
+  ): Promise<{ optionId: number; count: number }[]> {
+    try {
+      const rows = await this.prisma.vote.groupBy({
+        by: ["pollOptionId"],
+        where: { pollId },
+        _count: { _all: true },
+      });
+
+      return rows.map((r) => ({
+        optionId: r.pollOptionId,
+        count: r._count._all,
+      }));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error fetching poll result counts for poll ID: ${pollId}. Error: ${errMsg}`;
+      return [];
     }
   }
 

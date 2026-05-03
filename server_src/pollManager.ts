@@ -2,11 +2,13 @@ import {
   OpenpollResult,
   Poll,
   PollOption,
+  ResultsPayload,
   VoteInput,
 } from "../client_src/WebLib.ts";
 import { VoteInsert, WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
+import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 
 /**
  * Orchestrates poll-related logic between the HTTP layer and the database. Route handlers
@@ -265,6 +267,104 @@ export class PollManager {
         votesAllowed,
         votesRemaining,
       },
+    };
+  }
+
+  /**
+   * Builds the result payload for a finished poll, combining aggregated vote counts with the per-vote UUID list.
+   *
+   * @remarks
+   * Called from `GET /api/poll/:pollId/results`. The route handler is responsible for shape-validating `:pollId`;
+   * this method enforces all logic preconditions:
+   * - Poll exists.
+   * - Poll has `voteStatus === "finished"` — results are not exposed before voting closes.
+   *
+   * Privacy enforcement:
+   * - For `ballotPrivacy === "secret"`, only the UUID of each vote is returned. The vote's `pollOptionId`
+   *   is intentionally dropped at this layer so that the option a UUID was cast for never leaves the server.
+   * - For `ballotPrivacy === "open"`, each vote is returned with both its UUID and the option it was cast for
+   *   (joined to `optionText` so the client does not need a second lookup).
+   *
+   * Aggregated counts are returned for all options of the poll, including options with zero votes.
+   * The DB-level `getPollResultCounts` only returns options that received at least one vote, so this
+   * method joins the result against `getPollOptionsFromDB` and defaults missing entries to 0.
+   *
+   * @param pollId - The poll whose results should be fetched.
+   *
+   * @returns `{result}` with aggregated counts and the per-vote UUID list shaped according to `ballotPrivacy`.
+   *   `{errorMsg, httpStatusCode}` if any precondition fails — the route handler maps the status code
+   *   to the HTTP response (404 if the poll does not exist, 403 if the poll is not finished, 500 on DB error).
+   */
+  public async getResults(
+    pollId: number,
+  ): Promise<{
+    result?: ResultsPayload;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    const pollResult = await this.DB.getPollFromDB(pollId);
+    if (!pollResult.poll) {
+      return {
+        errorMsg: pollResult.errorMsg ?? "Poll not found",
+        httpStatusCode: pollResult.httpStatusCode,
+      };
+    }
+    const poll = pollResult.poll;
+
+    if (poll.voteStatus !== "finished") {
+      return {
+        errorMsg:
+          "Poll is not finished - results are not public until voting closes",
+        httpStatusCode: 403,
+      };
+    }
+
+    const [options, votesResult, counts] = await Promise.all([
+      this.DB.getPollOptionsFromDB(pollId),
+      this.DB.listVotesForPoll(pollId),
+      this.DB.getPollResultCounts(pollId),
+    ]);
+
+    if (votesResult.errorMsg) {
+      return {
+        errorMsg: votesResult.errorMsg,
+        httpStatusCode: votesResult.httpStatusCode,
+      };
+    }
+
+    const optionTextById = new Map(options.map((o) => [o.id, o.optionText]));
+    const countByOptionId = new Map(counts.map((c) => [c.optionId, c.count]));
+
+    const countsWithText = options.map((o) => ({
+      optionId: o.id,
+      optionText: o.optionText,
+      count: countByOptionId.get(o.id) ?? 0, // .get returns undefined if no votes so we default it to 0.
+    }));
+
+    if (poll.ballotPrivacy === "secret") {
+      return {
+        result: {
+          ballotPrivacy: "secret",
+          showTopN: poll.showTopN,
+          counts: countsWithText,
+          votes: votesResult.votes.map((v) => ({ uuid: v.id })),
+        },
+        httpStatusCode: 200,
+      };
+    }
+
+    return {
+      result: {
+        ballotPrivacy: "open",
+        showTopN: poll.showTopN,
+        counts: countsWithText,
+        votes: votesResult.votes.map((v) => ({
+          uuid: v.id,
+          optionId: v.pollOptionId,
+          optionText: optionTextById.get(v.pollOptionId) ?? "(unknown)",
+        })),
+      },
+      httpStatusCode: 200,
     };
   }
 }

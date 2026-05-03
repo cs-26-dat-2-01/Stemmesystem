@@ -110,3 +110,17 @@ export interface VoteInput {
   optionId: number;
   UUID: string;
 }
+
+export type ResultsPayload =
+  | {
+    ballotPrivacy: "secret";
+    showTopN: number;
+    counts: { optionId: number; optionText: string; count: number }[];
+    votes: { uuid: string }[];
+  }
+  | {
+    ballotPrivacy: "open";
+    showTopN: number;
+    counts: { optionId: number; optionText: string; count: number }[];
+    votes: { uuid: string; optionId: number; optionText: string }[];
+  };

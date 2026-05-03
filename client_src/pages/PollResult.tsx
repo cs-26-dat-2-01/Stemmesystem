@@ -1,25 +1,29 @@
-function PollResults() {
-  // Mock data (for now)
-  const data = {
-    Secrecy: "open",
-    topN: 3,
-    pollresults: [
-      { option: "Option 1", count: 10 },
-      { option: "Option 2", count: 7 },
-      { option: "Option 3", count: 5 },
-      { option: "Option 4", count: 1 },
-    ],
-    votesreceived: [
-      { uuid: "abc-123", vote: "Option 1" },
-      { uuid: "def-456", vote: "Option 2" },
-      { uuid: "ghi-789", vote: "Option 3" },
-    ],
-  };
+import { useEffect, useState } from "react";
+import type { ResultsPayload } from "../WebLib.ts";
 
-  // Sort the data according to votes and show only the top N
-  const sorted = [...data.pollresults]
-    .sort((a, b) => b.count - a.count)
-    .slice(0, data.topN);
+interface PollResultsProps {
+  pollId: number;
+}
+function PollResults({ pollId }: PollResultsProps) {
+  const [data, setData] = useState<ResultsPayload | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>("");
+
+  useEffect(() => {
+    async function fetchResults() {
+      const res = await fetch(`/api/poll/${pollId}/results`, {
+        credentials: "include",
+      });
+      if (res.status === 200) {
+        const dataResults = await res.json() as ResultsPayload;
+        setData(dataResults);
+      } else {
+        const msg = await res.text();
+        setErrorMessage(msg || "Kunne ikke hente resultater");
+        console.log("Results fetch failed:", res.status);
+      }
+    }
+    fetchResults();
+  }, [pollId]);
 
   return (
     <div>
@@ -49,4 +53,3 @@ function PollResults() {
 }
 
 export default PollResults;
-

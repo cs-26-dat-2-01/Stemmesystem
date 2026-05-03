@@ -339,6 +339,45 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+  /*
+   * Fetch the results of a finished poll.
+   *
+   * @remarks
+   * Validation and access control is delegated to {@link PollManager.getResults}: the route
+   * handler only parses `:pollId` from the URL and forwards the result. The shape of the
+   * returned JSON depends on the poll's `ballotPrivacy` (see `ResultsPayload` in `WebLib.ts`):
+   * for `"secret"` polls only UUIDs are returned, for `"open"` polls each UUID is paired
+   * with the option it was cast for.
+   *
+   * @param c - Hono context. Expects:
+   * - URL parameter `:pollId` (integer)
+   * - Cookie `JWT` (signed token).
+   *
+   * @returns
+   * `200` with a `ResultsPayload` JSON body on success.
+   * `400` if `:pollId` is not a valid integer.
+   * `403` if the poll is not finished.
+   * `404` if the poll does not exist.
+   * `500` on DB error. The body is the error message in all non-200 cases.
+   */
+  router.get("/api/poll/:pollId/results", async (c) => {
+    return await hasValidJWT(c, async () => {
+      const pollIdFromURL = c.req.param("pollId");
+      const pollId = Number(pollIdFromURL);
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      const results = await pollManager.getResults(pollId);
+      if (!results.result) {
+        return c.body(
+          results.errorMsg ?? "Failed to fetch results",
+          results.httpStatusCode,
+        );
+      }
+      return c.json(results.result, results.httpStatusCode);
+    });
+  });
+
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;
   //   ac.abort(); // Gracefully shut down server
