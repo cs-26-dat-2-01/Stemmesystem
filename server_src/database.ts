@@ -257,6 +257,12 @@ export class WebappDatabase {
     return this.prisma.$disconnect();
   }
 
+  /**
+   * Fetches a poll from the database based on its ID.
+   *
+   * @param pollId the ID of the poll to be fetched from the database.
+   * @returns Promise<getPollFromDBResult> a promise that resolves to an object containing the poll if found, an optional error message, and an HTTP status code representing the result of fetching the poll. If the poll is not found, the result will contain an error message and a 400 status code. If an error occurs during fetching, the result will contain an error message and a 500 status code.
+   */
   public async getPollFromDB(pollId: number): Promise<getPollFromDBResult> {
     try {
       const sqlResult = await this.prisma.poll.findUnique({
@@ -338,12 +344,14 @@ export class WebappDatabase {
   }
 
   /**
-   * Inserts a batch of votes into the database.
+   * Inserts a batch of votes into the database as a single transaction.
+   * The batch is rejected entirely (no partial acceptance) if the user has no voting power for the poll,
+   * or if the number of votes in the batch combined with the user's already cast votes exceeds the user's allowed votes for the poll.
    *
-   * @param pollId
-   * @param userId
-   * @param votes
-   * @returns An object indicating the success of the operation, an optional error message if the operation failed, and an HTTP status code representing the result of the operation.
+   * @param pollId the ID of the poll the votes are being cast for.
+   * @param userId the ID of the user casting the votes.
+   * @param votes an array of VoteInsert objects representing the votes to be inserted, each containing a UUID, the ID of the chosen poll option, the previous hash, and the current hash.
+   * @returns An object indicating the success of the operation, an optional error message if the operation failed, and an HTTP status code representing the result of the operation. Returns 200 on success, 403 if the user has no voting power, 400 if the user's quota is exceeded, and 500 for any other error.
    */
   public async insertVoteBatch(
     pollId: number,
@@ -430,6 +438,13 @@ export class WebappDatabase {
     }
   }
 
+  /**
+   * Fetches the most recent vote hash for a given poll, used as the previous hash when inserting the next vote in the chain.
+   * Votes are ordered by timestamp descending and then by id descending to break ties between votes cast in the same instant.
+   *
+   * @param pollId the ID of the poll for which the latest hash should be fetched.
+   * @returns An object containing the latest hash (or `null` if no votes have been cast yet — the "genesis" case), an HTTP status code, and an optional error message if the operation failed. Returns 200 on success (including when no votes exist) and 500 if an error occurs during fetching.
+   */
   public async getLatestHash(
     pollId: number,
   ): Promise<{
@@ -465,6 +480,13 @@ export class WebappDatabase {
     }
   }
 
+  /**
+   * Inserts a new entry into the audit log table.
+   *
+   * @param action a short string describing the action being logged.
+   * @param details optional additional details about the action, or `null` if no further context is needed.
+   * @returns An object indicating the success of the operation, an optional error message if the operation failed, and an HTTP status code representing the result of the operation. Returns 200 on success and 500 if an error occurs during insertion.
+   */
   public async insertAuditLog(
     action: string,
     details: string | null,
@@ -494,6 +516,12 @@ export class WebappDatabase {
     }
   }
 
+  /**
+   * Fetches all entries from the audit log table.
+   * Entries are ordered by timestamp descending and then by id descending to break ties between entries logged in the same instant.
+   *
+   * @returns An object containing an array of AuditLogEntry objects, an HTTP status code, and an optional error message if the operation failed. Returns 200 on success (with an empty array if no entries exist) and 500 if an error occurs during fetching, in which case `logs` is an empty array.
+   */
   public async getAuditLog(): Promise<{
     logs: AuditLogEntry[];
     httpStatusCode: ContentfulStatusCode;
@@ -533,11 +561,14 @@ export class WebappDatabase {
     }
   }
 
-  /*
-    Jeg har valgt at simpelthen gøre det på "database" niveau at tjekke om pollStatus er finished, logikken kan evt alt flyttes et andet sted hen
-    Har valgt at det skal være stigende grad istedet for faldende. For verifikation vil man gerne følge kæden fra start til slut: vote 1 --> vote 2 --> vote 3, hver stemmes previousHash skal matche den forriges currentHash.
-
-  */
+  /**
+   * Lists all votes for a given poll, ordered chronologically (timestamp ascending, with id ascending as a tiebreaker).
+   * The ascending order makes it possible to verify the hash chain from start to finish: each vote's `previousHash` must match the `currentHash` of the preceding vote.
+   * Votes are only returned if the poll's `voteStatus` is `"finished"`; otherwise the votes are considered private until voting closes.
+   *
+   * @param pollId the ID of the poll for which the votes should be listed.
+   * @returns An object containing an array of Vote objects, an HTTP status code, and an optional error message if the operation failed. Returns 200 on success, 404 if the poll does not exist, 403 if the poll is not finished yet, and 500 if an error occurs during fetching. In all non-success cases `votes` is an empty array.
+   */
   public async listVotesForPoll(pollId: number): Promise<{
     votes: Vote[];
     httpStatusCode: ContentfulStatusCode;
@@ -597,6 +628,14 @@ export class WebappDatabase {
     }
   }
 
+  /**
+   * Checks whether a given user is eligible to vote in a given poll by looking up an entry in the `pollEligibleVoter` table.
+   * On error the function fails safely by returning `false`, so access is denied rather than accidentally granted.
+   *
+   * @param pollId the ID of the poll to check eligibility for.
+   * @param userId the ID of the user whose eligibility is being checked.
+   * @returns Promise<boolean> a promise that resolves to `true` if the user has an eligibility entry for the poll, and `false` otherwise (including when an error occurs during the lookup).
+   */
   public async isUserEligible(
     pollId: number,
     userId: number,
@@ -633,6 +672,14 @@ export class WebappDatabase {
   //   this.DB.exec(customSQL);
   // }
 
+  /**
+   * Returns the number of votes a given user is allowed to cast in a given poll, based on the `votesAllowed` field of the user's `pollEligibleVoter` entry.
+   * On error or if the user has no eligibility entry for the poll, the function returns 0 as a fail-safe to prevent accidentally granting voting power.
+   *
+   * @param pollId the ID of the poll to check the allowed vote count for.
+   * @param userId the ID of the user whose allowed vote count is being looked up.
+   * @returns Promise<number> a promise that resolves to the number of votes the user is allowed to cast. Returns 0 if the user has no eligibility entry or if an error occurs during fetching.
+   */
   public async getVotesAllowed(
     pollId: number,
     userId: number,
@@ -660,12 +707,12 @@ export class WebappDatabase {
   }
 
   /**
-   * Returns the number of votes a current User already has "cast"
+   * Returns the number of votes a given user has already cast in a given poll, by counting the user's entries in the `voteToken` table.
+   * Used together with `getVotesAllowed` to determine how many votes the user has remaining before reaching their quota.
    *
-   * @param pollId
-   * @param userId
-   *
-   * @returns the number of votes a current User already has "cast" for a given poll. Returns 0 if an error occurs during fetching.
+   * @param pollId the ID of the poll to count cast votes for.
+   * @param userId the ID of the user whose cast votes are being counted.
+   * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
    */
   public async countCastVotes(
     pollId: number,
