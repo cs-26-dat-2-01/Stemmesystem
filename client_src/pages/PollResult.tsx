@@ -1,54 +1,120 @@
 import { useEffect, useState } from "react";
+import './PollResults.css';
+import NavBar from "../components/NavBar.tsx";
 import type { ResultsPayload } from "../WebLib.ts";
 
-interface PollResultsProps {
-  pollId: number;
-}
-function PollResults({ pollId }: PollResultsProps) {
-  const [data, setData] = useState<ResultsPayload | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string>("");
+type ViewState =
+  | "loading"
+  | "ready"
+  | "error";
 
-  useEffect(() => {
-    async function fetchResults() {
-      const res = await fetch(`/api/poll/${pollId}/results`, {
-        credentials: "include",
-      });
-      if (res.status === 200) {
-        const dataResults = await res.json() as ResultsPayload;
-        setData(dataResults);
-      } else {
-        const msg = await res.text();
-        setErrorMessage(msg || "Kunne ikke hente resultater");
-        console.log("Results fetch failed:", res.status);
-      }
-    }
-    fetchResults();
-  }, [pollId]);
+function PollResults() {
+
+const [viewState, setViewState] = useState<ViewState>("loading")
+const [errorMessage] = useState("");
+const [data, setData] = useState<ResultsPayload | null>(null);
+  
+
+  if (viewState === "loading") {
+
+   return (
+    <>
+      <NavBar />
+      <div className= "rs-layout">
+        <div className= "rs-main">Indlæser resultater...</div>
+        </div>
+        </>
+   );
+  }
+ if (viewState === "error") {
+  return (
+    <>
+      <NavBar />
+      <div className="rs-layout">
+        <div className="rs-main">
+          <h2>Fejl</h2>
+          <p>{errorMessage}</p>
+        </div>
+      </div>
+    </>
+  );
+  }
+
+
+if (!data) return null;
+
+const isOpen = data.ballotPrivacy === "open";
+const votes = data.votes;
+
+// Sort the data according to votes and show only the top
+   const sortedTop = [...data.counts]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, data.showTopN);
+
+  const max = Math.max(...data.counts.map((c) => c.count), 1);
 
   return (
-    <div>
-      <h1>Resultat af afstemning</h1>
+    <>
+      <NavBar />
 
-      <h2>Top resultater</h2>
-      <ul>
-        {sorted.map((item, i) => (
-          <li key={i}>
-            {item.option}: {item.count} stemmer
-          </li>
-        ))}
-      </ul>
+      <div className="rs-layout">
 
-      <h2>Stemmer</h2>
-      <ul>
-        {data.votesreceived.map((vote, i) => (
-          <li key={i}>
-            {data.Secrecy === "secret"
-              ? vote.uuid
-              : `${vote.uuid} → ${vote.vote}`}
-          </li>
-        ))}
-      </ul>
-    </div>
+        {/* List of votes */}
+        <div className="rs-main">
+          <h2 className="rs-title">Resultat af afstemning</h2>
+
+          <table className="rs-table">
+            <thead>
+              <tr>
+                <th>Id</th>
+                <th>Stemme</th>
+              </tr>
+            </thead>
+              <tbody>
+                {votes.map((vote, i) => (
+                  <tr key={i}>
+                    <td>{vote.uuid}</td>
+                    <td>
+                       {isOpen
+                       ? (vote as Extract<typeof data, { ballotPrivacy: "open" }>["votes"][number]).optionText
+                       : "Skjult"}
+                       </td>
+                       </tr>
+                      ))}
+                      </tbody>
+          </table>
+        </div>
+
+        {/* Right sidebar that shows topN votes */}
+        <div className="rs-sidebar">
+          <div className="rs-top-box">
+            <div className="rs-top-title">
+              Top {data.showTopN} resultater
+            </div>
+
+            {sortedTop.map((item, i) => (
+              <div key={i} className="rs-top-item">
+                <div>{item.optionText}</div>
+
+                <div className="rs-bar-wrapper">
+                  <div
+                    className="rs-bar-fill"
+                    style={{
+                      width: `${(item.count / max) * 100}%`,
+                    }}
+                  />
+                </div>
+
+                <div className="rs-meta">
+                  {item.count} stemmer
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
+    </>
   );
 }
 

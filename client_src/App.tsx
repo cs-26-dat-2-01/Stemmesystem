@@ -4,6 +4,7 @@ import LoginPage from "./pages/LoginPage.tsx";
 import OverviewPage from "./pages/OverviewPage.tsx";
 import { getCookie } from "./WebLib.ts";
 import BallotPage from "./pages/BallotPage.tsx";
+import PollResults from "./pages/PollResult.tsx";
 
 /**
  * Retrieves a cookie value by name.
@@ -17,10 +18,10 @@ function App() {
   );
 
   const pollMatch = window.location.pathname.match(/^\/poll\/(\d+)$/); // match needs regex to match the string. Returns null if no match
-
+  
   if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
-  return <OverviewPage />;
+  return <PollResults />;
 }
 
 export default App;
