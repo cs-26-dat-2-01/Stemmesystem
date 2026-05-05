@@ -118,6 +118,11 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+  router.get("/api/auditlog", async (c) => {
+    const result = await DB.getAuditLog();
+    return c.json(result, result.httpStatusCode);
+  });
+
   router.post("/api/admin/add-user", async (c) => {
     return await hasValidJWT(c, async (verifiedPayload) => {
       if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
@@ -190,6 +195,15 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     with the UUID in, and that will retrieve the actual data.
   */
   router.get("/poll/:pollId", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  router.get("/auditlog", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
       return c.body(file);

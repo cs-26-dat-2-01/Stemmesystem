@@ -18,10 +18,11 @@ function App() {
   );
 
   const pollMatch = window.location.pathname.match(/^\/poll\/(\d+)$/); // match needs regex to match the string. Returns null if no match
+  const auditMatch = window.location.pathname.match(/^\/auditlog$/);
 
   if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
-  if (window.location.pathname === "/auditlog") return <AuditLog />;
+  if (auditMatch) return <AuditLog />;
   return <OverviewPage />;
 }
 
