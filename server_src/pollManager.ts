@@ -228,7 +228,7 @@ export class PollManager {
       return { errorMsg: "Could not retrieve pollData" };
     }
 
-    if (!poll || poll.voteStatus !== "started") {
+    if (!poll || poll.status !== "started") {
       logger.warn(
         `Attempted to open poll with ID ${pollId}, but it is closed.`,
       );
@@ -311,7 +311,7 @@ export class PollManager {
     }
     const poll = pollResult.poll;
 
-    if (poll.voteStatus !== "finished") {
+    if (poll.status !== "finished") {
       return {
         errorMsg:
           "Poll is not finished - results are not public until voting closes",

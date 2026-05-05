@@ -13,7 +13,7 @@ import { FaSearch } from "react-icons/fa";
 type FilterType = "all" | "eligible" | "drafts";
 
 function statusLabel(poll: FrontEndPoll): string {
-  if (poll.poll.status === "finished" || "not started") {
+  if (poll.poll.status === "finished" || poll.poll.status === "not started") {
     return poll.poll.status;
   }
 

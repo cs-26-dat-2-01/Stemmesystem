@@ -130,6 +130,19 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return c.json(result, result.httpStatusCode);
   });
 
+  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
+  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  router.get("/api/polls", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const userResult = await DB.getUserFromDB(payload.username);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+      const polls = await DB.getFrontEndPollObj(userResult.user.id);
+      return c.json(polls, 200);
+    });
+  });
+
   router.post("/api/admin/add-user", async (c) => {
     return await hasValidJWT(c, async (verifiedPayload) => {
       if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.

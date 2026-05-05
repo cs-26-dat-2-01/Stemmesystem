@@ -37,7 +37,6 @@ function App() {
 
   if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
   if (resultsMatch) return <PollResults pollId={Number(resultsMatch[1])} />;
-  const pollMatch = window.location.pathname.match(/^\/poll\/(\d+)$/); // match needs regex to match the string. Returns null if no match
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
   if (auditMatch) return <AuditLog />;
   return <OverviewPage />;
