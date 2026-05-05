@@ -4,6 +4,7 @@ import LoginPage from "./pages/LoginPage.tsx";
 import OverviewPage from "./pages/OverviewPage.tsx";
 import { getCookie } from "./WebLib.ts";
 import BallotPage from "./pages/BallotPage.tsx";
+import AuditLog from "./pages/AuditLog.tsx";
 
 /**
  * Retrieves a cookie value by name.
@@ -20,6 +21,7 @@ function App() {
 
   if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
+  if (window.location.pathname === "/auditlog") return <AuditLog />;
   return <OverviewPage />;
 }
 
