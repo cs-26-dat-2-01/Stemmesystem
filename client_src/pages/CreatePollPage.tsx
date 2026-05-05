@@ -1,6 +1,6 @@
-import { useState } from "react";
-import "./CreatePollPage.css";
-import type { ballotPrivacy, Poll, pollVisibility } from "../WebLib.ts";
+import { useState } from 'react';
+import './CreatePollPage.css';
+import type { Poll, pollVisibility, ballotPrivacy } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
 
 /* Create poll page 1.
