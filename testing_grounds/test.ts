@@ -1691,8 +1691,7 @@ Deno.test({
   },
 });
 */
-
-/* I have commented old test out since i keep getting errors from them
+/*
 Deno.test({
   name: "test route: /api/admin/add-user",
   async fn() {

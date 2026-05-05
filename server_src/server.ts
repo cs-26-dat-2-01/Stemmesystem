@@ -266,7 +266,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return hasValidJWT(c, async (payload) => {
       const parsePollIdFromURL = c.req.param("pollId");
       const pollId = Number(parsePollIdFromURL);
-      if (Number.isInteger(pollId)) {
+      if (!Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
       }
       const userId = payload.userId as number;
@@ -305,7 +305,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return await hasValidJWT(c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
-      if (Number.isInteger(pollId)) {
+      if (!Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
       }
       let body = undefined;
@@ -377,6 +377,16 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       return c.json(results.result, results.httpStatusCode);
     });
   });
+
+router.get("/poll/:pollId/results", async (c) => {                            
+    try {                                                                       
+      const file = await Deno.readFile("./dist/index.html");                  
+      return c.body(file);                                                      
+    } catch {                                                                   
+      return c.body("Not Found", { status: 404 });                            
+    }                                                                           
+  });                                                                           
+         
 
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;

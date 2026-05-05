@@ -8,12 +8,33 @@ type ViewState =
   | "ready"
   | "error";
 
-function PollResults() {
+  interface PollResultsProps{
+	  pollId: number;
+  }
+
+function PollResults( {pollId}: PollResultsProps) {
 
 const [viewState, setViewState] = useState<ViewState>("loading")
 const [errorMessage] = useState("");
 const [data, setData] = useState<ResultsPayload | null>(null);
-  
+ 
+
+	useEffect(() => {
+		 (async () => {
+		 try {
+		 	const res = await fetch(`/api/poll/${pollId}/results`);
+			if (!res.ok){
+				setViewState("error");
+				return; 
+			}
+		 const json: ResultsPayload = await res.json(); 
+		 setData(json); 
+		 setViewState("ready");
+		 } catch {
+			 setViewState("error");
+		 }
+		 })(); 
+	}, [pollId]);
 
   if (viewState === "loading") {
 
