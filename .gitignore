@@ -33,3 +33,6 @@ database/test.db
 database/users.db
 database/database.db
 /generated/prisma
+
+# Coverage
+coverage/

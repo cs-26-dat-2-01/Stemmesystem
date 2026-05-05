@@ -293,7 +293,7 @@ export class PollManager {
    *
    * @returns `{result}` with aggregated counts and the per-vote UUID list shaped according to `ballotPrivacy`.
    *   `{errorMsg, httpStatusCode}` if any precondition fails — the route handler maps the status code
-   *   to the HTTP response (404 if the poll does not exist, 403 if the poll is not finished, 500 on DB error).
+   *   to the HTTP response (400 if the poll does not exist, 403 if the poll is not finished, 500 on DB error).
    */
   public async getResults(
     pollId: number,

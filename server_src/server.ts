@@ -355,9 +355,8 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    *
    * @returns
    * `200` with a `ResultsPayload` JSON body on success.
-   * `400` if `:pollId` is not a valid integer.
+   * `400` if `:pollId` is not a valid integer or the poll does not exist.
    * `403` if the poll is not finished.
-   * `404` if the poll does not exist.
    * `500` on DB error. The body is the error message in all non-200 cases.
    */
   router.get("/api/poll/:pollId/results", async (c) => {
