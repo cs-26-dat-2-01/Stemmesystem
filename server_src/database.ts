@@ -7,6 +7,7 @@ import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
 import {
   ballotPrivacy,
+  FrontEndPoll,
   Poll,
   PollOption,
   pollStatus,
@@ -61,7 +62,7 @@ export class WebappDatabase {
    *
    * @param adminPassword
    */
-  private constructor(adminPassword: string, databaseUrl = env.DATABASE_URL) {
+  private constructor(databaseUrl = env.DATABASE_URL) {
     this.prisma = new PrismaClient({
       adapter: new PrismaLibSql({ url: databaseUrl }),
     });
@@ -111,7 +112,7 @@ export class WebappDatabase {
     databaseUrl = env.DATABASE_URL,
   ): Promise<WebappDatabase> {
     const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD); // https://github.com/ranisalt/node-argon2
-    const dbInstance = new WebappDatabase(adminPassword, databaseUrl);
+    const dbInstance = new WebappDatabase(databaseUrl);
     await dbInstance.ensureAdminUser(adminPassword);
     await dbInstance.logDatabaseState();
 
@@ -287,7 +288,7 @@ export class WebappDatabase {
         id: sqlResult.id,
         title: sqlResult.title,
         description: sqlResult.description,
-        voteStatus: sqlResult.voteStatus as pollStatus,
+        status: sqlResult.voteStatus as pollStatus,
         createdBy: sqlResult.createdBy,
         createdAt: sqlResult.createdAt.toString(),
         startsAt: sqlResult.startsAt
@@ -685,6 +686,22 @@ export class WebappDatabase {
   }
 
   /**
+   * Calculate the vote progress based on entries in eligble voters.
+   *
+   * @param pollId - The id of the poll to get progress report on.
+   */
+  public async getVoteProgress(
+    pollId: number,
+  ): Promise<string> {
+    const totalEligible = await this.prisma.pollEligibleVoter.count({
+      where: { pollId: pollId },
+    });
+    const ballotsCast = this.prisma.vote.count();
+
+    return `${ballotsCast}/${totalEligible}`;
+  }
+
+  /**
    * Henter alle afstemninger fra databasen og beregner ekstra info til oversigts-siden:
    * - Om den indloggede bruger har stemt (hasVoted)
    * - Om brugeren er stemmeberettiget (isEligible)
@@ -693,23 +710,13 @@ export class WebappDatabase {
    *
    * @param userId ID på den indloggede bruger
    */
-  public async getAllPolls(userId: number): Promise<{
-    id: number;
-    title: string;
-    status: "active" | "finished" | "not_started";
-    voteProgress: string;
-    timeLeft: string;
-    isPublic: boolean;
-    isAnonymous: boolean;
-    owner: string;
-    hasVoted: boolean;
-    isEligible: boolean;
-  }[]> {
+  public async getFrontEndPollObj(userId: number): Promise<FrontEndPoll[]> {
     try {
+      // Fetch all polls for a user, but only votes they are allowed to see!
       const polls = await this.prisma.poll.findMany({
         include: {
           // Hent ejers brugernavn i stedet for blot userId
-          createdByUser: { select: { username: true } },
+          creator: { select: { username: true } },
           // Brug til at tælle unikke stemmeafgivere
           voteTokens: { select: { userId: true } },
           // Tjek om den indloggede bruger er stemmeberettiget
@@ -722,51 +729,33 @@ export class WebappDatabase {
       });
 
       return await Promise.all(polls.map(async (poll) => {
-        // Oversæt Prisma voteStatus til frontend-format
-        let status: "active" | "finished" | "not_started";
-        if (poll.voteStatus === "started") status = "active";
-        else if (poll.voteStatus === "finished") status = "finished";
-        else status = "not_started";
-
-        // Beregn tid tilbage til deadline
-        let timeLeft = "00:00:00";
-        if (poll.endsAt) {
-          const diffMs = new Date(poll.endsAt).getTime() - Date.now();
-          if (diffMs > 0) {
-            const hours = Math.floor(diffMs / 3_600_000);
-            const mins = Math.floor((diffMs % 3_600_000) / 60_000);
-            const secs = Math.floor((diffMs % 60_000) / 1_000);
-            timeLeft = `${String(hours).padStart(2, "0")}:${
-              String(mins).padStart(2, "0")
-            }:${String(secs).padStart(2, "0")}`;
-          }
-        }
-
-        // Tæl totalt antal stemmeberettigede
-        const totalEligible = await this.prisma.pollEligibleVoter.count({
-          where: { pollId: poll.id },
-        });
-
-        // Tæl unikke brugere der har afgivet mindst én stemme
-        const uniqueVoters = new Set(poll.voteTokens.map((v) => v.userId)).size;
-
         // Tjek om den indloggede bruger har stemt
         const userVoteCount = await this.prisma.voteToken.count({
           where: { pollId: poll.id, userId },
         });
 
-        return {
-          id: poll.id,
-          title: poll.title,
-          status,
-          voteProgress: `${uniqueVoters}/${totalEligible}`,
-          timeLeft,
-          isPublic: poll.pollVisibility === "public",
-          isAnonymous: poll.ballotPrivacy === "secret",
-          owner: poll.createdByUser?.username ?? "ukendt",
+        const result: FrontEndPoll = {
+          poll: {
+            id: poll.id,
+            title: poll.title,
+            description: poll.description,
+            status: poll.voteStatus as pollStatus,
+            createdBy: poll.createdBy,
+            createdAt: poll.createdAt.toString(),
+            startsAt: poll.startsAt ? poll.startsAt.toString() : undefined,
+            endsAt: poll.endsAt ? poll.endsAt.toString() : undefined,
+            pollVisibility: poll.pollVisibility as pollVisibility,
+            ballotPrivacy: poll.ballotPrivacy as ballotPrivacy,
+            showTopN: poll.showTopN,
+            ballotLimit: poll.ballotLimit,
+            useBuffer: poll.useBuffer,
+          },
+          isUserEligibleVoter: poll.eligibleVoters.length > 0,
           hasVoted: userVoteCount > 0,
-          isEligible: poll.eligibleVoters.length > 0,
+          pollProgress: "not initialized",
+          timeLeft: "not initialized",
         };
+        return result;
       }));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";

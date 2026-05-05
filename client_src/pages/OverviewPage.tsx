@@ -1,39 +1,28 @@
 import "./OverviewPage.css";
 import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
-//SVG icons
-import { FaCheck, FaXmark } from "react-icons/fa6";
+import { calculateTimeRemaining, type FrontEndPoll } from "../WebLib.ts";
+import { FaCheck, FaXmark } from "react-icons/fa6"; //SVG icons
 import { FaSearch } from "react-icons/fa";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Poll-interfacet beskriver formen på et afstemnings-objekt som vi forventer
 // at modtage fra API-endpointet GET /api/polls.
 // Alle felter skal matche hvad serveren sender – ellers får vi TypeScript-fejl.
-interface OverviewPoll {
-  id: number;
-  title: string;
-  status: "active" | "finished" | "not_started";
-  voteProgress: string;
-  timeLeft: string;
-  isPublic: boolean;
-  isAnonymous: boolean;
-  owner: string;
-  hasVoted: boolean;
-  isEligible: boolean;
-  folder?: string;
-}
 
 type FilterType = "all" | "eligible" | "drafts";
 
-function statusLabel(poll: OverviewPoll): string {
-  if (poll.status === "finished") return "Finished";
-  if (poll.status === "not_started") return "Not started";
-  return poll.voteProgress;
+function statusLabel(poll: FrontEndPoll): string {
+  if (poll.poll.status === "finished" || "not started") {
+    return poll.poll.status;
+  }
+
+  return poll.pollProgress;
 }
 
-type FolderMap = Record<string, OverviewPoll[]>;
+type FolderMap = Record<string, FrontEndPoll[]>;
 
-function buildFolders(polls: OverviewPoll[]): FolderMap {
+function buildFolders(polls: FrontEndPoll[]): FolderMap {
   const map: FolderMap = {};
   polls.forEach((p) => {
     const key = p.folder ?? "";
@@ -153,15 +142,15 @@ function Sidebar(
                 <div className="ov-folder-children">
                   {folderMap[name].map((poll) => (
                     <a
-                      key={poll.id}
-                      href={`/poll/${poll.id}`}
+                      key={poll.poll.id}
+                      href={`/poll/${poll.poll.id}`}
                       className={`ov-folder-item ${
                         activeFolderFilter === name
                           ? "ov-folder-item--active"
                           : ""
                       }`}
                     >
-                      {poll.title}
+                      {poll.poll.title}
                     </a>
                   ))}
                 </div>
@@ -178,7 +167,7 @@ function Sidebar(
 // Viser listen af afstemninger som en tabel jf. wireframe figur 4.2.
 // Modtager den allerede filtrerede og søgte liste som prop, så komponenten
 // selv ikke behøver at kende til filtertilstanden.
-function PollTable({ polls }: { polls: OverviewPoll[] }) {
+function PollTable({ polls }: { polls: FrontEndPoll[] }) {
   if (polls.length === 0) return <p className="ov-empty">No polls found.</p>;
   return (
     <table className="ov-table">
@@ -195,9 +184,9 @@ function PollTable({ polls }: { polls: OverviewPoll[] }) {
       </thead>
       <tbody>
         {polls.map((poll) => (
-          <tr key={poll.id}>
+          <tr key={poll.poll.id}>
             <td className="ov-col-title">
-              <a href={`/poll/${poll.id}`}>{poll.title}</a>
+              <a href={`/poll/${poll.poll.id}`}>{poll.poll.title}</a>
             </td>
             <td className="ov-col-mystatus">
               {poll.hasVoted
@@ -206,9 +195,9 @@ function PollTable({ polls }: { polls: OverviewPoll[] }) {
                     Du har stemt <FaCheck />
                   </span>
                 )
-                : poll.status === "active"
+                : poll.poll.status === "started"
                 ? (
-                  <a href={`/poll/${poll.id}/vote`} className="btn-vote">
+                  <a href={`/poll/${poll.poll.id}/vote`} className="btn-vote">
                     Vote
                   </a>
                 )
@@ -217,12 +206,13 @@ function PollTable({ polls }: { polls: OverviewPoll[] }) {
             <td className="ov-col-status">{statusLabel(poll)}</td>
             <td className="ov-col-time">{poll.timeLeft}</td>
             <td className="ov-col-visibility">
-              {poll.isPublic ? "Public" : "Private"}
+              {poll.poll.pollVisibility}
             </td>
             <td className="ov-col-anon">
-              {poll.isAnonymous ? <FaCheck /> : <FaXmark />}
+              {poll.poll.ballotPrivacy === "secret" ? <FaCheck /> : <FaXmark />}
             </td>
-            <td className="ov-col-owner">{poll.owner}</td>
+            <td className="ov-col-owner">{poll.poll.createdBy}</td>{" "}
+            {/*To-do: Change to username.*/}
           </tr>
         ))}
       </tbody>
@@ -238,7 +228,7 @@ function PollTable({ polls }: { polls: OverviewPoll[] }) {
 //   - Søgetilstand
 // Sender de processerede data ned til <Sidebar> og <PollTable>.
 function OverviewPage() {
-  const [polls, setPolls] = useState<OverviewPoll[]>([]);
+  const [polls, setPolls] = useState<FrontEndPoll[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [activeFolderFilter, setActiveFolderFilter] = useState<string | null>(
@@ -254,12 +244,17 @@ function OverviewPage() {
     const fetchPolls = async () => {
       setLoading(true);
       try {
-        const res = await fetch("http://localhost:8000/api/polls", {
+        const res = await fetch("/api/polls", {
           method: "GET",
           credentials: "include",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        setPolls(await res.json());
+
+        const poll: FrontEndPoll[] = await res.json(); // Check this
+        poll.forEach((poll) => {
+          poll.timeLeft = calculateTimeRemaining(poll.poll);
+        });
+        setPolls(poll);
       } catch (err) {
         console.error("Failed to fetch polls:", err);
       } finally {
@@ -276,16 +271,18 @@ function OverviewPage() {
       if (activeFolderFilter) return (poll.folder ?? "") === activeFolderFilter;
       switch (activeFilter) {
         case "eligible":
-          return !poll.hasVoted && poll.status === "active";
+          return !poll.hasVoted && poll.poll.status === "started";
         case "drafts":
-          return poll.status === "not_started";
+          return poll.poll.status === "not started";
         default:
           return true;
       }
     })
     .filter((poll) =>
-      poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      poll.owner.toLowerCase().includes(searchQuery.toLowerCase())
+      poll.poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      poll.poll.createdBy.toString().toLowerCase().includes(
+        searchQuery.toLowerCase(),
+      ) // To-do: Change to fetch username for the poll
     );
 
   return (

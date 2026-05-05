@@ -112,55 +112,6 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
   });
 
-  /*
-  Route: /api/version
-  Description:
-    Lets the server parse the version of the client and judge if the client has
-    the correct version for communicating correctly with the API.
-  */
-  router.get("/api/version", async (c) => {
-    return await hasValidJWT(c, () => {
-      const result = assertClientVersion(c);
-      return c.json(result);
-    });
-  });
-
-  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
-  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
-  router.get("/api/polls", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
-      const userResult = await DB.getUserFromDB(payload.username);
-      if (userResult.httpStatusCode !== 200 || !userResult.user) {
-        return c.body("401 Unauthorized", 401);
-      }
-      const polls = await DB.getAllPolls(userResult.user.id);
-      return c.json(polls, 200);
-    });
-  });
-
-  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
-  router.get("/admin", async (c) => {
-    try {
-      const file = await Deno.readFile("./dist/index.html");
-      return c.body(file);
-    } catch {
-      return c.body("Not Found", { status: 404 });
-    }
-  });
-
-  router.post("/api/admin/add-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload) => {
-      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
-        logger.trace`Failed authenication atempt on admin API route.`;
-        return c.body("401 Unauthorized", 401);
-      }
-      const req = await c.req.json();
-
-      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
-      return c.body("", result);
-    });
-  });
-
   router.get("/", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -215,6 +166,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
 
     return c.body("Logged out", 200);
   });
+
   /* User opens the poll page for a specific poll
     This will give the index.html and let bundle.js handle everything. This is because we need to do a post
     with the UUID in, and that will retrieve the actual data.
@@ -226,6 +178,71 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     } catch {
       return c.body("Not Found", { status: 404 });
     }
+  });
+
+  // --------------------------------------------------
+  // API Routes
+  // --------------------------------------------------
+
+  /*
+  Route: /api/version
+  Description:
+    Lets the server parse the version of the client and judge if the client has
+    the correct version for communicating correctly with the API.
+  */
+  router.get("/api/version", async (c) => {
+    return await hasValidJWT(c, () => {
+      const result = assertClientVersion(c);
+      return c.json(result);
+    });
+  });
+
+  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
+  router.get("/admin", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  router.post("/api/admin/add-user", async (c) => {
+    return await hasValidJWT(c, async (verifiedPayload) => {
+      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
+        logger.trace`Failed authenication atempt on admin API route.`;
+        return c.body("401 Unauthorized", 401);
+      }
+      const req = await c.req.json();
+
+      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
+      return c.body("", result);
+    });
+  });
+
+  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
+  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  router.get("/api/polls", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const userResult = await DB.getUserFromDB(payload.username as string);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+      const polls = await DB.getFrontEndPollObj(userResult.user.id);
+      return c.json(polls, 200);
+    });
+  });
+
+  router.get("/api/poll/:pollId/voteProgress", (c) => {
+    return hasValidJWT(c, () => {
+      // parse pollId from URL
+      const pollIdStr = c.req.param("pollId");
+      const pollId = Number(pollIdStr);
+      if (Number.isNaN(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      return c.body("NOT IMPLEMENTED");
+    });
   });
 
   router.post("/api/poll/:pollId/open", (c) => {
