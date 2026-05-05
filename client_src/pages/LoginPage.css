@@ -46,7 +46,7 @@ label {
   font-size: 14px;
 }
 
-.form button {
+.input-submit {
   text-transform: uppercase;
   outline: 0;
   background: var(--blue-button-color);

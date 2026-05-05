@@ -34,7 +34,7 @@ function NavBar() {
 
       <div className="nav-right-group">
         <div className="nav-center">
-          <a href="#">Hjem</a>
+          <a href="/">Hjem</a>
         </div>
 
         <div className="vertical-divider"></div>
