@@ -21,4 +21,13 @@
   --primary-background-color: #fff;
   --blue-button-color: cornflowerblue;
   --blue-button-hover: rgb(119, 159, 234);
+  --color-primary: #1d4ed8;
+  --color-primary-hover: #1e40af;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-success: #059669;
+  --color-bg: #f8fafc;
+  --color-border: #e5e7eb;
+  --color-text: #111827;
+  --color-text-muted: #6b7280;
 }

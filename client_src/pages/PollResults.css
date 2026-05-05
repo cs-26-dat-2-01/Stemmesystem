@@ -1,0 +1,93 @@
+
+/* ─── Layout ─────────────────────────────────────────────── */
+.rs-layout {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  min-height: calc(100vh - 52px);
+  border-top: 1px solid #d1d5db;
+}
+
+/* ─── Left side (votes list) ─────────────────────────────── */
+.rs-main {
+  padding: 16px;
+}
+
+/* Table style */
+.rs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.rs-table thead tr {
+  background: #f3f4f6;
+  border-bottom: 2px solid #d1d5db;
+}
+
+.rs-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: #374151;
+}
+
+.rs-table td {
+  padding: 10px 14px;
+  color: #374151;
+}
+
+.rs-table tbody tr {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.rs-table tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+.rs-table tbody tr:hover {
+  background: #eff6ff;
+}
+
+/* ─── Right side (top results box) ───────────────────────── */
+.rs-sidebar {
+  border-left: 1px solid #d1d5db;
+  padding: 16px 12px;
+  background: #f9fafb;
+}
+
+.rs-top-box {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.rs-top-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #374151;
+  margin-bottom: 10px;
+}
+
+.rs-top-item {
+  margin-bottom: 10px;
+}
+
+.rs-bar-wrapper {
+  background: #e5e7eb;
+  border-radius: 6px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.rs-bar-fill {
+  height: 100%;
+  background: #3b82f6;
+}
+
+.rs-meta {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 2px;
+}

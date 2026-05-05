@@ -35,4 +35,4 @@ database/database.db
 /generated/prisma
 
 # Coverage
-coverage
+coverage/
