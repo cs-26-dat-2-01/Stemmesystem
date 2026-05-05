@@ -4,7 +4,7 @@ import "./AdminPage.css";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// Repræsenterer en bruger som vi modtager fra GET /admin/users
+// Representes the user we get from GET /admin/users
 interface User {
   id: number;
   username: string;
@@ -16,10 +16,12 @@ type AdminView = "users" | "add-user" | "delete-user";
 // ─── Hjælpekomponent: StatusBesked ───────────────────────────────────────────
 // Viser en grøn succesbesked eller rød fejlbesked afhængigt af type.
 // Bruges efter at have tilføjet eller slettet en bruger.
-function StatusBesked({ besked, type }: { besked: string; type: "success" | "error" }) {
+function StatusMsg(
+  { msg: msg, type }: { msg: string; type: "success" | "error" },
+) {
   return (
     <div className={`admin-status admin-status--${type}`}>
-      {type === "success" ? "✓" : "✗"} {besked}
+      {type === "success" ? "✓" : "✗"} {msg}
     </div>
   );
 }
@@ -27,38 +29,48 @@ function StatusBesked({ besked, type }: { besked: string; type: "success" | "err
 // ─── Fane: Brugerliste ────────────────────────────────────────────────────────
 // Henter og viser alle brugere i systemet som en tabel.
 // Bruges til at give admins et overblik over hvem der har adgang.
-function BrugerListe() {
-  const [brugere, setBrugere] = useState<User[]>([]);
+function UserList() {
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fejl, setFejl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Hent brugerlisten fra serveren når komponenten vises
   useEffect(() => {
-    const hentBrugere = async () => {
+    const fetchUsers = async () => {
       setLoading(true);
-      setFejl(null);
+      setError(null);
       try {
         const res = await fetch("http://localhost:8000/admin/users", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
         const data: User[] = await res.json();
-        setBrugere(data);
+        setUsers(data);
       } catch (err) {
-        setFejl(err instanceof Error ? err.message : "Ukendt fejl");
+        setError(err instanceof Error ? err.message : "Ukendt fejl");
       } finally {
         setLoading(false);
       }
     };
-    hentBrugere();
+    fetchUsers();
   }, []);
 
-  if (loading) return <div className="admin-loading"><div className="spinner" /> Henter brugere…</div>;
-  if (fejl) return <div className="admin-status admin-status--error">✗ {fejl}</div>;
+  if (loading) {
+    return (
+      <div className="admin-loading">
+        <div className="spinner" /> Henter brugere…
+      </div>
+    );
+  }
+  if (error) {
+    return <div className="admin-status admin-status--error">✗ {error}</div>;
+  }
 
   return (
     <div className="admin-section">
-      <h2 className="admin-section-title">Alle brugere <span className="admin-badge">{brugere.length}</span></h2>
+      <h2 className="admin-section-title">
+        Alle brugere <span className="admin-badge">{users.length}</span>
+      </h2>
       <table className="admin-table">
         <thead>
           <tr>
@@ -67,7 +79,7 @@ function BrugerListe() {
           </tr>
         </thead>
         <tbody>
-          {brugere.map((b) => (
+          {users.map((b) => (
             <tr key={b.id}>
               <td className="admin-table-id">{b.id}</td>
               <td>{b.username}</td>
@@ -82,25 +94,30 @@ function BrugerListe() {
 // ─── Fane: Tilføj bruger ──────────────────────────────────────────────────────
 // Formular til at oprette en ny bruger ved at sende POST /admin/users.
 // Adgangskoden hashes på serveren med argon2 — vi sender den som klartekst over HTTPS.
-function TilfoejBruger() {
-  const [brugernavn, setBrugernavn] = useState("");
-  const [adgangskode, setAdgangskode] = useState("");
-  const [bekraeft, setBekraeft] = useState("");
-  const [status, setStatus] = useState<{ besked: string; type: "success" | "error" } | null>(null);
+function AddUsers() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [status, setStatus] = useState<
+    { msg: string; type: "success" | "error" } | null
+  >(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleIndsend() {
+  async function handleSubmission() {
     // Valider at adgangskoderne matcher inden vi sender til serveren
-    if (adgangskode !== bekraeft) {
-      setStatus({ besked: "Adgangskoderne matcher ikke.", type: "error" });
+    if (password !== confirmation) {
+      setStatus({ msg: "Adgangskoderne matcher ikke.", type: "error" });
       return;
     }
-    if (brugernavn.trim() === "") {
-      setStatus({ besked: "Brugernavn må ikke være tomt.", type: "error" });
+    if (username.trim() === "") {
+      setStatus({ msg: "Brugernavn må ikke være tomt.", type: "error" });
       return;
     }
-    if (adgangskode.length < 6) {
-      setStatus({ besked: "Adgangskoden skal være mindst 6 tegn.", type: "error" });
+    if (password.length < 6) {
+      setStatus({
+        msg: "Adgangskoden skal være mindst 6 tegn.",
+        type: "error",
+      });
       return;
     }
 
@@ -111,22 +128,25 @@ function TilfoejBruger() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: brugernavn, password: adgangskode }),
+        body: JSON.stringify({ username: username, password: password }),
       });
 
       if (res.ok) {
-        setStatus({ besked: `Brugeren "${brugernavn}" blev oprettet.`, type: "success" });
+        setStatus({
+          msg: `Brugeren "${username}" blev oprettet.`,
+          type: "success",
+        });
         // Nulstil formularen efter succesfuld oprettelse
-        setBrugernavn("");
-        setAdgangskode("");
-        setBekraeft("");
+        setUsername("");
+        setPassword("");
+        setConfirmation("");
       } else if (res.status === 409) {
-        setStatus({ besked: "Brugernavnet er allerede taget.", type: "error" });
+        setStatus({ msg: "Brugernavnet er allerede taget.", type: "error" });
       } else {
-        setStatus({ besked: `Fejl: ${res.status}`, type: "error" });
+        setStatus({ msg: `Fejl: ${res.status}`, type: "error" });
       }
     } catch {
-      setStatus({ besked: "Kunne ikke forbinde til serveren.", type: "error" });
+      setStatus({ msg: "Kunne ikke forbinde til serveren.", type: "error" });
     } finally {
       setLoading(false);
     }
@@ -141,8 +161,8 @@ function TilfoejBruger() {
           <input
             id="nyt-brugernavn"
             type="text"
-            value={brugernavn}
-            onChange={(e) => setBrugernavn(e.target.value)}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             placeholder="f.eks. jens123"
             autoComplete="off"
           />
@@ -152,8 +172,8 @@ function TilfoejBruger() {
           <input
             id="ny-adgangskode"
             type="password"
-            value={adgangskode}
-            onChange={(e) => setAdgangskode(e.target.value)}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             placeholder="Mindst 6 tegn"
             autoComplete="new-password"
           />
@@ -163,18 +183,19 @@ function TilfoejBruger() {
           <input
             id="bekraeft-adgangskode"
             type="password"
-            value={bekraeft}
-            onChange={(e) => setBekraeft(e.target.value)}
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
             placeholder="Gentag adgangskoden"
             autoComplete="new-password"
           />
         </div>
 
-        {status && <StatusBesked besked={status.besked} type={status.type} />}
+        {status && <StatusMsg msg={status.msg} type={status.type} />}
 
         <button
+          type="button"
           className="admin-btn admin-btn--primary"
-          onClick={handleIndsend}
+          onClick={handleSubmission}
           disabled={loading}
         >
           {loading ? "Opretter…" : "Opret bruger"}
@@ -188,45 +209,56 @@ function TilfoejBruger() {
 // Giver admin mulighed for at slette en bruger ved at angive brugernavnet.
 // Der er en bekræftelsesdialog for at undgå utilsigtet sletning.
 function SletBruger() {
-  const [brugernavn, setBrugernavn] = useState("");
-  const [bekraeft, setBekraeft] = useState(false);
-  const [status, setStatus] = useState<{ besked: string; type: "success" | "error" } | null>(null);
+  const [username, setUsername] = useState("");
+  const [submission, setSubmission] = useState(false);
+  const [status, setStatus] = useState<
+    { msg: string; type: "success" | "error" } | null
+  >(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSlet() {
-    if (brugernavn.trim() === "") {
-      setStatus({ besked: "Angiv et brugernavn.", type: "error" });
+    if (username.trim() === "") {
+      setStatus({ msg: "Angiv et brugernavn.", type: "error" });
       return;
     }
     // Beskyt admin-kontoen mod at blive slettet via dashboardet
-    if (brugernavn === "admin") {
-      setStatus({ besked: "Admin-kontoen kan ikke slettes.", type: "error" });
+    if (username === "admin") {
+      setStatus({ msg: "Admin-kontoen kan ikke slettes.", type: "error" });
       return;
     }
-    if (!bekraeft) {
-      setStatus({ besked: "Bekræft venligst at du vil slette brugeren.", type: "error" });
+    if (!submission) {
+      setStatus({
+        msg: "Bekræft venligst at du vil slette brugeren.",
+        type: "error",
+      });
       return;
     }
 
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch(`http://localhost:8000/admin/users/${encodeURIComponent(brugernavn)}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      const res = await fetch(
+        `http://localhost:8000/admin/users/${encodeURIComponent(username)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
 
       if (res.ok) {
-        setStatus({ besked: `Brugeren "${brugernavn}" blev slettet.`, type: "success" });
-        setBrugernavn("");
-        setBekraeft(false);
+        setStatus({
+          msg: `Brugeren "${username}" blev slettet.`,
+          type: "success",
+        });
+        setUsername("");
+        setSubmission(false);
       } else if (res.status === 404) {
-        setStatus({ besked: "Brugeren blev ikke fundet.", type: "error" });
+        setStatus({ msg: "Brugeren blev ikke fundet.", type: "error" });
       } else {
-        setStatus({ besked: `Fejl: ${res.status}`, type: "error" });
+        setStatus({ msg: `Fejl: ${res.status}`, type: "error" });
       }
     } catch {
-      setStatus({ besked: "Kunne ikke forbinde til serveren.", type: "error" });
+      setStatus({ msg: "Kunne ikke forbinde til serveren.", type: "error" });
     } finally {
       setLoading(false);
     }
@@ -241,31 +273,37 @@ function SletBruger() {
           <input
             id="slet-brugernavn"
             type="text"
-            value={brugernavn}
-            onChange={(e) => { setBrugernavn(e.target.value); setBekraeft(false); setStatus(null); }}
+            value={username}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              setSubmission(false);
+              setStatus(null);
+            }}
             placeholder="Brugernavnet der skal slettes"
             autoComplete="off"
           />
         </div>
 
         {/* Bekræftelsescheckbox — vises kun når et brugernavn er indtastet */}
-        {brugernavn.trim() !== "" && brugernavn !== "admin" && (
+        {username.trim() !== "" && username !== "admin" && (
           <label className="admin-confirm-label">
             <input
               type="checkbox"
-              checked={bekraeft}
-              onChange={(e) => setBekraeft(e.target.checked)}
+              checked={submission}
+              onChange={(e) => setSubmission(e.target.checked)}
             />
-            Jeg bekræfter at jeg vil slette brugeren <strong>"{brugernavn}"</strong> permanent.
+            Jeg bekræfter at jeg vil slette brugeren{" "}
+            <strong>"{username}"</strong> permanent.
           </label>
         )}
 
-        {status && <StatusBesked besked={status.besked} type={status.type} />}
+        {status && <StatusMsg msg={status.msg} type={status.type} />}
 
         <button
+          type="button"
           className="admin-btn admin-btn--danger"
           onClick={handleSlet}
-          disabled={loading || !bekraeft}
+          disabled={loading || !submission}
         >
           {loading ? "Sletter…" : "Slet bruger"}
         </button>
@@ -278,7 +316,7 @@ function SletBruger() {
 // Admin-dashboardet med tre faner: brugerliste, tilføj bruger og slet bruger.
 // Kun tilgængeligt for indloggede admin-brugere (håndhæves på server-siden).
 function AdminPage() {
-  const [aktivFane, setAktivFane] = useState<AdminView>("users");
+  const [activePane, setActivePane] = useState<AdminView>("users");
 
   return (
     <>
@@ -289,20 +327,29 @@ function AdminPage() {
           <h1 className="admin-sidebar-title">Admin</h1>
           <nav className="admin-nav">
             <button
-              className={`admin-nav-btn ${aktivFane === "users" ? "admin-nav-btn--active" : ""}`}
-              onClick={() => setAktivFane("users")}
+              type="button"
+              className={`admin-nav-btn ${
+                activePane === "users" ? "admin-nav-btn--active" : ""
+              }`}
+              onClick={() => setActivePane("users")}
             >
               👥 Brugerliste
             </button>
             <button
-              className={`admin-nav-btn ${aktivFane === "add-user" ? "admin-nav-btn--active" : ""}`}
-              onClick={() => setAktivFane("add-user")}
+              type="button"
+              className={`admin-nav-btn ${
+                activePane === "add-user" ? "admin-nav-btn--active" : ""
+              }`}
+              onClick={() => setActivePane("add-user")}
             >
               ➕ Tilføj bruger
             </button>
             <button
-              className={`admin-nav-btn ${aktivFane === "delete-user" ? "admin-nav-btn--active" : ""}`}
-              onClick={() => setAktivFane("delete-user")}
+              type="button"
+              className={`admin-nav-btn ${
+                activePane === "delete-user" ? "admin-nav-btn--active" : ""
+              }`}
+              onClick={() => setActivePane("delete-user")}
             >
               🗑 Slet bruger
             </button>
@@ -314,9 +361,9 @@ function AdminPage() {
 
         {/* Hovedindhold skifter afhængigt af aktiv fane */}
         <main className="admin-main">
-          {aktivFane === "users" && <BrugerListe />}
-          {aktivFane === "add-user" && <TilfoejBruger />}
-          {aktivFane === "delete-user" && <SletBruger />}
+          {activePane === "users" && <UserList />}
+          {activePane === "add-user" && <AddUsers />}
+          {activePane === "delete-user" && <SletBruger />}
         </main>
       </div>
     </>
