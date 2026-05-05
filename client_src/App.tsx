@@ -5,6 +5,7 @@ import LoginPage from "./pages/LoginPage.tsx";
 import OverviewPage from "./pages/OverviewPage.tsx";
 import AdminPage from "./pages/AdminPage.tsx";
 import BallotPage from "./pages/BallotPage.tsx";
+import PollResults from "./pages/PollResult.tsx";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(
@@ -22,6 +23,11 @@ function App() {
     return <AdminPage />;
   }
 
+  const resultsMatch = window.location.pathname.match(/^\/poll\/(\d+)\/results$/); 
+
+
+  if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
+  if (resultsMatch) return <PollResults pollId={Number(resultsMatch[1])} />;
   const pollMatch = window.location.pathname.match(/^\/poll\/(\d+)$/); // match needs regex to match the string. Returns null if no match
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
 

@@ -112,6 +112,57 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
   });
 
+  /*
+  Route: /api/version
+  Description:
+    Lets the server parse the version of the client and judge if the client has
+    the correct version for communicating correctly with the API.
+  */
+  router.get("/api/version", async (c) => {
+    return await hasValidJWT(c, () => {
+      const result = assertClientVersion(c);
+      return c.json(result);
+    });
+  });
+
+  router.post("/api/admin/add-user", async (c) => {
+    return await hasValidJWT(c, async (verifiedPayload) => {
+      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
+        logger.trace`Failed authenication atempt on admin API route.`;
+        return c.body("401 Unauthorized", 401);
+      }
+      const req = await c.req.json();
+
+      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
+      return c.body("", result);
+    });
+  });
+  /**
+   * Serves the SPA shell (`dist/index.html`) for the root URL.
+   *
+   * @remarks
+   * This server hosts a Single Page Application (SPA). All HTML routes
+   * (this one, `/poll/:pollId`, etc.) return the *same* `dist/index.html`
+   * the server never renders different HTML per route.
+   *
+   * The end-to-end flow:
+   *  1. Browser requests an HTML route → server returns `dist/index.html`.
+   *  2. The HTML contains a `<script>` tag pointing at the bundled JS,
+   *     which Vite builds from `client_src/main.tsx` (and everything it
+   *     imports transitively, including `App.tsx`).
+   *  3. Browser fetches and executes the bundle. React mounts `<App />`
+   *     into `<div id="root">` via `createRoot(...).render(...)`.
+   *  4. `App.tsx` reads `window.location.pathname` and chooses which
+   *     page-component to render (LoginPage, OverviewPage, BallotPage…).
+   *  5. The rendered component fetches its data via seperate
+   *  	  data-routes (by convention prefixed `/api/...` , though some like /login are note).
+   *  	  Those routes run real server logic and return JSON or status code - unlike the
+   *  	  HTML routes, which only serve the SPA shell.
+   *
+   * Consequence: user-visible URL routing lives entirely in
+   * `client_src/App.tsx`. The server only needs to (a) serve the SPA
+   * shell for any URL the SPA owns, and (b) serve `/api/...` data.
+   */
   router.get("/", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -167,10 +218,16 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return c.body("Logged out", 200);
   });
 
-  /* User opens the poll page for a specific poll
-    This will give the index.html and let bundle.js handle everything. This is because we need to do a post
-    with the UUID in, and that will retrieve the actual data.
-  */
+  /**
+   * Serves the SPA shell for a specific poll's ballot page .
+   *
+   * @remarks
+   * The `:pollId` parameter is intentionally unused here -> see the SPA description
+   * on {@link `router.get("/")`}. The pollId is
+   * parsed from `window.location.pathname` in `App.tsx` and passed to
+   * `BallotPage pollId={...} which then calls `POST /api/poll/:pollId/open`to
+   * fetch the actual poll data.
+   */
   router.get("/poll/:pollId", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -180,86 +237,39 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
-  // --------------------------------------------------
-  // API Routes
-  // --------------------------------------------------
-
-  /*
-  Route: /api/version
-  Description:
-    Lets the server parse the version of the client and judge if the client has
-    the correct version for communicating correctly with the API.
-  */
-  router.get("/api/version", async (c) => {
-    return await hasValidJWT(c, () => {
-      const result = assertClientVersion(c);
-      return c.json(result);
-    });
-  });
-
-  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
-  router.get("/admin", async (c) => {
-    try {
-      const file = await Deno.readFile("./dist/index.html");
-      return c.body(file);
-    } catch {
-      return c.body("Not Found", { status: 404 });
-    }
-  });
-
-  router.post("/api/admin/add-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload) => {
-      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
-        logger.trace`Failed authenication atempt on admin API route.`;
-        return c.body("401 Unauthorized", 401);
-      }
-      const req = await c.req.json();
-
-      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
-      return c.body("", result);
-    });
-  });
-
-  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
-  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
-  router.get("/api/polls", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
-      const userResult = await DB.getUserFromDB(payload.username as string);
-      if (userResult.httpStatusCode !== 200 || !userResult.user) {
-        return c.body("401 Unauthorized", 401);
-      }
-      const polls = await DB.getFrontEndPollObj(userResult.user.id);
-      return c.json(polls, 200);
-    });
-  });
-
-  router.get("/api/poll/:pollId/voteProgress", (c) => {
-    return hasValidJWT(c, () => {
-      // parse pollId from URL
-      const pollIdStr = c.req.param("pollId");
-      const pollId = Number(pollIdStr);
-      if (Number.isNaN(pollId)) {
-        return c.body("Invalid pollId", 400);
-      }
-      return c.body("NOT IMPLEMENTED");
-    });
-  });
-
+  /**
+   * Opens a poll for a specific user, returning the data the client needs to render the ballot (options, votes remaining, etc.).
+   *
+   * @remarks
+   * Called by the SPA after `App.tsx` has rendered `<BallotPage pollId={...} />`
+   * (See {@link router.get | `router.get("/poll/:pollId")`} for the routing flow).
+   *
+   * Authentication: requres a valid JWT cookie. The `userId` is read from the
+   * JWT payload - never from the request body - so a client cannot open a poll
+   * on someone else's behalf.
+   *
+   * Eligibility, poll-state, and vote-count checks are delegated to
+   * {@link PollManager.openPoll}; this handler only deals with HTTP-level
+   * parsing and status-code mapping.
+   *
+   * @returns
+   * - `200` + JSON `OpenpollResult - poll opened successfully
+   *   `400` "Invalid pollId" - `:pollId`URL segment is not a number.
+   *   `401` - missing or invalid JWT (handled by `hasValidJWT`).
+   *   `403` + error message - user is not eligible, poll closed, no options,
+   *   no votes remaining, etc. (the message comes from `pollManager.openPoll`).
+   *
+   * @param c - Hono request context. Expects `:pollId`as a URL parameter and a valid `JWT`cookie
+   */
   router.post("/api/poll/:pollId/open", (c) => {
     return hasValidJWT(c, async (payload) => {
-      // 1. parse pollId from URL
-      const pollIdStr = c.req.param("pollId");
-      const pollId = Number(pollIdStr);
-      if (Number.isNaN(pollId)) {
+      const parsePollIdFromURL = c.req.param("pollId");
+      const pollId = Number(parsePollIdFromURL);
+      if (!Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
       }
-
-      // 3. get userId from payload (payload.userId)
-      const userid = payload.userId as number;
-
-      // 4. Call pollManager.openPoll(pollId, useriD, UUID)
-      const pollData = await pollManager.openPoll(pollId, userid);
-      // 5. if null -> 404  if obect --> c.json(result)
+      const userId = payload.userId as number;
+      const pollData = await pollManager.openPoll(pollId, userId);
       if (pollData.errorMsg) {
         return c.body(pollData.errorMsg, 403);
       }
@@ -267,28 +277,47 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+  /*
+   * Cast a vote for a specific user, and a specific poll.
+   *
+   * @remarks
+   * The server tries to validate the given data to see if fits the requirements before
+   * the actual inserting of the vote is handed of to {@link PollManager.castVote}.
+   * First we parse the pollId from the URL and validate if its an actual pollId.
+   * Then we parse the body to see if its an actual array of votes. Each vote is an
+   * object which includes optionId and a UUID. so each vote should be an object.
+   * However null is only returned as an object and therefore we must ensure that the votes is not null,
+   * if it is we need to reject the vote.
+   * Next up we validate the contents of each vote is the correct type (pollOptionId should be an integer
+   * and UUID is a string.
+   *
+   * @param c - Hono context. Expects:
+   * - URL parameter `:pollId`(integer)
+   * - Cookie `JWT` (signed token whose payload supplies `userId`).
+   * - JSON body of shape `{votes: Array<{optionId: number, UUID: string}>}`
+   *
+   * @returns
+   * Returns a hono context object with a body of a string and a status code.
+   * `200` means it was succesfull, `400` there was an error, and the string is an error message.
+   */
   router.post("/api/poll/:pollId/vote", async (c) => {
     return await hasValidJWT(c, async (payload) => {
-      // 1. parse polldId from URL + validate
-      const pollIdStr = c.req.param("pollId");
-      const pollId = Number(pollIdStr);
-      if (Number.isNaN(pollId)) {
+      const pollIdFromURL = c.req.param("pollId");
+      const pollId = Number(pollIdFromURL);
+      if (!Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
       }
-      // 2 parse body --> {optionId, UUID} + validate
       let body = undefined;
       try {
         body = await c.req.json();
       } catch {
         return c.body("Invalid JSON body", 400);
       }
-
       if (!Array.isArray(body.votes)) {
         return c.body("Missing or invalid votes array", 400);
       }
       const hasValidVotes = body.votes.every((vote: unknown) => {
-        if (typeof vote !== "object" || vote == null) return false; // typeof null is "object" so we shall check vote ==== null explicit
-
+        if (typeof vote !== "object" || vote == null) return false;
         const v = vote as { optionId?: unknown; UUID?: unknown };
         return Number.isInteger(v.optionId) && typeof v.UUID === "string";
       });
@@ -296,24 +325,66 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       if (!hasValidVotes) {
         return c.body("Invalid vote shape", 400);
       }
-      // 3. userId from payload
       const userid = payload.userId as number;
-      // 4. await pollManager
       const castedVote = await pollManager.castVote(
         pollId,
         userid,
         body.votes,
       );
-
-      // 5. if result.success === false --> errormsg
       if (castedVote.success === false) {
         return c.body(castedVote.errorMsg ?? "Vote failed", 400);
       }
-
-      // if success casted!
       return c.body("Vote cast", 200);
     });
   });
+
+  /*
+   * Fetch the results of a finished poll.
+   *
+   * @remarks
+   * Validation and access control is delegated to {@link PollManager.getResults}: the route
+   * handler only parses `:pollId` from the URL and forwards the result. The shape of the
+   * returned JSON depends on the poll's `ballotPrivacy` (see `ResultsPayload` in `WebLib.ts`):
+   * for `"secret"` polls only UUIDs are returned, for `"open"` polls each UUID is paired
+   * with the option it was cast for.
+   *
+   * @param c - Hono context. Expects:
+   * - URL parameter `:pollId` (integer)
+   * - Cookie `JWT` (signed token).
+   *
+   * @returns
+   * `200` with a `ResultsPayload` JSON body on success.
+   * `400` if `:pollId` is not a valid integer or the poll does not exist.
+   * `403` if the poll is not finished.
+   * `500` on DB error. The body is the error message in all non-200 cases.
+   */
+  router.get("/api/poll/:pollId/results", async (c) => {
+    return await hasValidJWT(c, async () => {
+      const pollIdFromURL = c.req.param("pollId");
+      const pollId = Number(pollIdFromURL);
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      const results = await pollManager.getResults(pollId);
+      if (!results.result) {
+        return c.body(
+          results.errorMsg ?? "Failed to fetch results",
+          results.httpStatusCode,
+        );
+      }
+      return c.json(results.result, results.httpStatusCode);
+    });
+  });
+
+router.get("/poll/:pollId/results", async (c) => {                            
+    try {                                                                       
+      const file = await Deno.readFile("./dist/index.html");                  
+      return c.body(file);                                                      
+    } catch {                                                                   
+      return c.body("Not Found", { status: 404 });                            
+    }                                                                           
+  });                                                                           
+         
 
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;

@@ -111,41 +111,16 @@ export interface VoteInput {
   UUID: string;
 }
 
-/**
- * Interface for descirbing a entry into the poll overview page.
- * The object is specfic to the client is it instantiated in.
- *
- * @param poll - The poll object to be shown as a entry in the overview page.
- * @param folder - The folder the poll entry is stored in on the overview page.
- * @param pollProgress - Progress indicator showing the ratio of ballots cast.
- * e.g. `3/14`, shows that 3 ballots are cast and 11 are yet to be cast.
- * @param timeLeft - The remaning time left until a poll closes.
- */
-export interface FrontEndPoll {
-  poll: Poll;
-  folder?: string;
-  isUserEligibleVoter: boolean;
-  hasVoted: boolean;
-  pollProgress: string;
-  timeLeft: string;
-}
-
-/**
- * Calculate the time remaining until the deadline is reached for a poll.
- * @param poll - The poll object to calculate for.
- */
-export function calculateTimeRemaining(poll: Poll) {
-  let timeLeft = "00:00:00";
-  if (poll.endsAt) {
-    const diffMs = new Date(poll.endsAt).getTime() - Date.now();
-    if (diffMs > 0) {
-      const hours = Math.floor(diffMs / 3_600_000);
-      const mins = Math.floor((diffMs % 3_600_000) / 60_000);
-      const secs = Math.floor((diffMs % 60_000) / 1_000);
-      timeLeft = `${String(hours).padStart(2, "0")}:${
-        String(mins).padStart(2, "0")
-      }:${String(secs).padStart(2, "0")}`;
-    }
+export type ResultsPayload =
+  | {
+    ballotPrivacy: "secret";
+    showTopN: number;
+    counts: { optionId: number; optionText: string; count: number }[];
+    votes: { uuid: string }[];
   }
-  return timeLeft;
-}
+  | {
+    ballotPrivacy: "open";
+    showTopN: number;
+    counts: { optionId: number; optionText: string; count: number }[];
+    votes: { uuid: string; optionId: number; optionText: string }[];
+  };
