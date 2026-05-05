@@ -15,14 +15,14 @@ import { PollManager } from "./pollManager.ts";
  */
 export function startServer(DB: WebappDatabase, ac: AbortController) {
   const { signal } = ac;
-  // logger.trace`testing that hot reload work`;
 
   const router = new Hono();
 
   const pollManager = new PollManager(DB);
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {
-    logger.info`Received login request. Attempting to parse JSON body for username and password.`;
+    logger
+      .info`Received login request. Attempting to parse JSON body for username and password.`;
 
     // Parse user credential from request body. If parsing fails, then the user provided an invalid JSON body and a 400 response is returned.
     let userCredentials = undefined;
@@ -30,14 +30,16 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       userCredentials = await c.req.json();
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
+      logger
+        .info`Failed to parse user provided JSON body in /login route. Error message: ${errMsg}`;
       return c.body("Invalid JSON body", 400);
     }
 
     // Fetch the user from the database with the provided username. If fetching fails, then a non-200 status code is returned from getUserFromDB and the login process is stopped.
     const result = await DB.getUserFromDB(userCredentials.username);
     if (result.httpStatusCode !== 200) {
-      logger.info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
+      logger
+        .info`Failed to retrieve user from database for username: "${userCredentials.username}". Error message: ${result.errorMsg}`;
       return c.body(``, result.httpStatusCode);
     }
     const user = result.user as User; // This is safe because if httpStatusCode is 200.
@@ -55,13 +57,15 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
+      logger
+        .error`Error while verifying password with argon2 for user: {id: ${user.id}, username: "${user.name}"}. Error message: ${errMsg}`;
       return c.body("Internal Server Error", 500);
     }
 
     if (argon2Result) {
       // Password matched.
-      logger.debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger
+        .debug`Succesfully matched user provided password with database for user: {id: ${user.id}, username: "${user.name}"}`;
 
       const token = await createJWT({
         userId: user.id,
@@ -92,43 +96,20 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
         sameSite: "Strict",
         maxAge: TOKEN_EXPIRE_TIME,
       });
-      logger.info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger
+        .info`Succesfully created JWT for user: {id: ${user.id}, username: "${user.name}"}`;
 
       return c.body("login successful", 200);
     } else {
       // password did not match
-      logger.info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
+      logger
+        .info`Password did not match for user: {id: ${user.id}, username: "${user.name}"}`;
       return c.body("Login incorrect", 401);
     }
 
     // deno-lint-ignore no-unreachable
-    logger.error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
-  });
-
-  /*
-  Route: /api/version
-  Description:
-    Lets the server parse the version of the client and judge if the client has
-    the correct version for communicating correctly with the API.
-  */
-  router.get("/api/version", async (c) => {
-    return await hasValidJWT(c, () => {
-      const result = assertClientVersion(c);
-      return c.json(result);
-    });
-  });
-
-  router.post("/api/admin/add-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload) => {
-      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
-        logger.trace`Failed authenication atempt on admin API route.`;
-        return c.body("401 Unauthorized", 401);
-      }
-      const req = await c.req.json();
-
-      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
-      return c.body("", result);
-    });
+    logger
+      .error`Unexpected error during login for user: {id: ${user.id}, username: "${user.name}"}. This should not happen.`;
   });
 
   router.get("/", async (c) => {
@@ -185,6 +166,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
 
     return c.body("Logged out", 200);
   });
+
   /* User opens the poll page for a specific poll
     This will give the index.html and let bundle.js handle everything. This is because we need to do a post
     with the UUID in, and that will retrieve the actual data.
@@ -196,6 +178,71 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     } catch {
       return c.body("Not Found", { status: 404 });
     }
+  });
+
+  // --------------------------------------------------
+  // API Routes
+  // --------------------------------------------------
+
+  /*
+  Route: /api/version
+  Description:
+    Lets the server parse the version of the client and judge if the client has
+    the correct version for communicating correctly with the API.
+  */
+  router.get("/api/version", async (c) => {
+    return await hasValidJWT(c, () => {
+      const result = assertClientVersion(c);
+      return c.json(result);
+    });
+  });
+
+  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
+  router.get("/admin", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  router.post("/api/admin/add-user", async (c) => {
+    return await hasValidJWT(c, async (verifiedPayload) => {
+      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
+        logger.trace`Failed authenication atempt on admin API route.`;
+        return c.body("401 Unauthorized", 401);
+      }
+      const req = await c.req.json();
+
+      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
+      return c.body("", result);
+    });
+  });
+
+  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
+  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  router.get("/api/polls", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const userResult = await DB.getUserFromDB(payload.username as string);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+      const polls = await DB.getFrontEndPollObj(userResult.user.id);
+      return c.json(polls, 200);
+    });
+  });
+
+  router.get("/api/poll/:pollId/voteProgress", (c) => {
+    return hasValidJWT(c, () => {
+      // parse pollId from URL
+      const pollIdStr = c.req.param("pollId");
+      const pollId = Number(pollIdStr);
+      if (Number.isNaN(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      return c.body("NOT IMPLEMENTED");
+    });
   });
 
   router.post("/api/poll/:pollId/open", (c) => {
