@@ -15,7 +15,6 @@ import { PollManager } from "./pollManager.ts";
  */
 export function startServer(DB: WebappDatabase, ac: AbortController) {
   const { signal } = ac;
-  // logger.trace`testing that hot reload work`;
 
   const router = new Hono();
 

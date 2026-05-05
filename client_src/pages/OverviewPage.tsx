@@ -1,110 +1,28 @@
-import { useEffect, useState } from "react";
 import "./OverviewPage.css";
+import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
-
-//SVG icons
-import { FaCheck, FaXmark } from "react-icons/fa6";
+import { calculateTimeRemaining, type FrontEndPoll } from "../WebLib.ts";
+import { FaCheck, FaXmark } from "react-icons/fa6"; //SVG icons
 import { FaSearch } from "react-icons/fa";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Poll-interfacet beskriver formen på et afstemnings-objekt som vi forventer
 // at modtage fra API-endpointet GET /api/polls.
 // Alle felter skal matche hvad serveren sender – ellers får vi TypeScript-fejl.
-interface Poll {
-  id: number;
-  title: string;
-  // "active" = afstemning er i gang, "finished" = afsluttet, "not_started" = endnu ikke åbnet
-  status: "active" | "finished" | "not_started";
-  // Hvor mange har stemt ud af det totale antal stemmeberettigede, f.eks. "3/14"
-  voteProgress: string;
-  // Resterende tid som en formateret streng, f.eks. "02:14:33" (timer:minutter:sekunder)
-  timeLeft: string;
-  isPublic: boolean;
-  isAnonymous: boolean;
-  owner: string;
-  // Om den indloggede bruger selv har afgivet stemme i denne afstemning
-  hasVoted: boolean;
-  // Hvilken mappe afstemningen evt. er placeret i – valgfri (undefined = ingen mappe)
-  folder?: string;
-}
 
-// De tre filtermuligheder brugeren kan vælge i sidebaren
 type FilterType = "all" | "eligible" | "drafts";
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-// Disse data bruges som fallback mens API-endpointet ikke er implementeret endnu.
-// Når GET /api/polls er klar, fjernes MOCK_POLLS og fetch-fejlhåndteringen nedenfor.
-const MOCK_POLLS: Poll[] = [
-  {
-    id: 1,
-    title: "Afstemning 1",
-    status: "active",
-    voteProgress: "3/14",
-    timeLeft: "02:14:33",
-    isPublic: true,
-    isAnonymous: true,
-    owner: "TBF1",
-    hasVoted: true,
-    folder: "Mappe 2",
-  },
-  {
-    id: 2,
-    title: "Afstemning 2",
-    status: "finished",
-    voteProgress: "14/14",
-    timeLeft: "00:00:00",
-    isPublic: false,
-    isAnonymous: true,
-    owner: "TBF1",
-    hasVoted: true,
-    folder: "Mappe 2",
-  },
-  {
-    id: 3,
-    title: "Afstemning 3",
-    status: "active",
-    voteProgress: "1/61803",
-    timeLeft: "05:00:00",
-    isPublic: true,
-    isAnonymous: false,
-    owner: "TBF2",
-    hasVoted: false,
-    folder: "Mappe 1",
-  },
-  {
-    id: 4,
-    title: "Afstemning 4",
-    status: "not_started",
-    voteProgress: "0/0",
-    timeLeft: "10:00:00",
-    isPublic: false,
-    isAnonymous: false,
-    owner: "TBF3",
-    hasVoted: false,
-    folder: "",
-  },
-];
+function statusLabel(poll: FrontEndPoll): string {
+  if (poll.poll.status === "finished" || "not started") {
+    return poll.poll.status;
+  }
 
-// ─── Hjælpefunktion: statusLabel ──────────────────────────────────────────────
-// Oversætter poll.status til den tekst der vises i "Status"-kolonnen.
-// Er afstemningen aktiv, vises stemmefremdriften (f.eks. "3/14") i stedet for en fast tekst,
-// så brugeren løbende kan se hvor mange der har stemt.
-function statusLabel(poll: Poll): string {
-  if (poll.status === "finished") return "Færdig";
-  if (poll.status === "not_started") return "Ikke startet";
-  // Aktiv afstemning: vis antal stemmer afgivet ud af total stemmeberettigede
-  return poll.voteProgress;
+  return poll.pollProgress;
 }
 
-// ─── Hjælpetype og -funktion: buildFolders ────────────────────────────────────
-// FolderMap er et objekt hvor nøglen er mappenavnet og værdien er listen af
-// afstemninger i den mappe. Dette gør det nemt at bygge mapper-træet i sidebaren.
-type FolderMap = Record<string, Poll[]>;
+type FolderMap = Record<string, FrontEndPoll[]>;
 
-// Gennemgår alle afstemninger og grupperer dem efter deres folder-felt.
-// Afstemninger uden mappe (folder = "" eller undefined) ignoreres, da de
-// ikke skal vises i mappetræet.
-function buildFolders(polls: Poll[]): FolderMap {
+function buildFolders(polls: FrontEndPoll[]): FolderMap {
   const map: FolderMap = {};
   polls.forEach((p) => {
     const key = p.folder ?? "";
@@ -133,34 +51,24 @@ interface SidebarProps {
   onFolderClick: (folder: string | null) => void;
 }
 
-function Sidebar({
-  activeFilter,
-  onFilterChange,
-  folderMap,
-  activeFolderFilter,
-  onFolderClick,
-}: SidebarProps) {
-  // openFolders holder styr på hvilke mapper der er foldet ud i træet.
-  // Det er et objekt hvor nøglen er mappenavnet og værdien er true/false.
-  // Vi bruger et objekt frem for et Set fordi React-state fungerer bedst
-  // med plain objekter.
+function Sidebar(
+  {
+    activeFilter,
+    onFilterChange,
+    folderMap,
+    activeFolderFilter,
+    onFolderClick,
+  }: SidebarProps,
+) {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
 
-  // Skifter en mappes åben/lukket-tilstand uden at påvirke de andre mapper.
-  // Vi spreder den eksisterende state (...prev) og overskriver kun den
-  // ene mappe vi klikkede på.
   function toggleFolder(name: string) {
     setOpenFolders((prev) => ({ ...prev, [name]: !prev[name] }));
   }
 
   return (
     <aside className="ov-sidebar">
-      {/* Link til siden hvor man opretter en ny afstemning */}
-      <a href="/create-poll" className="btn-create">
-        Opret Afstemning
-      </a>
-
-      {/* Filterknapper – klik nulstiller også eventuel mappe-filtrering */}
+      <a href="/create-poll" className="btn-create">Create Poll</a>
       <nav className="ov-filter-nav">
         <button
           type="button"
@@ -174,7 +82,7 @@ function Sidebar({
             onFolderClick(null);
           }}
         >
-          Alle Afstemninger
+          All polls
         </button>
         <button
           type="button"
@@ -188,7 +96,7 @@ function Sidebar({
             onFolderClick(null);
           }}
         >
-          Afstemninger du er stemmeberettigede
+          Polls you are eligible to vote in
         </button>
         <button
           type="button"
@@ -202,64 +110,54 @@ function Sidebar({
             onFolderClick(null);
           }}
         >
-          Dine afstemninger under udarbejdelse
+          Your polls in progress
         </button>
       </nav>
-
-      {/* Mapper-sektion */}
       <div className="ov-folders-header">
-        <span className="ov-folders-title">Mapper</span>
-        {/* TODO: ＋-knappen skal senere åbne en dialog til at oprette en ny mappe */}
+        <span className="ov-folders-title">Folders</span>
         <button
           type="button"
           className="ov-folder-add"
-          title="Opret mappe"
-          aria-label="Opret mappe"
+          title="Create folder"
+          aria-label="Create folder"
         >
           ＋
         </button>
       </div>
-
-      {/* Mappetræ: sorteret alfabetisk, hver mappe kan foldes ud/ind */}
       <nav className="ov-folder-nav">
-        {Object.keys(folderMap)
-          .sort()
-          .map((name) => {
-            const isOpen = !!openFolders[name];
-            return (
-              <div key={name} className="ov-folder">
-                {/* Klik på mappenavnet åbner/lukker mappen */}
-                <button
-                  type="button"
-                  className="ov-folder-btn"
-                  onClick={() => toggleFolder(name)}
-                  aria-expanded={isOpen} // Tilgængelighed: skærmlæsere forstår om træet er åbent
-                >
-                  <span className="ov-folder-arrow">{isOpen ? "∨" : "›"}</span>
-                  {name}
-                </button>
-
-                {/* Vis afstemningerne i mappen kun når den er foldet ud */}
-                {isOpen && (
-                  <div className="ov-folder-children">
-                    {folderMap[name].map((poll) => (
-                      <a
-                        key={poll.id}
-                        href={`/poll/${poll.id}`}
-                        className={`ov-folder-item ${
-                          activeFolderFilter === name
-                            ? "ov-folder-item--active"
-                            : ""
-                        }`}
-                      >
-                        {poll.title}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        {Object.keys(folderMap).sort().map((name) => {
+          const isOpen = !!openFolders[name];
+          return (
+            <div key={name} className="ov-folder">
+              <button
+                type="button"
+                className="ov-folder-btn"
+                onClick={() => toggleFolder(name)}
+                aria-expanded={isOpen}
+              >
+                <span className="ov-folder-arrow">{isOpen ? "∨" : "›"}</span>
+                {name}
+              </button>
+              {isOpen && (
+                <div className="ov-folder-children">
+                  {folderMap[name].map((poll) => (
+                    <a
+                      key={poll.poll.id}
+                      href={`/poll/${poll.poll.id}`}
+                      className={`ov-folder-item ${
+                        activeFolderFilter === name
+                          ? "ov-folder-item--active"
+                          : ""
+                      }`}
+                    >
+                      {poll.poll.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );
@@ -269,70 +167,52 @@ function Sidebar({
 // Viser listen af afstemninger som en tabel jf. wireframe figur 4.2.
 // Modtager den allerede filtrerede og søgte liste som prop, så komponenten
 // selv ikke behøver at kende til filtertilstanden.
-function PollTable({ polls }: { polls: Poll[] }) {
-  // Vis en besked hvis ingen afstemninger matcher det aktive filter/søgning
-  if (polls.length === 0) {
-    return <p className="ov-empty">Ingen afstemninger fundet.</p>;
-  }
-
+function PollTable({ polls }: { polls: FrontEndPoll[] }) {
+  if (polls.length === 0) return <p className="ov-empty">No polls found.</p>;
   return (
     <table className="ov-table">
       <thead>
         <tr>
-          <th>Afstemnings titel</th>
-          <th>Din status</th>
+          <th>Poll title</th>
+          <th>Your status</th>
           <th>Status</th>
-          <th>Tid tilbage</th>
-          <th>Offentlig/Privat</th>
-          <th>Anonym</th>
-          <th>Afstemnings ejer</th>
+          <th>Time remaining</th>
+          <th>Public/Private</th>
+          <th>Anonymous</th>
+          <th>Poll owner</th>
         </tr>
       </thead>
       <tbody>
         {polls.map((poll) => (
-          <tr key={poll.id}>
-            {/* Afstemningens titel linker til detaljesiden */}
+          <tr key={poll.poll.id}>
             <td className="ov-col-title">
-              <a href={`/poll/${poll.id}`}>{poll.title}</a>
+              <a href={`/poll/${poll.poll.id}`}>{poll.poll.title}</a>
             </td>
-
-            {/* "Din status": viser brugerens personlige relation til afstemningen.
-                - Har stemt → tekst + flueben
-                - Ikke stemt + afstemning er aktiv → blå "Stem"-knap der linker til stemme-siden
-                - Ikke stemt + afstemning er ikke aktiv → ingenting (tom celle) */}
             <td className="ov-col-mystatus">
-              {poll.hasVoted ? (
-                <span className="voted-label">
-                  Du har stemt
-                  <FaCheck />
-                </span>
-              ) : poll.status === "active" ? (
-                <a href={`/poll/${poll.id}`} className="btn-vote">
-                  Stem
-                </a>
-              ) : null}
+              {poll.hasVoted
+                ? (
+                  <span className="voted-label">
+                    Du har stemt <FaCheck />
+                  </span>
+                )
+                : poll.poll.status === "started"
+                ? (
+                  <a href={`/poll/${poll.poll.id}/vote`} className="btn-vote">
+                    Vote
+                  </a>
+                )
+                : null}
             </td>
-
-            {/* Overordnet status på afstemningen – tekst fra statusLabel() */}
             <td className="ov-col-status">{statusLabel(poll)}</td>
-
-            {/* Tid tilbage til deadline, formateret af serveren */}
             <td className="ov-col-time">{poll.timeLeft}</td>
-
-            {/* Om afstemningen er åben for alle eller kun inviterede */}
             <td className="ov-col-visibility">
-              {poll.isPublic ? "Offentlig" : "Privat"}
+              {poll.poll.pollVisibility}
             </td>
-
-            {/* Anonym-kolonnen viser et flueben eller kryds som SVG-ikoner.
-                Vi bruger SVG i stedet for ✓/✗ tegn for at sikre ensartet
-                visuel størrelse og farve på tværs af browsere. */}
             <td className="ov-col-anon">
-              {poll.isAnonymous ? <FaCheck /> : <FaXmark />}
+              {poll.poll.ballotPrivacy === "secret" ? <FaCheck /> : <FaXmark />}
             </td>
-
-            {/* Brugernavnet på den person der oprettede afstemningen */}
-            <td className="ov-col-owner">{poll.owner}</td>
+            <td className="ov-col-owner">{poll.poll.createdBy}</td>{" "}
+            {/*To-do: Change to username.*/}
           </tr>
         ))}
       </tbody>
@@ -348,17 +228,12 @@ function PollTable({ polls }: { polls: Poll[] }) {
 //   - Søgetilstand
 // Sender de processerede data ned til <Sidebar> og <PollTable>.
 function OverviewPage() {
-  // polls: den rå liste af afstemninger vi fik fra serveren
-  const [polls, setPolls] = useState<Poll[]>([]);
-  // loading: true mens vi venter på svar fra serveren
+  const [polls, setPolls] = useState<FrontEndPoll[]>([]);
   const [loading, setLoading] = useState(true);
-  // activeFilter: hvilket sidebarfilter er valgt (all / eligible / drafts)
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
-  // activeFolderFilter: navn på den mappe brugeren har valgt, eller null hvis ingen
   const [activeFolderFilter, setActiveFolderFilter] = useState<string | null>(
     null,
   );
-  // searchQuery: indholdet af søgefeltet
   const [searchQuery, setSearchQuery] = useState("");
 
   // Hent afstemninger fra serveren når siden indlæses.
@@ -369,63 +244,51 @@ function OverviewPage() {
     const fetchPolls = async () => {
       setLoading(true);
       try {
-        const res = await fetch("http://localhost:8000/api/polls", {
+        const res = await fetch("/api/polls", {
           method: "GET",
           credentials: "include",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        setPolls(await res.json());
+
+        const poll: FrontEndPoll[] = await res.json(); // Check this
+        poll.forEach((poll) => {
+          poll.timeLeft = calculateTimeRemaining(poll.poll);
+        });
+        setPolls(poll);
       } catch (err) {
-        // Fallback til mock-data mens API-endpointet ikke er implementeret.
-        // TODO: fjern denne catch-blok og MOCK_POLLS når /api/polls er klar.
-        console.warn("API not reachable, using mock data:", err);
-        setPolls(MOCK_POLLS);
+        console.error("Failed to fetch polls:", err);
       } finally {
-        // Skjul loading-indikatoren uanset om fetch lykkedes eller ej
         setLoading(false);
       }
     };
     fetchPolls();
   }, []);
 
-  // Byg mappetræet ud fra den aktuelle poll-liste.
-  // Dette genberegnes automatisk hver gang polls ændres (f.eks. efter fetch).
   const folderMap = buildFolders(polls);
 
-  // Filtrer og søg i afstemningerne.
-  // Vi kæder to .filter()-kald:
-  //   1. Sidebarfilter/mappefilter – bestemmer hvilken "gruppe" der vises
-  //   2. Søgefilter – yderligere indsnævring baseret på søgeteksten
   const filteredPolls = polls
     .filter((poll) => {
-      // Mappe-filter har højere prioritet end sidebarfilteret:
-      // hvis en mappe er valgt, vises kun afstemninger i den mappe
       if (activeFolderFilter) return (poll.folder ?? "") === activeFolderFilter;
-
       switch (activeFilter) {
-        // Stemmeberettigede: aktive afstemninger hvor brugeren ikke har stemt endnu
         case "eligible":
-          return !poll.hasVoted && poll.status === "active";
-        // Under udarbejdelse: afstemninger der endnu ikke er startet
+          return !poll.hasVoted && poll.poll.status === "started";
         case "drafts":
-          return poll.status === "not_started";
-        // Standard: vis alle afstemninger
+          return poll.poll.status === "not started";
         default:
           return true;
       }
     })
-    // Søgning på titel og ejer (case-insensitiv)
-    .filter(
-      (poll) =>
-        poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        poll.owner.toLowerCase().includes(searchQuery.toLowerCase()),
+    .filter((poll) =>
+      poll.poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      poll.poll.createdBy.toString().toLowerCase().includes(
+        searchQuery.toLowerCase(),
+      ) // To-do: Change to fetch username for the poll
     );
 
   return (
     <>
       <NavBar />
       <div className="ov-layout">
-        {/* Sidebar: modtager filtertilstand og callbacks til at ændre den */}
         <Sidebar
           activeFilter={activeFilter}
           onFilterChange={setActiveFilter}
@@ -433,32 +296,28 @@ function OverviewPage() {
           activeFolderFilter={activeFolderFilter}
           onFolderClick={setActiveFolderFilter}
         />
-
         <main className="ov-main">
-          {/* Søgefelt øverst over tabellen */}
           <div className="ov-search-row">
             <div className="ov-search-box">
               <FaSearch />
               <input
                 type="search"
-                placeholder="search"
+                placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="ov-search-input"
-                aria-label="Søg afstemninger"
+                aria-label="Search polls"
               />
             </div>
           </div>
-
-          {/* Vis loading-spinner mens data hentes, ellers tabellen */}
-          {loading ? (
-            <div className="ov-state">
-              <div className="spinner" />
-              <span>Henter afstemninger…</span>
-            </div>
-          ) : (
-            <PollTable polls={filteredPolls} />
-          )}
+          {loading
+            ? (
+              <div className="ov-state">
+                <div className="spinner" />
+                <span>Loading polls…</span>
+              </div>
+            )
+            : <PollTable polls={filteredPolls} />}
         </main>
       </div>
     </>

@@ -101,7 +101,7 @@ export class PollManager {
     if (pollResult.httpStatusCode !== 200 || !pollResult.poll) {
       return { success: false, errorMsg: "Poll not found." };
     }
-    if (pollResult.poll?.voteStatus !== "started") {
+    if (pollResult.poll?.status !== "started") {
       return { success: false, errorMsg: "Voting is not open for this poll." };
     }
 

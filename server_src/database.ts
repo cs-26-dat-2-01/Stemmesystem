@@ -7,6 +7,7 @@ import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
 import {
   ballotPrivacy,
+  FrontEndPoll,
   Poll,
   PollOption,
   pollStatus,
@@ -61,7 +62,7 @@ export class WebappDatabase {
    *
    * @param adminPassword
    */
-  private constructor(adminPassword: string, databaseUrl = env.DATABASE_URL) {
+  private constructor(databaseUrl = env.DATABASE_URL) {
     this.prisma = new PrismaClient({
       adapter: new PrismaLibSql({ url: databaseUrl }),
     });
@@ -111,7 +112,7 @@ export class WebappDatabase {
     databaseUrl = env.DATABASE_URL,
   ): Promise<WebappDatabase> {
     const adminPassword = await argon2.hash(env.ADMIN_USER_PASSWORD); // https://github.com/ranisalt/node-argon2
-    const dbInstance = new WebappDatabase(adminPassword, databaseUrl);
+    const dbInstance = new WebappDatabase(databaseUrl);
     await dbInstance.ensureAdminUser(adminPassword);
     await dbInstance.logDatabaseState();
 
@@ -293,7 +294,7 @@ export class WebappDatabase {
         id: sqlResult.id,
         title: sqlResult.title,
         description: sqlResult.description,
-        voteStatus: sqlResult.voteStatus as pollStatus,
+        status: sqlResult.voteStatus as pollStatus,
         createdBy: sqlResult.createdBy,
         createdAt: sqlResult.createdAt.toString(),
         startsAt: sqlResult.startsAt
@@ -759,6 +760,85 @@ export class WebappDatabase {
       logger
         .error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return 0;
+    }
+  }
+
+  /**
+   * Calculate the vote progress based on entries in eligble voters.
+   *
+   * @param pollId - The id of the poll to get progress report on.
+   */
+  public async getVoteProgress(
+    pollId: number,
+  ): Promise<string> {
+    const totalEligible = await this.prisma.pollEligibleVoter.count({
+      where: { pollId: pollId },
+    });
+    const ballotsCast = this.prisma.vote.count();
+
+    return `${ballotsCast}/${totalEligible}`;
+  }
+
+  /**
+   * Henter alle afstemninger fra databasen og beregner ekstra info til oversigts-siden:
+   * - Om den indloggede bruger har stemt (hasVoted)
+   * - Om brugeren er stemmeberettiget (isEligible)
+   * - Tid tilbage til deadline formateret som "TT:MM:SS"
+   * - Stemmefremdrift som "afgivne/totale" f.eks. "3/14"
+   *
+   * @param userId ID på den indloggede bruger
+   */
+  public async getFrontEndPollObj(userId: number): Promise<FrontEndPoll[]> {
+    try {
+      // Fetch all polls for a user, but only votes they are allowed to see!
+      const polls = await this.prisma.poll.findMany({
+        include: {
+          // Hent ejers brugernavn i stedet for blot userId
+          creator: { select: { username: true } },
+          // Brug til at tælle unikke stemmeafgivere
+          voteTokens: { select: { userId: true } },
+          // Tjek om den indloggede bruger er stemmeberettiget
+          eligibleVoters: {
+            where: { userId },
+            select: { userId: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      return await Promise.all(polls.map(async (poll) => {
+        // Tjek om den indloggede bruger har stemt
+        const userVoteCount = await this.prisma.voteToken.count({
+          where: { pollId: poll.id, userId },
+        });
+
+        const result: FrontEndPoll = {
+          poll: {
+            id: poll.id,
+            title: poll.title,
+            description: poll.description,
+            status: poll.voteStatus as pollStatus,
+            createdBy: poll.createdBy,
+            createdAt: poll.createdAt.toString(),
+            startsAt: poll.startsAt ? poll.startsAt.toString() : undefined,
+            endsAt: poll.endsAt ? poll.endsAt.toString() : undefined,
+            pollVisibility: poll.pollVisibility as pollVisibility,
+            ballotPrivacy: poll.ballotPrivacy as ballotPrivacy,
+            showTopN: poll.showTopN,
+            ballotLimit: poll.ballotLimit,
+            useBuffer: poll.useBuffer,
+          },
+          isUserEligibleVoter: poll.eligibleVoters.length > 0,
+          hasVoted: userVoteCount > 0,
+          pollProgress: "not initialized",
+          timeLeft: "not initialized",
+        };
+        return result;
+      }));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error fetching all polls for userId ${userId}: ${errMsg}`;
+      return [];
     }
   }
 }

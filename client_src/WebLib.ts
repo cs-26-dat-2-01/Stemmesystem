@@ -83,12 +83,11 @@ export interface Vote {
  * @param ballotLimit - The amount of ballot options a user can select per vote.
  * E.g. if ballotLimit=2 and the user can vote for ballot options: x, y, and z, the user could for an example vote for x and z.
  */
-
 export interface Poll {
   id: pollId;
   title: string;
   description: string;
-  voteStatus: pollStatus;
+  status: pollStatus;
   createdBy: userId;
   createdAt: string;
   startsAt?: string;
@@ -99,6 +98,7 @@ export interface Poll {
   ballotLimit: number;
   useBuffer: number;
 }
+
 export interface OpenpollResult {
   poll: Poll;
   options: PollOption[];
