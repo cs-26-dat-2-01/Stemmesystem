@@ -1706,6 +1706,326 @@ Deno.test({
   },
 });
 
+/* -----------
+ * Auditlog testing (database.ts)
+ */
+
+Deno.test({
+  name: "DB.getAuditLog returns empty array when no entries exist",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+
+    try {
+      const result = await DB.getAuditLog();
+
+      assertEquals(result.httpStatusCode, 200);
+      assertEquals(result.logs, []);
+      assertEquals(result.errorMsg, undefined);
+    } finally {
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "DB.getAuditLog returns inserted entries with expected shape",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+
+    try {
+      await DB.insertAuditLog("POLL_OPENED", "pollId:1, userId:1");
+
+      const result = await DB.getAuditLog();
+
+      assertEquals(result.httpStatusCode, 200);
+      assertEquals(result.logs.length, 1);
+
+      const entry = result.logs[0];
+      assertEquals(entry.action, "POLL_OPENED");
+      assertEquals(entry.details, "pollId:1, userId:1");
+      assert(typeof entry.id === "number");
+      assert(typeof entry.timestamp === "string");
+      assert(entry.timestamp.length > 0);
+    } finally {
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "DB.getAuditLog preserves null details",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+
+    try {
+      await DB.insertAuditLog("ACTION_WITHOUT_DETAILS", null);
+
+      const result = await DB.getAuditLog();
+
+      assertEquals(result.httpStatusCode, 200);
+      assertEquals(result.logs.length, 1);
+      assertEquals(result.logs[0].action, "ACTION_WITHOUT_DETAILS");
+      assertEquals(result.logs[0].details, null);
+    } finally {
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "DB.getAuditLog orders entries newest first (DESC)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+
+    try {
+      await DB.insertAuditLog("FIRST", "first entry");
+      await DB.insertAuditLog("SECOND", "second entry");
+      await DB.insertAuditLog("THIRD", "third entry");
+
+      const result = await DB.getAuditLog();
+
+      assertEquals(result.httpStatusCode, 200);
+      assertEquals(result.logs.length, 3);
+      // Newest first — last inserted should be first in the array.
+      assertEquals(result.logs[0].action, "THIRD");
+      assertEquals(result.logs[1].action, "SECOND");
+      assertEquals(result.logs[2].action, "FIRST");
+      // Ids should be strictly decreasing as a tiebreaker for equal timestamps.
+      assert(result.logs[0].id > result.logs[1].id);
+      assert(result.logs[1].id > result.logs[2].id);
+    } finally {
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+/* ------------
+ * GET /api/auditlog (server.ts) 
+ */ 
+
+Deno.test({
+  name: "GET /api/auditlog returns 200 with empty logs initially",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const res = await fetch("http://localhost:8000/api/auditlog", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "version": CLIENT_VERSION,
+        },
+      });
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected /api/auditlog to succeed, got ${res.status}: ${text}`,
+      );
+
+      const body = JSON.parse(text);
+      assertEquals(body.httpStatusCode, 200);
+      assertEquals(Array.isArray(body.logs), true);
+      assertEquals(body.logs.length, 0);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "GET /api/auditlog returns logs after vote cast and poll open",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      // Trigger POLL_OPENED audit entry.
+      const openRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/open`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+      assertEquals(openRes.status, 200, await openRes.text());
+
+      // Trigger VOTES_CAST audit entry.
+      const voteRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{
+              optionId: poll.options[0].id,
+              UUID: crypto.randomUUID(),
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+      assertEquals(voteRes.status, 200, await voteRes.text());
+
+      // Wait briefly for the fire-and-forget insertAuditLog in pollManager
+      // to flush before we read the log back.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const res = await fetch("http://localhost:8000/api/auditlog", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "version": CLIENT_VERSION,
+        },
+      });
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected /api/auditlog to succeed, got ${res.status}: ${text}`,
+      );
+
+      const body = JSON.parse(text);
+      assertEquals(body.httpStatusCode, 200);
+      assert(Array.isArray(body.logs));
+
+      const actions = body.logs.map((l: { action: string }) => l.action);
+      assert(
+        actions.includes("POLL_OPENED"),
+        `Expected POLL_OPENED in audit log, got ${JSON.stringify(actions)}`,
+      );
+      assert(
+        actions.includes("VOTES_CAST"),
+        `Expected VOTES_CAST in audit log, got ${JSON.stringify(actions)}`,
+      );
+
+      // Each entry has the documented shape.
+      for (const entry of body.logs) {
+        assert(typeof entry.id === "number");
+        assert(typeof entry.action === "string");
+        assert(typeof entry.timestamp === "string");
+        assert(entry.details === null || typeof entry.details === "string");
+      }
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "GET /api/auditlog requires no auth (publicly readable)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      await DB.insertAuditLog("PUBLIC_TEST", "publicly visible entry");
+
+      const res = await fetch("http://localhost:8000/api/auditlog", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "version": CLIENT_VERSION,
+        },
+      });
+
+      const text = await res.text();
+
+      assertEquals(
+        res.status,
+        200,
+        `Expected unauthenticated /api/auditlog to succeed, got ${res.status}: ${text}`,
+      );
+
+      const body = JSON.parse(text);
+      assertEquals(body.logs.length, 1);
+      assertEquals(body.logs[0].action, "PUBLIC_TEST");
+      assertEquals(body.logs[0].details, "publicly visible entry");
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+/* database test skeleton
 // ---------------------------------------------------------------------------
 // listVotesForPoll (database.ts)
 // ---------------------------------------------------------------------------
