@@ -30,7 +30,30 @@ irm https://deno.land/install.ps1 | iex
 Official environment setup documentation can be found at
 [Deno - Set up your environment](https://docs.deno.com/runtime/getting_started/setup_your_environment/).
 
-### Initialize the Project with Deno
+### Development Using Docker
+
+The project can run inside a Docker container for development where source files
+are automagically synchronized with the development container on file changes.
+
+The Docker container can run attached with (requires root):
+
+```shell
+docker compose up
+```
+
+The Docker container can run detached with (requires root):
+
+```shell
+docker compose watch
+```
+
+To connect to the container to view logs use (requires root):
+
+```shell
+docker attach CONTAINER
+```
+
+### Initialize the Project with Deno - Local Development
 
 To download necessary build and dev dependencies run:
 
@@ -38,13 +61,24 @@ To download necessary build and dev dependencies run:
 deno install
 ```
 
+
 The program require certain environment variables set for the program in a file
 named `.env`, an example is shown below:
 
 ```
 JWT_SERVER_SECRET="secret-that-only-server-knows-and-no-one-else!"
 ADMIN_USER_PASSWORD="test"
+DATABASE_URL="file:./database/database.db"
 ```
+Prisma also needs to be initialized locally. This requires Node/npm so `npx` is available. 
+
+Generate the Prisma client and apply the schema to the configured database: 
+```shell 
+deno run -A prisma generate
+deno run -A prisma db push 
+```
+`prisma generate` updates the generated Prisma client in generated/Prisma, and `npx prisma db push` applies `./prisma/schema.prisma` to the database from DATABASE_URL. 
+
 
 ### Deno Tasks
 
@@ -65,6 +99,8 @@ Most editors require Deno CLI to be installed as mentioned above in section
 
 ### VS Code
 
+#### Deno
+
 1. Install the
    [Deno LSP extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno)
    for VS Code.
@@ -82,6 +118,20 @@ Most editors require Deno CLI to be installed as mentioned above in section
   // Disable built-in JavaScript and TypeScript validation since Deno provides its own.
   "js/ts.validate.enabled": false
 }
+```
+
+#### Prisma
+
+1. Install the
+   [Prisma extension](https://marketplace.visualstudio.com/items?itemName=Prisma.prisma)
+
+2. Add the following to the local workspace settings file at:
+   `.vscode/setting.json`
+
+```json
+"[prisma]": {
+  "editor.defaultFormatter": "Prisma.prisma"
+},
 ```
 
 ### Helix Editor

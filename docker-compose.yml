@@ -1,0 +1,40 @@
+services:
+  app-production:
+    build: .
+    image: unf-stemme-app
+    command: deno task prod
+    ports:
+      - "8000:8000"   # Main web application
+      - "51212:51212" # Prisma studio
+    volumes:
+      - app_database:/app/database
+    develop: # https://docs.docker.com/reference/compose-file/develop/
+      watch:
+        - action: sync
+          path: ./server_src
+          target: /app/server_src
+        - action: sync
+          path: ./testing_grounds
+          target: /app/testing_grounds
+        - action: sync
+          path: ./.env
+          target: /app/.env
+        - action: rebuild # Rebuild the image, on config change.
+          path: .
+          include:
+            - deno.json
+            - package.json
+            - vite.config.ts
+        - action: sync+exec
+          path: ./client_src
+          target: /app/client_src
+          exec:
+            command: deno task build
+        - action: sync+exec # It would be obivious to try and merge with above action, however moving index.html is apparently really hard.
+          path: ./index.html
+          target: /app/index.html
+          exec:
+            command: deno task build
+
+volumes:
+  app_database:

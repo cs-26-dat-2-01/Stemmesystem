@@ -1,0 +1,343 @@
+@import '../variables.css';
+
+/* General layout */
+
+.create-poll-page {
+    background: var(--primary-background-color);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.create-poll-content {
+    flex: 1;
+    max-width: 860px;
+    margin: 1.5rem auto;
+    padding: 0 3rem;
+    width: border-box;
+}
+
+/* Header */
+
+.create-poll-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid #ddd;
+    background: var(--primary-background-color);
+}
+
+.create-poll-header h1 {
+    font-size: 1.8rem;
+    font-weight: 400;
+    margin: 0;
+}
+
+.create-poll-breadcrumb {
+    font-size: 0.85rem;
+    color: #888;
+}
+
+.create-poll-breadcrumb a {
+    color: var(--blue-button-color);
+    text-decoration: none;
+}
+
+.create-poll-breadcrumb a:hover {
+    text-decoration: underline;
+}
+
+/* Section headings */
+
+.create-poll-content h1 {
+    font-size: 1.4rem;
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.create-poll-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 1.25;
+    margin-bottom: 0.5rem;
+    color: #222;
+}
+
+/* Form elements */
+
+label {
+    display: block;
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    color: #333;
+    font-weight: 500;
+}
+
+input[type="text"],
+input[type="time"],
+input[type="date"],
+input[type="number"],
+textarea,
+select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.45rem 0.7rem;
+    margin-top: 0.2rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-family: inherint;
+    background: var(--primary-background-color);
+    color: #333;
+    transition: border-color 0.2s ease;
+}
+
+input[type="text"]:focus,
+input[type="time"]:focus,
+input[type="date"]:focus,
+input[type="number"]:focus,
+textarea:focus,
+select:focus {
+    outline: none;
+    border-color: var(--blue-button-color);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+    background: #f5f5f5;
+    color: #aaa;
+    cursor: not-allowed;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+input[type="time"],
+input[type="date"],
+input[type="number"] {
+    width: auto;
+    min-width: 120px;
+}
+
+/* Checkbox rows */
+
+label.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    font-weight: 400;
+}
+
+label.checkbox-label input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin-top: 2px;
+    accent-color: var(--blue-button-color);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* Grid sections, aka. the column-like layouts seen in the wireframes.*/
+
+.create-poll-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-top: 1.5rem;
+}
+
+.create-poll-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.create-poll-section {
+    padding: 0.75rem 1rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fafafa;
+}
+
+/* Overview fields for the third page */
+
+.overview-field {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.875rem;
+    gap: 1rem;
+}
+
+.overview-field label {
+    margin: 0;
+    font-weight: 500;
+    color: #555;
+    flex-shrink: 0;
+}
+
+.overview-field span {
+    color: #333;
+    text-align: right;
+}
+
+/* Choice inputs for the third page */
+
+.choice-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.choice-row input {
+    flex: 1;
+    width: auto;
+    min-width: auto;
+}
+
+.choice-row button {
+    width: auto;
+    padding: 0.35rem 0.75rem; 
+    font-size: 0.75rem;
+    background: #e74c3c;
+    flex-shrink: 0;
+}
+
+.choice-row button:hover {
+    background: #c0392b;
+    opacity: 1;
+}
+
+/* Voter list */
+
+.voter-list {
+    margin-top: 0.75;
+    border: 1px solid #ddd;
+    border-radius: 4px
+}
+
+.voter-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.875;
+}
+
+.voter-row:last-child {
+    border-bottom: none;
+}
+
+.voter-row button {
+    width: auto;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    background: #e74c3c;
+}
+
+.voter-row button:hover {
+    background: #c0392b;
+    opacity: 1;
+}
+
+.voter-empty {
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    color: #aaa;
+    text-align: center;
+}
+
+/* Buttons */
+
+button {
+    text-transform: uppercase;
+    outline: 0;
+    background: var(--blue-button-color);
+    border: 0;
+    padding: 9px 18px;
+    color: var(--primary-background-color);
+    font-size: 0.8rem;
+    font-family: inherit;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+button disabled {
+    background: var(--blue-button-color);
+    opacity: 1;
+    font-weight: 700;
+    cursor: default;
+}
+
+.button-danger {
+    background: #e74c3c;
+}
+
+.button-danger:hover {
+    background: #c0392b;
+    opacity: 1;
+}
+
+.button-secondary {
+    background: #f0f0f0;
+    color: #333;
+}
+
+.button-secondary:hover {
+    background: #e0e0e0;
+    opacity: 1;
+}
+
+/* Navigation bar for create poll */
+
+.create-poll-nav {
+    position: sticky;
+    bottom: 0;
+    background: var(--primary-background-color);
+    border-top: 1px solid #ddd;
+    padding: 0.6rem 3rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    z-index: 10;
+}
+
+
+.create-poll-nav-steps {
+    display: flex;
+    align-items: center; 
+    gap: 0.25rem;
+}
+
+.create-poll-nav button {
+    padding: 7px 12px;
+    font-size: 0.75rem;
+}
+
+/* Divider between sections */
+
+.section-divider {
+    border: non;
+    border-top: 1px solid #f0f0f0;
+    margin: 1.25rem 0;
+}

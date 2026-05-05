@@ -26,6 +26,10 @@ dist-ssr
 # Misc
 /.trash
 .env
+.codex
 
 # Database
-server_src/users.db
+database/test.db
+database/users.db
+database/database.db
+/generated/prisma

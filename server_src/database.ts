@@ -736,7 +736,9 @@ export class WebappDatabase {
             const hours = Math.floor(diffMs / 3_600_000);
             const mins = Math.floor((diffMs % 3_600_000) / 60_000);
             const secs = Math.floor((diffMs % 60_000) / 1_000);
-            timeLeft = `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+            timeLeft = `${String(hours).padStart(2, "0")}:${
+              String(mins).padStart(2, "0")
+            }:${String(secs).padStart(2, "0")}`;
           }
         }
 
