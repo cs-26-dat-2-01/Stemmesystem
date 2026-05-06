@@ -168,7 +168,9 @@ function Sidebar(
 // Modtager den allerede filtrerede og søgte liste som prop, så komponenten
 // selv ikke behøver at kende til filtertilstanden.
 function PollTable({ polls }: { polls: FrontEndPoll[] }) {
-  if (polls.length === 0) return <p className="ov-empty">No polls found.</p>;
+  if (polls.length === 0) {
+    return <p className="ov-empty">Ingen afstemninger fundet.</p>;
+  }
   return (
     <table className="ov-table">
       <thead>
@@ -302,7 +304,7 @@ function OverviewPage() {
               <FaSearch />
               <input
                 type="search"
-                placeholder="Search..."
+                placeholder="Søg i afstemninger..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="ov-search-input"
