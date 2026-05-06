@@ -335,3 +335,52 @@ button disabled {
   border-top: 1px solid #f0f0f0;
   margin: 1.25rem 0;
 }
+
+.step-label {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+.step-indicator {
+  min-width: 60px;
+  text-align: center;
+  font-weight: 600;
+}
+/* Responsive design */
+@media (max-width: 900px) {
+  .create-poll-content {
+    width: 80%;
+  }
+  .create-poll-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .create-poll-nav > button {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .create-poll-nav-steps {
+    order: 3;
+    flex: 1 1 100%;
+  }
+
+  .create-poll-nav-steps::-webkit-scrollbar {
+    display: none;
+  }
+
+  .button-secondary {
+    margin: auto;
+  }
+
+  .create-poll-grid-2,
+  .create-poll-grid-3 {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}

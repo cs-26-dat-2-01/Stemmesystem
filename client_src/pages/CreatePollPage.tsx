@@ -1,7 +1,31 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./CreatePollPage.css";
 import type { ballotPrivacy, Poll, pollVisibility } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
+
+/**
+ * React hook that determines whether the viewport width is below a given breakpoint.
+ *
+ * @param breakpoint - The pixel width threshold used to determine "mobile".
+ * @returns A boolean indicating whether the current viewport width is less than the breakpoint.
+ *
+ * @example
+ * const isMobile = useIsMobile(900);
+ * if (isMobile) {
+ *   // Render mobile layout
+ * }
+ */
+function useIsMobile(breakpoint: number) {
+  const [isMobile, setIsMobile] = useState(globalThis.innerWidth < breakpoint);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(globalThis.innerWidth < breakpoint);
+    globalThis.addEventListener("resize", onResize);
+    return () => globalThis.removeEventListener("resize", onResize);
+  }, [breakpoint]);
+
+  return isMobile;
+}
 
 /* Create poll page 1.
     - Page where the creator of the poll inputs all relevant basic information.
@@ -523,6 +547,8 @@ function CreatePollStep4({
 */
 
 function CreatePollPage({ onExit }: { onExit: () => void }) {
+  // Toggle mobile viewport at 900px
+  const isMobile = useIsMobile(900);
   // Tracks which step is currently shown.
   const [step, setStep] = useState(0);
 
@@ -630,17 +656,24 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
           >
             «
           </button>
-          {steps.map((s, i) => (
-            <button
-              key={i}
-              type="button"
-              className={i === step ? "" : "button-secondary"}
-              onClick={() => setStep(i)}
-              disabled={i === step}
-            >
-              {s}
-            </button>
-          ))}
+          {isMobile ? (
+            <span className="step-indicator">
+              {step + 1}/{steps.length}
+              <div className="step-label">{steps[step]}</div>
+            </span>
+          ) : (
+            steps.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                className={i === step ? "" : "button-secondary"}
+                onClick={() => setStep(i)}
+                disabled={i === step}
+              >
+                {s}
+              </button>
+            ))
+          )}
           <button
             type="button"
             className="button-secondary"
