@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import './CreatePollPage.css';
-import type { Poll, pollVisibility, ballotPrivacy } from "../WebLib.ts";
+import { useState } from "react";
+import "./CreatePollPage.css";
+import type { ballotPrivacy, Poll, pollVisibility } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
 
 /* Create poll page 1.
@@ -532,16 +532,24 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
   // TODO: Replace with actual functioning fetch when backend is ready.
 
   async function handleSave() {
-    /* const res = await fetch( , {
-            method: "POST",
-            headers: { "Content-Type": " " },
-            body: JSON.stringify({ poll: pollData, voters, choices })
-        }); */
-
-    if (true) {
-      onExit();
-    } else {
-      console.log("Failed to save poll.");
+    try {
+      const res = await fetch("/api/polls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          poll: pollData,
+          voters,
+          choices: choices.filter((c) => c.trim() !== ""),
+        }),
+      });
+      if (res.ok) {
+        onExit();
+      } else {
+        const msg = await res.text();
+        console.error(`Failed to save poll: ${res.status} ${msg}`);
+      }
+    } catch (err) {
+      console.error("Failed to save poll", err);
     }
   }
 

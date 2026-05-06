@@ -4,7 +4,7 @@ services:
     image: unf-stemme-app
     command: deno task prod
     ports:
-      - "8000:8000"   # Main web application
+      - "8000:8000" # Main web application
       - "51212:51212" # Prisma studio
     volumes:
       - app_database:/app/database

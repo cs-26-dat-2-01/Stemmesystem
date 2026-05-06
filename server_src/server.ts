@@ -130,6 +130,29 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return c.json(result, result.httpStatusCode);
   });
 
+  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
+  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  router.get("/api/polls", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const userResult = await DB.getUserFromDB(payload.username as string);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+      const polls = await DB.getFrontEndPollObj(userResult.user.id);
+      return c.json(polls, 200);
+    });
+  });
+
+  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
+  router.get("/admin", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
   router.post("/api/admin/add-user", async (c) => {
     return await hasValidJWT(c, async (verifiedPayload) => {
       if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
@@ -234,6 +257,15 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    * fetch the actual poll data.
    */
   router.get("/poll/:pollId", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  router.get("/createpoll", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
       return c.body(file);
@@ -390,15 +422,56 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
-router.get("/poll/:pollId/results", async (c) => {                            
-    try {                                                                       
-      const file = await Deno.readFile("./dist/index.html");                  
-      return c.body(file);                                                      
-    } catch {                                                                   
-      return c.body("Not Found", { status: 404 });                            
-    }                                                                           
-  });                                                                           
-         
+  router.get("/poll/:pollId/results", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
+  // POST /api/polls — opret ny afstemning fra CreatePollPage.
+  // Body: { poll: Poll, voters: string[], choices: string[] }
+  // createdBy hentes fra JWT, ikke fra request body.
+  router.post("/api/polls", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      let body = undefined;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Invalid JSON body", 400);
+      }
+      if (!body || typeof body !== "object") {
+        return c.body("Invalid body", 400);
+      }
+      if (!body.poll || typeof body.poll !== "object") {
+        return c.body("Missing poll", 400);
+      }
+      if (!Array.isArray(body.voters) || !Array.isArray(body.choices)) {
+        return c.body("voters and choices must be arrays", 400);
+      }
+
+      const userResult = await DB.getUserFromDB(payload.username as string);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+
+      const result = await pollManager.createPoll(userResult.user.id, {
+        poll: body.poll,
+        optionTexts: body.choices,
+        voterUsernames: body.voters,
+      });
+
+      if (result.pollId === undefined) {
+        return c.body(
+          result.errorMsg ?? "Error creating poll",
+          result.httpStatusCode,
+        );
+      }
+      return c.json({ pollId: result.pollId }, result.httpStatusCode);
+    });
+  });
 
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;

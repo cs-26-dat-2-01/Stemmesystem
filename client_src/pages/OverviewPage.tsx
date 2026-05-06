@@ -13,7 +13,7 @@ import { FaSearch } from "react-icons/fa";
 type FilterType = "all" | "eligible" | "drafts";
 
 function statusLabel(poll: FrontEndPoll): string {
-  if (poll.poll.status === "finished" || "not started") {
+  if (poll.poll.status === "finished" || poll.poll.status === "not started") {
     return poll.poll.status;
   }
 
@@ -68,7 +68,7 @@ function Sidebar(
 
   return (
     <aside className="ov-sidebar">
-      <a href="/create-poll" className="btn-create">Create Poll</a>
+      <a href="/createpoll" className="btn-create">Opret afstemning</a>
       <nav className="ov-filter-nav">
         <button
           type="button"
@@ -82,7 +82,7 @@ function Sidebar(
             onFolderClick(null);
           }}
         >
-          All polls
+          Alle afstemninger
         </button>
         <button
           type="button"
@@ -96,7 +96,7 @@ function Sidebar(
             onFolderClick(null);
           }}
         >
-          Polls you are eligible to vote in
+          Afstemninger du er stemmeberettigede til
         </button>
         <button
           type="button"
@@ -110,11 +110,11 @@ function Sidebar(
             onFolderClick(null);
           }}
         >
-          Your polls in progress
+          Dine igangværende afstemninger
         </button>
       </nav>
       <div className="ov-folders-header">
-        <span className="ov-folders-title">Folders</span>
+        <span className="ov-folders-title">Mapper</span>
         <button
           type="button"
           className="ov-folder-add"
@@ -168,18 +168,20 @@ function Sidebar(
 // Modtager den allerede filtrerede og søgte liste som prop, så komponenten
 // selv ikke behøver at kende til filtertilstanden.
 function PollTable({ polls }: { polls: FrontEndPoll[] }) {
-  if (polls.length === 0) return <p className="ov-empty">No polls found.</p>;
+  if (polls.length === 0) {
+    return <p className="ov-empty">Ingen afstemninger fundet.</p>;
+  }
   return (
     <table className="ov-table">
       <thead>
         <tr>
-          <th>Poll title</th>
-          <th>Your status</th>
+          <th>Afstemnings title</th>
+          <th>Din status</th>
           <th>Status</th>
-          <th>Time remaining</th>
-          <th>Public/Private</th>
-          <th>Anonymous</th>
-          <th>Poll owner</th>
+          <th>Tid tilbage</th>
+          <th>Offentlig/Privat</th>
+          <th>Hemmelig</th>
+          <th>Afstemnings ejer</th>
         </tr>
       </thead>
       <tbody>
@@ -302,7 +304,7 @@ function OverviewPage() {
               <FaSearch />
               <input
                 type="search"
-                placeholder="Search..."
+                placeholder="Søg i afstemninger..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="ov-search-input"
@@ -314,7 +316,7 @@ function OverviewPage() {
             ? (
               <div className="ov-state">
                 <div className="spinner" />
-                <span>Loading polls…</span>
+                <span>Henter afstemninger…</span>
               </div>
             )
             : <PollTable polls={filteredPolls} />}
