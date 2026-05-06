@@ -83,4 +83,7 @@ label {
   .login-container {
     padding: 0 1rem;
   }
+  .input-submit {
+    cursor: pointer;
+  }
 }
