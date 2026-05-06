@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./NavBar.css";
 import { FaUser } from "react-icons/fa";
 import { getCookie } from "../WebLib.ts";
 
 function NavBar() {
   const [userName] = useState(getCookie("user", document.cookie));
+  const [isAdmin, setIsAdmin] = useState(false);
   async function handleLogout() {
     const res = await fetch("/logout", {
       method: "POST",
@@ -25,6 +26,15 @@ function NavBar() {
       id.classList.toggle("show");
     }
   }
+  // Check if admin user is logged in
+  useEffect(() => {
+    fetch("/api/me", { credentials: "include" })
+      .then((res) => res.json())
+      .then((data) => {
+        setIsAdmin(data.isAdmin);
+      })
+      .catch(() => setIsAdmin(false));
+  }, []);
   return (
     <header className="navbar">
       <div className="nav-left">
@@ -35,6 +45,9 @@ function NavBar() {
       <div className="nav-right-group">
         <div className="nav-center">
           <a href="/">Hjem</a>
+        </div>
+        <div className="nav-center">
+          {isAdmin && <a href="/admin">Admin</a>}
         </div>
 
         <div className="vertical-divider"></div>

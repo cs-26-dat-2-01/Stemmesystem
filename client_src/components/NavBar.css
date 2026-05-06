@@ -38,10 +38,6 @@
   color: #555;
 }
 
-.separator {
-  margin: 0 5px;
-}
-
 .current {
   font-weight: bold;
 }
@@ -119,4 +115,19 @@
 
 .show {
   display: block;
+}
+
+@media screen and (max-width: 600px) {
+  .nav-logo {
+    display: none;
+  }
+  .nav-right-group {
+    gap: 5px;
+  }
+  .nav-right {
+    gap: 0px;
+  }
+  .title {
+    font-size: 14px;
+  }
 }
