@@ -71,3 +71,16 @@ label {
   color: var(--color-danger);
   margin-top: 10px;
 }
+
+@media screen and (max-width: 600px) {
+  body {
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    margin: 0;
+  }
+
+  .login-container {
+    padding: 0 1rem;
+  }
+}
