@@ -73,7 +73,7 @@ label {
 }
 
 @media screen and (max-width: 600px) {
-  body {
+  .login-page {
     display: grid;
     place-items: center;
     min-height: 100vh;
