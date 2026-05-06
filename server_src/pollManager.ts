@@ -10,6 +10,29 @@ import { VoteInsert, WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+
+function validateForPublish(
+  poll: Partial<Poll>,
+  optionTexts: string[],
+): string | null {
+  if (!poll.title || poll.title.trim().length === 0) return "Title is required";
+  if (optionTexts.length === 0) return "At least one option is required";
+  if (poll.pollVisibility !== "public" && poll.pollVisibility !== "private") {
+    return "Invalid pollVisibility";
+  }
+  if (poll.ballotPrivacy !== "open" && poll.ballotPrivacy !== "secret") {
+    return "Invalid ballotPrivacy";
+  }
+  if (
+    poll.ballotLimit === undefined ||
+    !Number.isInteger(poll.ballotLimit) ||
+    poll.ballotLimit === null ||
+    poll.ballotLimit < 1   ) {
+    return "ballotLimit must be a positive integer";
+  }
+  return null;
+}
+
 /**
  * Orchestrates poll-related logic between the HTTP layer and the database. Route handlers
  * should parse input and translate results; all decision about *whether* an action is allowed live here.
@@ -337,7 +360,7 @@ export class PollManager {
 
     const countsWithText = options.map((o) => ({
       optionId: o.id,
-      optionText: o.optionText,
+      optionText: o.optionText ?? "",
       count: countByOptionId.get(o.id) ?? 0, // .get returns undefined if no votes so we default it to 0.
     }));
 
@@ -345,7 +368,7 @@ export class PollManager {
       return {
         result: {
           ballotPrivacy: "secret",
-          showTopN: poll.showTopN,
+          showTopN: poll.showTopN ?? 0,
           counts: countsWithText,
           votes: votesResult.votes.map((v) => ({ uuid: v.id })),
         },
@@ -356,7 +379,7 @@ export class PollManager {
     return {
       result: {
         ballotPrivacy: "open",
-        showTopN: poll.showTopN,
+        showTopN: poll.showTopN ?? 0,
         counts: countsWithText,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
@@ -367,9 +390,100 @@ export class PollManager {
       httpStatusCode: 200,
     };
   }
-
+// createPoll skal "INSERT" som den første gang, her skal status være draft (ingen validering da vi accepterer tomme felter.) createPoll vil blive kaldt så snart brugeren skriver noget i et felt (tænker jeg) og så kan vi nemlig autosave med en UPDATE 
   public async createPoll(
     createdByUserId: number,
+    input: {
+      poll: Partial<Poll>;
+    },
+  ): Promise<{
+    pollId?: number;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+
+    const result = await this.DB.createPoll({
+      title: input.poll.title,
+      description: input.poll.description,
+      voteStatus: "draft",
+      createdBy: createdByUserId,
+      startsAt: input.poll.startsAt,
+      endsAt: input.poll.endsAt,
+      pollVisibility: input.poll.pollVisibility,
+      ballotPrivacy: input.poll.ballotPrivacy,
+      showTopN: input.poll.showTopN,
+      ballotLimit: input.poll.ballotLimit,
+      useBuffer: input.poll.useBuffer,
+    });
+
+    if (result.httpStatusCode !== 201) {
+      return {
+        errorMsg: result.errorMsg ?? "Error creating poll",
+        httpStatusCode: result.httpStatusCode,
+      };
+    }
+    return { pollId: result.pollId, httpStatusCode: 200 };
+
+
+  }
+
+  public async updatePoll(
+    userId: number,
+    pollId: number,
+    input: {
+      poll: Partial<Poll>;
+      voterUsernames?: string[];
+      optionTexts?: string[];
+    },
+  ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
+    const draft = await this.loadEditableDraft(userId, pollId);
+    if (!draft.ok) {
+      return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
+    }
+
+    let voterUserIds: number[] | undefined;
+    if (input.voterUsernames !== undefined) {
+      const uniqueUsernames = [
+        ...new Set(
+          input.voterUsernames.map((n) => n.trim()).filter((n) => n.length > 0),
+        ),
+      ];
+      const lookup = await this.DB.getUserIdsByUsernames(uniqueUsernames);
+      if (lookup.notFound.length > 0) {
+        return {
+          errorMsg: `Unknown voters: ${lookup.notFound.join(", ")}`,
+          httpStatusCode: 400,
+        };
+      }
+      voterUserIds = lookup.userIds;
+    }
+
+    const result = await this.DB.updatePoll(pollId, {
+      title: input.poll.title,
+      description: input.poll.description,
+      startsAt: input.poll.startsAt,
+      endsAt: input.poll.endsAt,
+      pollVisibility: input.poll.pollVisibility,
+      ballotPrivacy: input.poll.ballotPrivacy,
+      showTopN: input.poll.showTopN,
+      ballotLimit: input.poll.ballotLimit,
+      useBuffer: input.poll.useBuffer,
+      optionTexts: input.optionTexts,
+      voterUserIds,
+    });
+
+    if (result.httpStatusCode !== 200) {
+      return {
+        errorMsg: result.errorMsg ?? "Error updating poll",
+        httpStatusCode: result.httpStatusCode,
+      };
+    }
+    return { httpStatusCode: 200 };
+  }
+
+  public async publishPoll(
+    userId: number,
+    pollId: number,
     input: {
       poll: Poll;
       voterUsernames: string[];
@@ -380,47 +494,14 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    const title = input.poll.title.trim();
-    if (title.length === 0) {
-      return { errorMsg: "Title is required", httpStatusCode: 400 };
+    const draft = await this.loadEditableDraft(userId, pollId);
+    if (!draft.ok) {
+      return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
 
     const optionTexts = input.optionTexts
       .map((c) => c.trim())
       .filter((c) => c.length > 0);
-    if (optionTexts.length === 0) {
-      return {
-        errorMsg: "At least one option is required",
-        httpStatusCode: 400,
-      };
-    }
-
-    if (
-      input.poll.pollVisibility !== "public" &&
-      input.poll.pollVisibility !== "private"
-    ) {
-      return { errorMsg: "Invalid pollVisibility", httpStatusCode: 400 };
-    }
-
-    if (
-      input.poll.ballotPrivacy !== "open" && input.poll.ballotPrivacy !==
-        "secret"
-    ) {
-      return { errorMsg: "Invalid ballotPrivacy", httpStatusCode: 400 };
-    }
-    if (
-      !Number.isInteger(input.poll.ballotLimit) || input.poll.ballotLimit < 1
-    ) {
-      return {
-        errorMsg: "ballotLimit must be a positive integer",
-        httpStatusCode: 400,
-      };
-    }
-
-    const allowedCreateStatus = new Set<pollStatus>(["draft", "saved"]);
-    const status: pollStatus = allowedCreateStatus.has(input.poll.status)
-      ? input.poll.status
-      : "draft";
 
     const uniqueUsernames = [
       ...new Set(
@@ -435,43 +516,70 @@ export class PollManager {
       };
     }
 
-    const sanitizeDate = (s: string | undefined): string | null => {
-      if (!s) return null;
-      const trimmed = s.trim();
-      if (trimmed.length === 0 || trimmed === "T") return null;
-      return Number.isNaN(new Date(trimmed).getTime()) ? null : trimmed;
-    };
+    const validationError = validateForPublish(input.poll, optionTexts);
+    if (validationError !== null) {
+      return { errorMsg: validationError, httpStatusCode: 400 };
+    }
 
-    const result = await this.DB.createPoll({
-      title,
+    const result = await this.DB.updatePoll(pollId, {
+      title: input.poll.title,
       description: input.poll.description,
-      status,
-      createdBy: createdByUserId,
-      startsAt: sanitizeDate(input.poll.startsAt),
-      endsAt: sanitizeDate(input.poll.endsAt),
+      startsAt: input.poll.startsAt,
+      endsAt: input.poll.endsAt,
       pollVisibility: input.poll.pollVisibility,
       ballotPrivacy: input.poll.ballotPrivacy,
       showTopN: input.poll.showTopN,
       ballotLimit: input.poll.ballotLimit,
       useBuffer: input.poll.useBuffer,
+      voteStatus: "not started",
       optionTexts,
       voterUserIds: lookup.userIds,
     });
 
-    if (result.pollId === undefined) {
+    if (result.httpStatusCode !== 200) {
       return {
-        errorMsg: result.errorMsg ?? "Error creating poll",
+        errorMsg: result.errorMsg ?? "Error publishing poll",
         httpStatusCode: result.httpStatusCode,
       };
     }
 
     this.DB.insertAuditLog(
-      "POLL_CREATED",
-      `pollId:${result.pollId}, createdBy:${createdByUserId},
-  options:${optionTexts.length}, voters:${lookup.userIds.length},               
-  status:${status}`,
+      "POLL_PUBLISHED",
+      `pollId:${pollId}, createdBy:${userId}, options:${optionTexts.length}, voters:${lookup.userIds.length}`,
     );
 
-    return { pollId: result.pollId, httpStatusCode: 201 };
+    return { pollId, httpStatusCode: 200 };
   }
+
+  private async loadEditableDraft(
+    userId: number,
+    pollId: number,
+  ): Promise<
+    | { ok: true; poll: Poll }
+    | { ok: false; errorMsg: string; httpStatusCode: ContentfulStatusCode }
+  > {
+    const result = await this.DB.getPollFromDB(pollId);
+    if (!result.poll) {
+      if (result.httpStatusCode === 500) {
+        return {
+          ok: false,
+          errorMsg: result.errorMsg ?? "Database error",
+          httpStatusCode: 500,
+        };
+      }
+      return { ok: false, errorMsg: "Poll not found", httpStatusCode: 404 };
+    }
+    if (result.poll.createdBy !== userId) {
+      return { ok: false, errorMsg: "Forbidden", httpStatusCode: 403 };
+    }
+    if (result.poll.status !== "draft") {
+      return {
+        ok: false,
+        errorMsg: "Only drafts can be edited",
+        httpStatusCode: 409,
+      };
+    }
+    return { ok: true, poll: result.poll };
+  }
+
 }

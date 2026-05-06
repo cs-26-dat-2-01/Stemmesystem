@@ -52,20 +52,35 @@ export interface VoteInsert {
 }
 
 export interface PollCreateInput {
-  title: string;
-  description: string;
-  status: pollStatus;
+  title?: string | null;
+  description?: string | null;
+  voteStatus: pollStatus | null;
   createdBy: number;
-  startsAt: string | null;
-  endsAt: string | null;
-  pollVisibility: pollVisibility;
-  ballotPrivacy: ballotPrivacy;
-  showTopN: number;
-  ballotLimit: number;
-  useBuffer: number;
-  optionTexts: string[];
-  voterUserIds: number[];
+  startsAt?: string | null;
+  endsAt?: string | null;
+  pollVisibility?: pollVisibility | null;
+  ballotPrivacy?: ballotPrivacy | null;
+  showTopN?: number | null;
+  ballotLimit?: number | null;
+  useBuffer?: number | null;
+  optionTexts?: string[];
+  voterUserIds?: number[];
 }
+export interface PollUpdateInput {
+  title?: string | null;
+  description?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  pollVisibility?: pollVisibility | null;
+  ballotPrivacy?: ballotPrivacy | null;
+  showTopN?: number | null;
+  ballotLimit?: number | null;
+  useBuffer?: number | null;
+  voteStatus?: pollStatus;
+  optionTexts?: string[];
+  voterUserIds?: number[];
+}
+
 /**
  * Class for creating an ad hoc database object for the web application.
  */
@@ -307,8 +322,8 @@ export class WebappDatabase {
 
       const poll: Poll = {
         id: sqlResult.id,
-        title: sqlResult.title,
-        description: sqlResult.description,
+        title: sqlResult.title as Poll['title'],
+        description: sqlResult.description as Poll['description'],
         status: sqlResult.voteStatus as pollStatus,
         createdBy: sqlResult.createdBy,
         createdAt: sqlResult.createdAt.toString(),
@@ -316,8 +331,8 @@ export class WebappDatabase {
           ? sqlResult.startsAt.toString()
           : undefined,
         endsAt: sqlResult.endsAt ? sqlResult.endsAt.toString() : undefined,
-        pollVisibility: sqlResult.pollVisibility as pollVisibility,
-        ballotPrivacy: sqlResult.ballotPrivacy as ballotPrivacy,
+        pollVisibility: sqlResult.pollVisibility as pollVisibility | null,
+        ballotPrivacy: sqlResult.ballotPrivacy as ballotPrivacy | null,
         showTopN: sqlResult.showTopN,
         ballotLimit: sqlResult.ballotLimit,
         useBuffer: sqlResult.useBuffer,
@@ -837,8 +852,8 @@ export class WebappDatabase {
             createdAt: poll.createdAt.toString(),
             startsAt: poll.startsAt ? poll.startsAt.toString() : undefined,
             endsAt: poll.endsAt ? poll.endsAt.toString() : undefined,
-            pollVisibility: poll.pollVisibility as pollVisibility,
-            ballotPrivacy: poll.ballotPrivacy as ballotPrivacy,
+            pollVisibility: poll.pollVisibility as pollVisibility | null,
+            ballotPrivacy: poll.ballotPrivacy as ballotPrivacy | null,
             showTopN: poll.showTopN,
             ballotLimit: poll.ballotLimit,
             useBuffer: poll.useBuffer,
@@ -913,7 +928,7 @@ export class WebappDatabase {
           data: {
             title: input.title,
             description: input.description,
-            voteStatus: input.status,
+            voteStatus: input.voteStatus ?? "draft",
             createdBy: input.createdBy,
             startsAt: input.startsAt ? new Date(input.startsAt) : null,
             endsAt: input.endsAt ? new Date(input.endsAt) : null,
@@ -925,7 +940,7 @@ export class WebappDatabase {
           },
         });
 
-        if (input.optionTexts.length > 0) {
+        if (input.optionTexts && input.optionTexts.length > 0) {
           await tx.pollOption.createMany({
             data: input.optionTexts.map((text, i) => ({
               pollId: poll.id,
@@ -935,12 +950,12 @@ export class WebappDatabase {
           });
         }
 
-        if (input.voterUserIds.length > 0) {
+        if (input.voterUserIds && input.voterUserIds.length > 0) {
           await tx.pollEligibleVoter.createMany({
             data: input.voterUserIds.map((userId) => ({
               pollId: poll.id,
               userId,
-              votesAllowed: input.ballotLimit,
+              votesAllowed: input.ballotLimit ?? 1,
             })),
           });
         }
@@ -953,6 +968,77 @@ export class WebappDatabase {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger.error`Error creating poll. Error: ${errMsg}`;
       return { errorMsg: "Error creating poll", httpStatusCode: 500 };
+    }
+  }
+
+  public async updatePoll(
+    pollId: number,
+    input: PollUpdateInput,
+  ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const data: Prisma.PollUpdateInput = {};
+        if (input.title !== undefined) data.title = input.title;
+        if (input.description !== undefined) {
+          data.description = input.description;
+        }
+        if (input.startsAt !== undefined) {
+          data.startsAt = input.startsAt ? new Date(input.startsAt) : null;
+        }
+        if (input.endsAt !== undefined) {
+          data.endsAt = input.endsAt ? new Date(input.endsAt) : null;
+        }
+        if (input.pollVisibility !== undefined) {
+          data.pollVisibility = input.pollVisibility;
+        }
+        if (input.ballotPrivacy !== undefined) {
+          data.ballotPrivacy = input.ballotPrivacy;
+        }
+        if (input.showTopN !== undefined) data.showTopN = input.showTopN;
+        if (input.ballotLimit !== undefined) {
+          data.ballotLimit = input.ballotLimit;
+        }
+        if (input.useBuffer !== undefined) data.useBuffer = input.useBuffer;
+        if (input.voteStatus !== undefined) data.voteStatus = input.voteStatus;
+
+        await tx.poll.update({ where: { id: pollId }, data });
+
+        if (input.optionTexts !== undefined) {
+          await tx.pollOption.deleteMany({ where: { pollId } });
+          if (input.optionTexts.length > 0) {
+            await tx.pollOption.createMany({
+              data: input.optionTexts.map((text, i) => ({
+                pollId,
+                optionText: text,
+                displayOrder: i,
+              })),
+            });
+          }
+        }
+
+        if (input.voterUserIds !== undefined) {
+          const current = await tx.poll.findUnique({
+            where: { id: pollId },
+            select: { ballotLimit: true },
+          });
+          const votesAllowed = current?.ballotLimit ?? 1;
+          await tx.pollEligibleVoter.deleteMany({ where: { pollId } });
+          if (input.voterUserIds.length > 0) {
+            await tx.pollEligibleVoter.createMany({
+              data: input.voterUserIds.map((userId) => ({
+                pollId,
+                userId,
+                votesAllowed,
+              })),
+            });
+          }
+        }
+      });
+      return { httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error updating poll. Error: ${errMsg}`;
+      return { errorMsg: "Error updating poll", httpStatusCode: 500 };
     }
   }
 }

@@ -281,7 +281,7 @@ function OverviewPage() {
       }
     })
     .filter((poll) =>
-      poll.poll.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (poll.poll.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       poll.poll.createdBy.toString().toLowerCase().includes(
         searchQuery.toLowerCase(),
       ) // To-do: Change to fetch username for the poll

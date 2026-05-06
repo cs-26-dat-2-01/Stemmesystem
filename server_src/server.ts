@@ -431,7 +431,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
-  // POST /api/polls — opret ny afstemning fra CreatePollPage.
+  // POST /api/polls — opret ny afstemning (KLADDE, ALTSÅ DET VIL ALTID VÆRE DRAFT) fra CreatePollPage.
   // Body: { poll: Poll, voters: string[], choices: string[] }
   // createdBy hentes fra JWT, ikke fra request body.
   router.post("/api/polls", async (c) => {
@@ -448,9 +448,6 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       if (!body.poll || typeof body.poll !== "object") {
         return c.body("Missing poll", 400);
       }
-      if (!Array.isArray(body.voters) || !Array.isArray(body.choices)) {
-        return c.body("voters and choices must be arrays", 400);
-      }
 
       const userResult = await DB.getUserFromDB(payload.username as string);
       if (userResult.httpStatusCode !== 200 || !userResult.user) {
@@ -459,8 +456,6 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
 
       const result = await pollManager.createPoll(userResult.user.id, {
         poll: body.poll,
-        optionTexts: body.choices,
-        voterUsernames: body.voters,
       });
 
       if (result.pollId === undefined) {
@@ -471,6 +466,100 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       }
       return c.json({ pollId: result.pollId }, result.httpStatusCode);
     });
+  });
+
+  // PATCH /api/polls/:pollId til at opdaterer (autosave, klade gem og side-overgange)
+  router.patch("/api/polls/:pollId", async (c) => {
+	return await hasValidJWT(c, async (payload) =>{
+		const pollIdFromURL = c.req.param("pollId"); 
+		const pollId = Number(pollIdFromURL); 
+		if (!Number.isInteger(pollId)){
+			return c.body("Invalid pollId", 400); 
+		}
+		let body = undefined;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.body("Invalid body", 400);
+		}
+		 if (!body || typeof body !== "object") {
+        		return c.body("Invalid body", 400);
+      		}
+      		if (!body.poll || typeof body.poll !== "object") {
+        		return c.body("Missing poll", 400);
+      		}
+		 if (body.voters !== undefined && !Array.isArray(body.voters)) {
+    			return c.body("voters must be an array", 400);                              
+  		}
+  		if (body.choices !== undefined && !Array.isArray(body.choices)) {             
+    			return c.body("choices must be an array", 400);                             
+  		}
+		 const userResult = await DB.getUserFromDB(payload.username as string);
+     			 if (userResult.httpStatusCode !== 200 || !userResult.user) {
+       				 return c.body("401 Unauthorized", 401);
+      			}
+
+		const result = await pollManager.updatePoll(userResult.user.id, pollId, {
+			poll: body.poll,
+			optionTexts: body.choices,
+			voterUsernames: body.voters
+		});
+
+		if (result.httpStatusCode !== 200){
+			return c.body(
+				result.errorMsg ?? "Error updating poll", 
+				result.httpStatusCode,
+			);
+		}
+
+		return c.body(null, 200);
+	}); 
+  });
+
+  // POST /api/polls/:pollid/publish til endelig udgivelse. kalder pollManager.publishPoll(...)
+  router.post("/api/polls/:pollId/publish", async (c) => {
+	return await hasValidJWT(c, async (payload) =>{
+		const pollIdFromURL = c.req.param("pollId"); 
+		const pollId = Number(pollIdFromURL); 
+		if (!Number.isInteger(pollId)){
+			return c.body("Invalid pollId", 400); 
+		}
+		let body = undefined;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.body("Invalid body", 400);
+		}
+		 if (!body || typeof body !== "object") {
+        		return c.body("Invalid body", 400);
+      		}
+      		if (!body.poll || typeof body.poll !== "object") {
+        		return c.body("Missing poll", 400);
+      		}
+
+ 		if (!Array.isArray(body.voters) || !Array.isArray(body.choices)) {
+        		return c.body("voters and choices must be arrays", 400);
+      		}		
+		 const userResult = await DB.getUserFromDB(payload.username as string);
+     			 if (userResult.httpStatusCode !== 200 || !userResult.user) {
+       				 return c.body("401 Unauthorized", 401);
+      			}
+
+		const result = await pollManager.publishPoll(userResult.user.id, pollId, {
+			poll: body.poll,
+			optionTexts: body.choices,
+			voterUsernames: body.voters
+		});
+
+		if (result.httpStatusCode !== 200){
+			return c.body(
+				result.errorMsg ?? "Error publishing poll", 
+				result.httpStatusCode,
+			);
+		}
+
+		return c.body(null,200);
+	}); 
   });
 
   // Deno.addSignalListener("SIGINT", () => {

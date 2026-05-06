@@ -26,6 +26,8 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
   const [showTopN, setShowTopN] = useState(0);
   const [topNOnly, setTopNOnly] = useState(false);
   const [ballotLimit, setBallotLimit] = useState(1);
+  const [pollId, setPollId] = useState<number | null>(null); 
+  const [isSaving, setIsSaving] = useState(false); // state that we use to flag when saving, so we dont try to save at the same time, since its async
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -44,6 +46,31 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
     if (checked) setStartsAt("");
   }
 
+  //Helper function to determine and call post or patch 
+  async function saveDraft(payload: {poll: Partial<Poll>; voters?: string[]; choices?: string[]}){
+	if (isSaving) return; 
+	setIsSaving(true); 
+	try {
+		if (pollId === null){
+			const res = await fetch("/api/polls", {method: "POST", headers: {"Content-Type": "application/json"}, 
+				body: JSON.stringify({poll: payload.poll}) });
+			if (!res.ok) {
+				console.error(`Failed to create poll: ${res.status}`); 
+				return; 
+			}
+			const {pollId: newId} = await res.json(); 
+			setPollId(newId);
+		} else {
+			await fetch(`/api/polls/${pollId}`, 
+				    {method: "PATCH",
+					    headers: {"Content-Type": "application/json"},
+					body: JSON.stringify(payload)});
+		}
+	} finally {
+		setIsSaving(false);
+	}
+  }
+  
   // Builds the Poll object and passes it up to CreatePollPage().
   function buildPollData(): Poll {
     return {
@@ -460,7 +487,7 @@ function CreatePollStep4({
           </div>
           <div className="overview-field">
             <label>Vis top n resultater:</label>
-            <span>{pollData.showTopN > 0 ? pollData.showTopN : "Nej"}</span>
+            <span>{(pollData.showTopN ?? 0) > 0 ? (pollData.showTopN ?? 0)  : "Nej"}</span>
           </div>
           <div className="overview-field">
             <label>Max stemmer per deltager:</label>
@@ -644,7 +671,7 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
           <button
             type="button"
             className="button-secondary"
-            onClick={() => setStep((s) => Math.min(3, s + 1))}
+ onClick={() => setStep((s) => Math.min(3, s + 1))}
           >
             »
           </button>

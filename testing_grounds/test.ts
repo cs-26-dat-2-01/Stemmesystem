@@ -779,7 +779,7 @@ Deno.test({
         `Expected closed poll open to fail, got
   ${res.status}: ${text}`,
       );
-      assert(!text.includes(poll.title));
+      assert(!poll.title|| !text.includes(poll.title));
       assert(!text.includes("Ja"));
       assert(!text.includes("Nej"));
     } finally {
