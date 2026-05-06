@@ -76,12 +76,7 @@ label {
   font-weight: 500;
 }
 
-input[type="text"],
-input[type="time"],
-input[type="date"],
-input[type="number"],
-textarea,
-select {
+.create-poll-content input, .input-createPoll {
   width: 100%;
   box-sizing: border-box;
   padding: 0.45rem 0.7rem;
