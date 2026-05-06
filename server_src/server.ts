@@ -137,14 +137,12 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
 
   // GET /admin — sender index.html så React kan håndtere admin-siden client-side
   router.get("/admin", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
-      if (payload.username !== "admin") {
-        return c.body("403 Forbidden", 403);
-      }
-
+    try {
       const file = await Deno.readFile("./dist/index.html");
       return c.body(file);
-    });
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
   });
 
   router.post("/api/admin/add-user", async (c) => {
