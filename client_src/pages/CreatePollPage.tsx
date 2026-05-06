@@ -284,7 +284,11 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
       </div>
 
       <br />
-      <button type="button" onClick={() => onNext(buildPollData())}>
+      <button
+        type="button"
+        className="create-poll-button"
+        onClick={() => onNext(buildPollData())}
+      >
         Gem og fortsæt
       </button>
     </div>
@@ -338,7 +342,11 @@ function CreatePollStep2({
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           style={{ flex: 1 }}
         />
-        <button type="button" onClick={handleAdd}>
+        <button
+          type="button"
+          className="create-poll-button"
+          onClick={handleAdd}
+        >
           Tilføj
         </button>
       </div>
@@ -351,7 +359,11 @@ function CreatePollStep2({
           voters.map((voter, i) => (
             <div key={i} className="voter-row">
               <span>{voter}</span>
-              <button type="button" onClick={() => handleRemove(i)}>
+              <button
+                type="button"
+                className="create-poll-button"
+                onClick={() => handleRemove(i)}
+              >
                 Fjern
               </button>
             </div>
@@ -360,7 +372,7 @@ function CreatePollStep2({
       </div>
 
       <br />
-      <button type="button" onClick={onNext}>
+      <button type="button" className="create-poll-button" onClick={onNext}>
         Gem og fortsæt
       </button>
     </div>
@@ -425,7 +437,7 @@ function CreatePollStep3({
       <br />
       <button
         type="button"
-        className="button-secondary"
+        className="button-secondary create-poll-button"
         onClick={handleAddChoice}
       >
         + Tilføj valgmulighed
@@ -433,7 +445,7 @@ function CreatePollStep3({
 
       <br />
       <br />
-      <button type="button" onClick={onNext}>
+      <button type="button" className="create-poll-button" onClick={onNext}>
         Gem og fortsæt
       </button>
     </div>
@@ -533,7 +545,7 @@ function CreatePollStep4({
       </div>
 
       <br />
-      <button type="button" onClick={onNext}>
+      <button type="button" className="create-poll-button" onClick={onNext}>
         Start afstemning
       </button>
     </div>
@@ -644,14 +656,18 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
 
       {/* Bottom navigation bar */}
       <div className="create-poll-nav">
-        <button type="button" className="button-danger" onClick={onExit}>
+        <button
+          type="button"
+          className="button-danger create-poll-button"
+          onClick={onExit}
+        >
           Slet afstemning
         </button>
 
         <div className="create-poll-nav-steps">
           <button
             type="button"
-            className="button-secondary"
+            className="button-secondary create-poll-button"
             onClick={() => setStep((s) => Math.max(0, s - 1))}
           >
             «
@@ -666,7 +682,7 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
               <button
                 key={i}
                 type="button"
-                className={i === step ? "" : "button-secondary"}
+                className={`create-poll-button ${i === step ? "" : "button-secondary"}`}
                 onClick={() => setStep(i)}
                 disabled={i === step}
               >
@@ -676,14 +692,18 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
           )}
           <button
             type="button"
-            className="button-secondary"
+            className="button-secondary create-poll-button"
             onClick={() => setStep((s) => Math.min(3, s + 1))}
           >
             »
           </button>
         </div>
 
-        <button type="button" onClick={handleSave}>
+        <button
+          type="button"
+          className="create-poll-button"
+          onClick={handleSave}
+        >
           Gem afstemning
         </button>
       </div>
