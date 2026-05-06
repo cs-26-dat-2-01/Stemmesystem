@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import "./LoginPage.css";
 import { getCookie } from "../WebLib.ts";
 import { FaLock, FaUser } from "react-icons/fa";
@@ -8,15 +8,20 @@ type LoginPageProps = {
 };
 
 function LoginPage({ setIsLoggedIn }: LoginPageProps) {
-  let username: string;
-  let password: string;
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+
+  //Form validation error
+  const [error, setError] = useState(false);
 
   function handleUsernameChange(event: React.ChangeEvent<HTMLInputElement>) {
-    username = event.target.value;
+    setUsername(event.target.value);
+    setError(false);
   }
 
   function handlePasswordChange(event: React.ChangeEvent<HTMLInputElement>) {
-    password = event.target.value;
+    setPassword(event.target.value);
+    setError(false);
   }
 
   async function handleLogin(event: React.SubmitEvent) {
@@ -37,6 +42,7 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
       setIsLoggedIn(getCookie("isLoggedIn", document.cookie));
     } else {
       console.log("login failed with code: " + res.status);
+      setError(true);
     }
   }
 
@@ -45,6 +51,9 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
       <div className="login-container">
         <div className="form">
           <h1>Login</h1>
+          {error && (
+            <p className="error-text">Forkert brugernavn eller adgangskode</p>
+          )}
           <form onSubmit={handleLogin}>
             <div className="input-wrapper">
               <FaUser className="input-icon" />
@@ -54,7 +63,7 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
                 type="text"
                 autoComplete="username"
                 placeholder="brugernavn"
-                className="input-field"
+                className={`input-field ${error ? "input-error" : ""}`}
                 required
                 onChange={handleUsernameChange}
               />
@@ -67,7 +76,7 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
                 type="password"
                 autoComplete="current-password"
                 placeholder="adgangskode"
-                className="input-field"
+                className={`input-field ${error ? "input-error" : ""}`}
                 required
                 onChange={handlePasswordChange}
               />

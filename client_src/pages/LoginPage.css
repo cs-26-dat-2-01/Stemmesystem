@@ -62,3 +62,12 @@ label {
 .form button:hover, .form button:active, .form button:focus {
   background: var(--blue-button-hover);
 }
+.input-error {
+  border: 2px solid var(--color-danger);
+  border-radius: 0.5rem;
+}
+
+.error-text {
+  color: var(--color-danger);
+  margin-top: 10px;
+}
