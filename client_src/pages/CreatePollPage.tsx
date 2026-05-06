@@ -80,6 +80,7 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
         name="title"
         type="text"
         value={title}
+        className="input-createPoll"
         onChange={(e) => setTitle(e.target.value)}
       />
 
@@ -90,6 +91,7 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
         id="description"
         name="description"
         value={description}
+        className="input-createPoll"
         onChange={(e) => setDescription(e.target.value)}
       />
 
@@ -107,6 +109,7 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
             id="visibility"
             name="visibility"
             value={visibility}
+            className="input-createPoll"
             onChange={(e) => setVisibility(e.target.value as pollVisibility)}
           >
             <option value="public">Offentlig</option>
@@ -120,6 +123,7 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
             id="privacy"
             name="privacy"
             value={privacy}
+            className="input-createPoll"
             onChange={(e) => setPrivacy(e.target.value as ballotPrivacy)}
           >
             <option value="open">Åben</option>
@@ -269,7 +273,11 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
     - TODO: Actual search function.
 */
 
-function CreatePollStep2({ onNext, voters, setVoters }: {
+function CreatePollStep2({
+  onNext,
+  voters,
+  setVoters,
+}: {
   onNext: () => void;
   voters: string[];
   setVoters: (v: string[]) => void;
@@ -306,29 +314,31 @@ function CreatePollStep2({ onNext, voters, setVoters }: {
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           style={{ flex: 1 }}
         />
-        <button type="button" onClick={handleAdd}>Tilføj</button>
+        <button type="button" onClick={handleAdd}>
+          Tilføj
+        </button>
       </div>
 
       {/* List of added voters */}
       <div className="voter-list" style={{ marginTop: "1rem" }}>
-        {voters.length === 0
-          ? (
-            <p className="voter-empty">
-              Ingen stemmeberettigede tilføjet endnu.
-            </p>
-          )
-          : voters.map((voter, i) => (
+        {voters.length === 0 ? (
+          <p className="voter-empty">Ingen stemmeberettigede tilføjet endnu.</p>
+        ) : (
+          voters.map((voter, i) => (
             <div key={i} className="voter-row">
               <span>{voter}</span>
               <button type="button" onClick={() => handleRemove(i)}>
                 Fjern
               </button>
             </div>
-          ))}
+          ))
+        )}
       </div>
 
       <br />
-      <button type="button" onClick={onNext}>Gem og fortsæt</button>
+      <button type="button" onClick={onNext}>
+        Gem og fortsæt
+      </button>
     </div>
   );
 }
@@ -337,7 +347,11 @@ function CreatePollStep2({ onNext, voters, setVoters }: {
     - Fields for entering the options that voters can choose between.
 */
 
-function CreatePollStep3({ onNext, choices, setChoices }: {
+function CreatePollStep3({
+  onNext,
+  choices,
+  setChoices,
+}: {
   onNext: () => void;
   choices: string[]; // Current list of choices.
   setChoices: (c: string[]) => void; // Updates the list of choices.
@@ -377,10 +391,7 @@ function CreatePollStep3({ onNext, choices, setChoices }: {
           />
           {/* Only show remove if more than one choice */}
           {choices.length > 1 && (
-            <button
-              type="button"
-              onClick={() => handleRemoveChoice(i)}
-            >
+            <button type="button" onClick={() => handleRemoveChoice(i)}>
               Fjern
             </button>
           )}
@@ -398,7 +409,9 @@ function CreatePollStep3({ onNext, choices, setChoices }: {
 
       <br />
       <br />
-      <button type="button" onClick={onNext}>Gem og fortsæt</button>
+      <button type="button" onClick={onNext}>
+        Gem og fortsæt
+      </button>
     </div>
   );
 }
@@ -407,7 +420,12 @@ function CreatePollStep3({ onNext, choices, setChoices }: {
     - Shows an overview of all poll data before the creator finalizes.
 */
 
-function CreatePollStep4({ onNext, pollData, voters, choices }: {
+function CreatePollStep4({
+  onNext,
+  pollData,
+  voters,
+  choices,
+}: {
   onNext: () => void;
   pollData: Poll;
   voters: string[];
@@ -460,32 +478,40 @@ function CreatePollStep4({ onNext, pollData, voters, choices }: {
           {/* Voters */}
           <h2>Stemmeberettigede</h2>
           <div className="voter-list">
-            {voters.length === 0
-              ? <p className="voter-empty">Ingen tilføjet.</p>
-              : voters.map((voter, i) => (
+            {voters.length === 0 ? (
+              <p className="voter-empty">Ingen tilføjet.</p>
+            ) : (
+              voters.map((voter, i) => (
                 <div key={i} className="voter-row">
                   <span>{voter}</span>
                 </div>
-              ))}
+              ))
+            )}
           </div>
         </div>
 
         {/* Right: choices */}
         <div>
           <h2>Valgmuligheder</h2>
-          {choices.filter((c) => c.trim() !== "").length === 0
-            ? <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
-            : choices.filter((c) => c.trim() !== "").map((choice, i) => (
-              <div key={i} className="overview-field">
-                <label>Valgmulighed {i + 1}:</label>
-                <span>{choice}</span>
-              </div>
-            ))}
+          {choices.filter((c) => c.trim() !== "").length === 0 ? (
+            <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
+          ) : (
+            choices
+              .filter((c) => c.trim() !== "")
+              .map((choice, i) => (
+                <div key={i} className="overview-field">
+                  <label>Valgmulighed {i + 1}:</label>
+                  <span>{choice}</span>
+                </div>
+              ))
+          )}
         </div>
       </div>
 
       <br />
-      <button type="button" onClick={onNext}>Start afstemning</button>
+      <button type="button" onClick={onNext}>
+        Start afstemning
+      </button>
     </div>
   );
 }
@@ -624,7 +650,9 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
           </button>
         </div>
 
-        <button type="button" onClick={handleSave}>Gem afstemning</button>
+        <button type="button" onClick={handleSave}>
+          Gem afstemning
+        </button>
       </div>
     </div>
   );
