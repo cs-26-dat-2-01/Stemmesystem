@@ -51,6 +51,21 @@ export interface VoteInsert {
   currentHash: string;
 }
 
+export interface PollCreateInput {
+  title: string;
+  description: string;
+  status: pollStatus;
+  createdBy: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  pollVisibility: pollVisibility;
+  ballotPrivacy: ballotPrivacy;
+  showTopN: number;
+  ballotLimit: number;
+  useBuffer: number;
+  optionTexts: string[];
+  voterUserIds: number[];
+}
 /**
  * Class for creating an ad hoc database object for the web application.
  */
@@ -839,6 +854,105 @@ export class WebappDatabase {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger.error`Error fetching all polls for userId ${userId}: ${errMsg}`;
       return [];
+    }
+  }
+
+  /**
+   * Looks up userIds for a list of usernames in a single query.
+   * Used when creating a poll: the frontend submits voter usernames from
+   * step 2, and the manager needs userIds to populate `PollEligibleVoter`.
+   *
+   * @param usernames the usernames to resolve.
+   * @returns `userIds` for the names that exist, and `notFound` for any
+   *   that did not match a User row, so callers can reject the request
+   *   with a precise error instead of silently dropping voters.
+   */
+  public async getUserIdsByUsernames(
+    usernames: string[],
+  ): Promise<{ userIds: number[]; notFound: string[] }> {
+    if (usernames.length === 0) return { userIds: [], notFound: [] };
+    try {
+      const found = await this.prisma.user.findMany({
+        where: { username: { in: usernames } },
+        select: { id: true, username: true },
+      });
+      const foundNames = new Set(found.map((u) => u.username));
+      const notFound = usernames.filter((n) => !foundNames.has(n));
+      return { userIds: found.map((u) => u.id), notFound };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error looking up usernames. Error: ${errMsg}`;
+      return { userIds: [], notFound: usernames };
+    }
+  }
+
+  /**
+   * Inserts a new poll along with its options and eligible voters in a
+   * single transaction. Either everything is persisted or nothing is —
+   * partial inserts (poll without options, or options without voters)
+   * are not allowed.
+   *
+   * @remarks
+   * `votesAllowed` for every eligible voter is set to `ballotLimit`. When
+   * per-voter voting power is introduced, this should be replaced by an
+   * explicit per-voter value passed in by the caller.
+   *
+   * @param input the data needed to materialize the poll. `createdBy`
+   *   must originate from a verified JWT, never from the request body.
+   * @returns `{ pollId, httpStatusCode: 201 }` on success;
+   *   `{ errorMsg, httpStatusCode: 500 }` if the transaction fails.
+   */
+  public async createPoll(input: PollCreateInput): Promise<{
+    pollId?: number;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      const pollId = await this.prisma.$transaction(async (tx) => {
+        const poll = await tx.poll.create({
+          data: {
+            title: input.title,
+            description: input.description,
+            voteStatus: input.status,
+            createdBy: input.createdBy,
+            startsAt: input.startsAt ? new Date(input.startsAt) : null,
+            endsAt: input.endsAt ? new Date(input.endsAt) : null,
+            pollVisibility: input.pollVisibility,
+            ballotPrivacy: input.ballotPrivacy,
+            showTopN: input.showTopN,
+            ballotLimit: input.ballotLimit,
+            useBuffer: input.useBuffer,
+          },
+        });
+
+        if (input.optionTexts.length > 0) {
+          await tx.pollOption.createMany({
+            data: input.optionTexts.map((text, i) => ({
+              pollId: poll.id,
+              optionText: text,
+              displayOrder: i,
+            })),
+          });
+        }
+
+        if (input.voterUserIds.length > 0) {
+          await tx.pollEligibleVoter.createMany({
+            data: input.voterUserIds.map((userId) => ({
+              pollId: poll.id,
+              userId,
+              votesAllowed: input.ballotLimit,
+            })),
+          });
+        }
+
+        return poll.id;
+      });
+
+      return { pollId, httpStatusCode: 201 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error creating poll. Error: ${errMsg}`;
+      return { errorMsg: "Error creating poll", httpStatusCode: 500 };
     }
   }
 }

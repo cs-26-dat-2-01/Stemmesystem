@@ -68,7 +68,7 @@ function Sidebar(
 
   return (
     <aside className="ov-sidebar">
-      <a href="/create-poll" className="btn-create">Create Poll</a>
+      <a href="/createpoll" className="btn-create">Create Poll</a>
       <nav className="ov-filter-nav">
         <button
           type="button"

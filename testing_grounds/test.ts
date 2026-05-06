@@ -1824,8 +1824,8 @@ Deno.test({
 });
 
 /* ------------
- * GET /api/auditlog (server.ts) 
- */ 
+ * GET /api/auditlog (server.ts)
+ */
 
 Deno.test({
   name: "GET /api/auditlog returns 200 with empty logs initially",

@@ -2,6 +2,7 @@ import {
   OpenpollResult,
   Poll,
   PollOption,
+  pollStatus,
   ResultsPayload,
   VoteInput,
 } from "../client_src/WebLib.ts";
@@ -9,7 +10,6 @@ import { VoteInsert, WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-
 /**
  * Orchestrates poll-related logic between the HTTP layer and the database. Route handlers
  * should parse input and translate results; all decision about *whether* an action is allowed live here.
@@ -366,5 +366,112 @@ export class PollManager {
       },
       httpStatusCode: 200,
     };
+  }
+
+  public async createPoll(
+    createdByUserId: number,
+    input: {
+      poll: Poll;
+      voterUsernames: string[];
+      optionTexts: string[];
+    },
+  ): Promise<{
+    pollId?: number;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    const title = input.poll.title.trim();
+    if (title.length === 0) {
+      return { errorMsg: "Title is required", httpStatusCode: 400 };
+    }
+
+    const optionTexts = input.optionTexts
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+    if (optionTexts.length === 0) {
+      return {
+        errorMsg: "At least one option is required",
+        httpStatusCode: 400,
+      };
+    }
+
+    if (
+      input.poll.pollVisibility !== "public" &&
+      input.poll.pollVisibility !== "private"
+    ) {
+      return { errorMsg: "Invalid pollVisibility", httpStatusCode: 400 };
+    }
+
+    if (
+      input.poll.ballotPrivacy !== "open" && input.poll.ballotPrivacy !==
+        "secret"
+    ) {
+      return { errorMsg: "Invalid ballotPrivacy", httpStatusCode: 400 };
+    }
+    if (
+      !Number.isInteger(input.poll.ballotLimit) || input.poll.ballotLimit < 1
+    ) {
+      return {
+        errorMsg: "ballotLimit must be a positive integer",
+        httpStatusCode: 400,
+      };
+    }
+
+    const allowedCreateStatus = new Set<pollStatus>(["draft", "saved"]);
+    const status: pollStatus = allowedCreateStatus.has(input.poll.status)
+      ? input.poll.status
+      : "draft";
+
+    const uniqueUsernames = [
+      ...new Set(
+        input.voterUsernames.map((n) => n.trim()).filter((n) => n.length > 0),
+      ),
+    ];
+    const lookup = await this.DB.getUserIdsByUsernames(uniqueUsernames);
+    if (lookup.notFound.length > 0) {
+      return {
+        errorMsg: `Unknown voters: ${lookup.notFound.join(", ")}`,
+        httpStatusCode: 400,
+      };
+    }
+
+    const sanitizeDate = (s: string | undefined): string | null => {
+      if (!s) return null;
+      const trimmed = s.trim();
+      if (trimmed.length === 0 || trimmed === "T") return null;
+      return Number.isNaN(new Date(trimmed).getTime()) ? null : trimmed;
+    };
+
+    const result = await this.DB.createPoll({
+      title,
+      description: input.poll.description,
+      status,
+      createdBy: createdByUserId,
+      startsAt: sanitizeDate(input.poll.startsAt),
+      endsAt: sanitizeDate(input.poll.endsAt),
+      pollVisibility: input.poll.pollVisibility,
+      ballotPrivacy: input.poll.ballotPrivacy,
+      showTopN: input.poll.showTopN,
+      ballotLimit: input.poll.ballotLimit,
+      useBuffer: input.poll.useBuffer,
+      optionTexts,
+      voterUserIds: lookup.userIds,
+    });
+
+    if (result.pollId === undefined) {
+      return {
+        errorMsg: result.errorMsg ?? "Error creating poll",
+        httpStatusCode: result.httpStatusCode,
+      };
+    }
+
+    this.DB.insertAuditLog(
+      "POLL_CREATED",
+      `pollId:${result.pollId}, createdBy:${createdByUserId},
+  options:${optionTexts.length}, voters:${lookup.userIds.length},               
+  status:${status}`,
+    );
+
+    return { pollId: result.pollId, httpStatusCode: 201 };
   }
 }

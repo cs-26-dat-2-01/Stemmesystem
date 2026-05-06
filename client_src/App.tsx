@@ -6,7 +6,7 @@ import OverviewPage from "./pages/OverviewPage.tsx";
 import AdminPage from "./pages/AdminPage.tsx";
 import BallotPage from "./pages/BallotPage.tsx";
 import AuditLog from "./pages/AuditLog.tsx";
-
+import CreatePollPage from "./pages/CreatePollPage.tsx";
 /**
  * Retrieves a cookie value by name.
  * @param name - The key of the cookie to retrieve.
@@ -23,6 +23,7 @@ function App() {
   const auditMatch = window.location.pathname.match(/^\/auditlog$/);
   // Show admin dashboard, if URL is `/admin`
   const isOnAdminPage = window.location.pathname === "/admin"; // To-do: Window is not longer available in Deno.
+  const isOnCreatePoll = window.location.pathname === "/createpoll";
 
   if (!isLoggedIn || isLoggedIn !== "true") {
     return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
@@ -32,13 +33,23 @@ function App() {
     return <AdminPage />;
   }
 
-  const resultsMatch = window.location.pathname.match(/^\/poll\/(\d+)\/results$/); 
-
+  const resultsMatch = window.location.pathname.match(
+    /^\/poll\/(\d+)\/results$/,
+  );
 
   if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
   if (resultsMatch) return <PollResults pollId={Number(resultsMatch[1])} />;
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
   if (auditMatch) return <AuditLog />;
+  if (isOnCreatePoll) {
+    return (
+      <CreatePollPage
+        onExit={() => {
+          window.location.href = "/";
+        }}
+      />
+    );
+  }
   return <OverviewPage />;
 }
 
