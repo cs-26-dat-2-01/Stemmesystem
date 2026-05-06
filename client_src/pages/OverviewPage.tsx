@@ -68,7 +68,7 @@ function Sidebar(
 
   return (
     <aside className="ov-sidebar">
-      <a href="/create-poll" className="btn-create">Create Poll</a>
+      <a href="/create-poll" className="btn-create">Opret afstemning</a>
       <nav className="ov-filter-nav">
         <button
           type="button"
@@ -82,7 +82,7 @@ function Sidebar(
             onFolderClick(null);
           }}
         >
-          All polls
+          Alle afstemninger
         </button>
         <button
           type="button"
@@ -96,7 +96,7 @@ function Sidebar(
             onFolderClick(null);
           }}
         >
-          Polls you are eligible to vote in
+          Afstemninger du er stemmeberettigede til
         </button>
         <button
           type="button"
@@ -110,11 +110,11 @@ function Sidebar(
             onFolderClick(null);
           }}
         >
-          Your polls in progress
+          Dine igangværende afstemninger
         </button>
       </nav>
       <div className="ov-folders-header">
-        <span className="ov-folders-title">Folders</span>
+        <span className="ov-folders-title">Mapper</span>
         <button
           type="button"
           className="ov-folder-add"
@@ -173,13 +173,13 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
     <table className="ov-table">
       <thead>
         <tr>
-          <th>Poll title</th>
-          <th>Your status</th>
+          <th>Afstemnings title</th>
+          <th>Din status</th>
           <th>Status</th>
-          <th>Time remaining</th>
-          <th>Public/Private</th>
-          <th>Anonymous</th>
-          <th>Poll owner</th>
+          <th>Tid tilbage</th>
+          <th>Offentlig/Privat</th>
+          <th>Hemmelig</th>
+          <th>Afstemnings ejer</th>
         </tr>
       </thead>
       <tbody>
@@ -314,7 +314,7 @@ function OverviewPage() {
             ? (
               <div className="ov-state">
                 <div className="spinner" />
-                <span>Loading polls…</span>
+                <span>Henter afstemninger…</span>
               </div>
             )
             : <PollTable polls={filteredPolls} />}
