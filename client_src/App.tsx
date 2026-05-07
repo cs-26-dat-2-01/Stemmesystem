@@ -24,6 +24,9 @@ function App() {
   // Show admin dashboard, if URL is `/admin`
   const isOnAdminPage = window.location.pathname === "/admin"; // To-do: Window is not longer available in Deno.
   const isOnCreatePoll = window.location.pathname === "/createpoll";
+  const editDraftMatch = window.location.pathname.match(
+    /^\/createpoll\/(\d+)$/,
+  ); // for createpoll/:/pollId
 
   if (!isLoggedIn || isLoggedIn !== "true") {
     return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
@@ -41,6 +44,17 @@ function App() {
   if (resultsMatch) return <PollResults pollId={Number(resultsMatch[1])} />;
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
   if (auditMatch) return <AuditLog />;
+  if (editDraftMatch) {
+    return (
+      <CreatePollPage
+        onExit={() => {
+          window.location.href = "/";
+        }}
+        draftId={Number(editDraftMatch[1])}
+      />
+    );
+  }
+
   if (isOnCreatePoll) {
     return (
       <CreatePollPage
@@ -50,6 +64,7 @@ function App() {
       />
     );
   }
+
   return <OverviewPage />;
 }
 

@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./CreatePollPage.css";
-import type { ballotPrivacy, Poll, pollVisibility } from "../WebLib.ts";
+import type {
+  ballotPrivacy,
+  Poll,
+  PollOption,
+  pollVisibility,
+} from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
 // import { build } from "npm:vite@^8.0.10";
 
@@ -10,7 +15,9 @@ import NavBar from "../components/NavBar.tsx";
     - Delete poll returns the creator to the overview page.
 */
 
-function CreatePollPage({ onExit }: { onExit: () => void }) {
+function CreatePollPage(
+  { onExit, draftId = null }: { onExit: () => void; draftId?: number | null },
+) {
   // Tracks which step is currently shown.
   const [step, setStep] = useState(0);
   const [pollId, setPollId] = useState<number | null>(null);
@@ -30,6 +37,60 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
   const [showTopN, setShowTopN] = useState(0);
   const [topNOnly, setTopNOnly] = useState(false);
   const [ballotLimit, setBallotLimit] = useState(1);
+
+  // we use useEffect since we dont wanna render the data many times only on mount.
+  useEffect(() => {
+    if (draftId === null) return;
+
+    async function loadDraft() {
+      const res = await fetch(`/api/polls/${draftId}`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        console.error(`Faield to load draft: ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      setTitle(data.poll.title ?? "");
+      setDescription(data.poll.description ?? "");
+      setVisibility(data.poll.pollVisibility ?? "private");
+      setPrivacy(data.poll.ballotPrivacy ?? "secret");
+      setUseBuffer(data.poll.useBuffer ?? 0);
+      setBallotLimit(data.poll.ballotLimit ?? 1);
+      setShowTopN(data.poll.showTopN ?? 0);
+      setTopNOnly((data.poll.showTopN ?? 0) > 0);
+      // startsAt/endsAt gemmes som ISO i DB ("2026-05-07T14:30..."),
+      // men UI'en holder dato og tid i hver sit felt.
+      if (data.poll.startsAt) {
+        const [d, t] = data.poll.startsAt.split("T");
+        setStartDate(d);
+        setStartsAt(t.slice(0, 5)); // "HH:MM"
+      }
+      if (data.poll.endsAt) {
+        const [d, t] = data.poll.endsAt.split("T");
+        setEndDate(d);
+        setEndsAt(t.slice(0, 5));
+      }
+
+      // Voters er bare array af usernames.
+      setVoters(data.voters ?? []);
+
+      // Options har {optionText, displayOrder, ...}; UI'en bruger string[].
+      setChoices(
+        (data.options ?? [])
+          .sort((a: PollOption, b: PollOption) =>
+            a.displayOrder - b.displayOrder
+          )
+          .map((o: PollOption) => o.optionText ?? ""),
+      );
+
+      setPollId(draftId);
+    }
+
+    loadDraft();
+  }, []);
 
   //Helper function to determine and call post or patch
   async function saveDraft(
@@ -133,15 +194,15 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
 
   async function handleDelete() {
     if (pollId !== null) {
-     const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
-    if (res.ok){
-    onExit();
-    } else {
-	const msg = await res.text(); 
-	console.error(`Delete fejlede: ${res.status} ${msg}`); 
-  }
-    }
+      const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
+      if (res.ok) {
+        onExit();
+      } else {
+        const msg = await res.text();
+        console.error(`Delete fejlede: ${res.status} ${msg}`);
       }
+    }
+  }
   async function handleNext() {
     await handleSave();
     setStep((s) => s + 1);

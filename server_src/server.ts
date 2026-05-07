@@ -274,6 +274,15 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
+  router.get("/createpoll/:pollId", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
   router.get("/auditlog", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -561,25 +570,44 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
-router.delete("/api/polls/:pollId", async (c) => {
+  router.delete("/api/polls/:pollId", async (c) => {
     return await hasValidJWT(c, async (payload) => {
-      const pollId = Number(c.req.param("pollId"));                             
-      if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);      
-                                                                                
-      const userResult = await DB.getUserFromDB(payload.username as string);    
-      if (userResult.httpStatusCode !== 200 || !userResult.user) {              
-        return c.body("401 Unauthorized", 401);                                 
-      }                                                                         
-  
-      const result = await pollManager.deletePoll(userResult.user.id, pollId);  
-      if (result.httpStatusCode !== 200) {
-        return c.body(result.errorMsg ?? "Error deleting poll",                 
-  result.httpStatusCode);                                                       
-      }                                                                         
-      return c.body(null, 200);                                                 
-    });           
-  });
+      const pollId = Number(c.req.param("pollId"));
+      if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
 
+      const userResult = await DB.getUserFromDB(payload.username as string);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+
+      const result = await pollManager.deletePoll(userResult.user.id, pollId);
+      if (result.httpStatusCode !== 200) {
+        return c.body(
+          result.errorMsg ?? "Error deleting poll",
+          result.httpStatusCode,
+        );
+      }
+      return c.body(null, 200);
+    });
+  });
+  // til at hente data ned hvis poll er  draft
+  router.get("/api/polls/:pollId", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const pollId = Number(c.req.param("pollId"));
+      if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
+
+      const userResult = await DB.getUserFromDB(payload.username as string);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+
+      const result = await pollManager.getDraft(userResult.user.id, pollId);
+      if (result.httpStatusCode !== 200 || !result.result) {
+        return c.body(result.errorMsg ?? "Error", result.httpStatusCode);
+      }
+      return c.json(result.result);
+    });
+  });
 
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;
