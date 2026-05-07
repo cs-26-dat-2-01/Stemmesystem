@@ -955,4 +955,33 @@ export class WebappDatabase {
       return { errorMsg: "Error creating poll", httpStatusCode: 500 };
     }
   }
+
+  /**
+   * Fetches the list of eligible voters for a given poll, returning their userIds.
+   *
+   * @param pollId - the ID of the poll to fetch eligible voters for.
+   * @returns An object containing an array of voter userIds, an HTTP status code, and an optional error message if the operation failed. Returns 200 on success (with an empty array if no eligible voters exist) and 500 if an error occurs during fetching, in which case `voters` is an empty array.
+   */
+  public async getAllEligibleVotersForPoll(pollId: number): Promise<{
+    voters: { userId: number }[];
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
+      const voters = await this.prisma.pollEligibleVoter.findMany({
+        where: { pollId },
+        select: { userId: true },
+      });
+      return { voters, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
+      return {
+        voters: [],
+        errorMsg: "Error fetching eligible voters",
+        httpStatusCode: 500,
+      };
+    }
+  }
 }

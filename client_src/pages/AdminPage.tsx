@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
 import "./AdminPage.css";
+import { Link } from "react-router/internal/react-server-client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -356,7 +357,9 @@ function AdminPage() {
           </nav>
 
           {/* Link tilbage til oversigten */}
-          <a href="/" className="admin-back-link">← Tilbage til oversigt</a>
+          <Link to="/" className="admin-back-link">
+            ← Tilbage til oversigt
+          </Link>
         </aside>
 
         {/* Hovedindhold skifter afhængigt af aktiv fane */}

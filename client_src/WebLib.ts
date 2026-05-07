@@ -4,6 +4,14 @@
  */
 
 /**
+ * Types of callbacks that can be sent via the websocket connection. The client and server can use this enum to specify the type of callback they want to send, so the receiver can handle it accordingly.
+ * E.g. if the client sends a message with the type `refetchVoteCount`, the server can handle this by refetching the vote count for the relevant poll and sending it back to the client.
+ */
+export const callbackTypes = {
+  refetchVoteCount: "refetchVoteCount",
+} as const;
+
+/**
  * Gets the cookies from a string containing cookies.
  *
  * @param name
@@ -147,11 +155,19 @@ export interface FrontEndPoll {
 /**
  * Calculate the time remaining until the deadline is reached for a poll.
  * @param poll - The poll object to calculate for.
+ * @param now - Optional reference timestamp used for derived rendering.
  */
-export function calculateTimeRemaining(poll: Poll) {
+export function calculateTimeRemaining(
+  pollEndsAt: string | undefined,
+  now = Date.now(),
+) {
+  if (!pollEndsAt) {
+    return "Ingen deadline";
+  }
+
   let timeLeft = "00:00:00";
-  if (poll.endsAt) {
-    const diffMs = new Date(poll.endsAt).getTime() - Date.now();
+  if (pollEndsAt) {
+    const diffMs = new Date(pollEndsAt).getTime() - now;
     if (diffMs > 0) {
       const hours = Math.floor(diffMs / 3_600_000);
       const mins = Math.floor((diffMs % 3_600_000) / 60_000);
