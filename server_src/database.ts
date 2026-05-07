@@ -1065,4 +1065,37 @@ export class WebappDatabase {
       return { errorMsg: "Error updating poll", httpStatusCode: 500 };
     }
   }
+
+  /**
+   * Moves polls that has hit their time limit: "not started" -> "started" when starts <= now,
+   * and "started" -> "finished" when endsAt <= now.
+   *
+   * @returns number of rows changed (for logging/debuggin):
+   */
+  public async tickPollStatuses(): Promise<
+    { started: number; finished: number }
+  > {
+    const now = new Date();
+    try {
+      const started = await this.prisma.poll.updateMany({
+        where: {
+          voteStatus: "not started",
+          startsAt: { lte: now },
+        },
+        data: { voteStatus: "started" },
+      });
+      const finished = await this.prisma.poll.updateMany({
+        where: {
+          voteStatus: "started",
+          endsAt: { lte: now },
+        },
+        data: { voteStatus: "finished" },
+      });
+      return { started: started.count, finished: finished.count };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error`tickPollStatuses failed: ${errMsg}`;
+      return { started: 0, finished: 0 };
+    }
+  }
 }

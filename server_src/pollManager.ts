@@ -117,6 +117,7 @@ export class PollManager {
     userId: number,
     votes: VoteInput[],
   ): Promise<{ success: boolean; errorMsg?: string }> {
+    this.tickPollStatuses();
     if (votes.length === 0) {
       return { success: false, errorMsg: "No valid input" };
     }
@@ -237,6 +238,7 @@ export class PollManager {
     pollId: number,
     userId: number,
   ): Promise<{ result?: OpenpollResult; errorMsg?: string }> {
+    this.tickPollStatuses();
     const isUserEligible = await this.DB.isUserEligible(pollId, userId);
     if (!isUserEligible) {
       logger.warn(`User ${userId} is not eligible for poll ${pollId}.`);
@@ -326,6 +328,7 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
+    this.tickPollStatuses();
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (!pollResult.poll) {
       return {
@@ -648,5 +651,15 @@ export class PollManager {
     const options = await this.DB.getPollOptionsFromDB(pollId);
     const voters = await this.DB.getEligibleVoterUsernames(pollId);
     return { result: { poll, options, voters }, httpStatusCode: 200 };
+  }
+
+  public async tickPollStatuses(): Promise<void> {
+    const { started, finished } = await this.DB.tickPollStatuses();
+    if (started > 0) {
+      this.DB.insertAuditLog("POLL_AUTO_STARTED", `count:${started}`);
+    }
+    if (finished > 0) {
+      this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finished}`);
+    }
   }
 }

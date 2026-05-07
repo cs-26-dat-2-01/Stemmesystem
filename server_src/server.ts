@@ -134,6 +134,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
   router.get("/api/polls", async (c) => {
     return await hasValidJWT(c, async (payload) => {
+      await pollManager.tickPollStatuses();
       const userResult = await DB.getUserFromDB(payload.username as string);
       if (userResult.httpStatusCode !== 200 || !userResult.user) {
         return c.body("401 Unauthorized", 401);
