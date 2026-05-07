@@ -662,4 +662,31 @@ export class PollManager {
       this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finished}`);
     }
   }
+
+  public async getPollOverview(userId: number, pollId: number): Promise<{
+    result?: { poll: Poll; options: PollOption[]; voters: string[] };
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    const { poll, httpStatusCode } = await this.DB.getPollFromDB(pollId);
+    if (!poll) {
+      return {
+        errorMsg: "Poll not found",
+        httpStatusCode: httpStatusCode === 500 ? 500 : 404,
+      };
+    }
+
+    const isCreator = poll.createdBy === userId;
+    const isEligible = isCreator
+      ? true
+      : await this.DB.isUserEligible(pollId, userId);
+
+    if (!isCreator && !isEligible) {
+      return { errorMsg: "Forbidden", httpStatusCode: 403 };
+    }
+
+    const options = await this.DB.getPollOptionsFromDB(pollId);
+    const voters = await this.DB.getEligibleVoterUsernames(pollId);
+    return { result: { poll, options, voters }, httpStatusCode: 200 };
+  }
 }

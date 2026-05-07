@@ -293,6 +293,15 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
+  router.get("/poll/:pollId/overview", async (c) => {
+    try {
+      const file = await Deno.readFile("./dist/index.html");
+      return c.body(file);
+    } catch {
+      return c.body("Not Found", { status: 404 });
+    }
+  });
+
   /**
    * Opens a poll for a specific user, returning the data the client needs to render the ballot (options, votes remaining, etc.).
    *
@@ -603,6 +612,27 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       }
 
       const result = await pollManager.getDraft(userResult.user.id, pollId);
+      if (result.httpStatusCode !== 200 || !result.result) {
+        return c.body(result.errorMsg ?? "Error", result.httpStatusCode);
+      }
+      return c.json(result.result);
+    });
+  });
+
+  router.get("/api/polls/:pollId/overview", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const pollId = Number(c.req.param("pollId"));
+      if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
+
+      const userResult = await DB.getUserFromDB(payload.username as string);
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {
+        return c.body("401 Unauthorized", 401);
+      }
+
+      const result = await pollManager.getPollOverview(
+        userResult.user.id,
+        pollId,
+      );
       if (result.httpStatusCode !== 200 || !result.result) {
         return c.body(result.errorMsg ?? "Error", result.httpStatusCode);
       }

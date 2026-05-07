@@ -7,6 +7,7 @@ import AdminPage from "./pages/AdminPage.tsx";
 import BallotPage from "./pages/BallotPage.tsx";
 import AuditLog from "./pages/AuditLog.tsx";
 import CreatePollPage from "./pages/CreatePollPage.tsx";
+import PollOverviewPage from "./pages/PollOverviewPage.tsx";
 /**
  * Retrieves a cookie value by name.
  * @param name - The key of the cookie to retrieve.
@@ -27,6 +28,9 @@ function App() {
   const editDraftMatch = window.location.pathname.match(
     /^\/createpoll\/(\d+)$/,
   ); // for createpoll/:/pollId
+  const overviewMatch = window.location.pathname.match(
+    /^\/poll\/(\d+)\/overview$/,
+  );
 
   if (!isLoggedIn || isLoggedIn !== "true") {
     return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
@@ -42,6 +46,13 @@ function App() {
 
   if (isLoggedIn !== "true") return <LoginPage setIsLoggedIn={setIsLoggedIn} />;
   if (resultsMatch) return <PollResults pollId={Number(resultsMatch[1])} />;
+  if (overviewMatch) {
+    return (
+      <PollOverviewPage
+        pollId={Number(overviewMatch[1])}
+      />
+    );
+  }
   if (pollMatch) return <BallotPage pollId={Number(pollMatch[1])} />;
   if (auditMatch) return <AuditLog />;
   if (editDraftMatch) {

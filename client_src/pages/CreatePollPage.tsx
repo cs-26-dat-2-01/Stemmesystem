@@ -758,16 +758,20 @@ function CreatePollStep3({
 /* Create poll page 4.
     - Shows an overview of all poll data before the creator finalizes.
 */
-function CreatePollStep4({
+export function CreatePollStep4({
   onNext,
   pollData,
   voters,
   choices,
+  hideAction = false,
+  heading = "Færdiggør afstemning",
 }: {
   onNext: () => void;
   pollData: Partial<Poll>;
   voters: string[];
   choices: string[];
+  hideAction?: boolean;
+  heading?: string;
 }) {
   const isComplete = !!pollData.title?.trim() &&
     !!pollData.pollVisibility &&
@@ -777,7 +781,7 @@ function CreatePollStep4({
 
   return (
     <div className="create-poll-content">
-      <h2>Færdiggør afstemning</h2>
+      <h2>{heading}</h2>
 
       <div className="create-poll-grid-2">
         {/* Left: poll overview and voters */}
@@ -855,10 +859,11 @@ function CreatePollStep4({
       </div>
 
       <br />
-
-      <button type="button" onClick={onNext} disabled={!isComplete}>
-        Opret afstemning
-      </button>
+      {!hideAction && (
+        <button type="button" onClick={onNext} disabled={!isComplete}>
+          Opret afstemning
+        </button>
+      )}
     </div>
   );
 }
