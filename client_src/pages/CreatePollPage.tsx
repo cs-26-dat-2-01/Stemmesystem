@@ -2,16 +2,20 @@ import { useState } from "react";
 import "./CreatePollPage.css";
 import type { ballotPrivacy, Poll, pollVisibility } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
+// import { build } from "npm:vite@^8.0.10";
 
-/* Create poll page 1.
-    - Page where the creator of the poll inputs all relevant basic information.
-    - Uses data structure from WebLib to define data for input.
-    - TODO: Lacks sync with backend to save data (all pages).
+/* Navigation between the steps, as seen in all of the wireframes
+    - Lets the user freely navigate between the pages, plus delete and save poll.
+    - Save poll sends saved data to the backend.
+    - Delete poll returns the creator to the overview page.
 */
 
-function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
+function CreatePollPage({ onExit }: { onExit: () => void }) {
+  // Tracks which step is currently shown.
+  const [step, setStep] = useState(0);
+  const [pollId, setPollId] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false); // state that we use to flag when saving, so we dont try to save at the same time, since its async
   // All state variables for page 1. Allows for easy update of the variable between rendering.
-
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<pollVisibility>("private");
@@ -26,9 +30,288 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
   const [showTopN, setShowTopN] = useState(0);
   const [topNOnly, setTopNOnly] = useState(false);
   const [ballotLimit, setBallotLimit] = useState(1);
-  const [pollId, setPollId] = useState<number | null>(null); 
-  const [isSaving, setIsSaving] = useState(false); // state that we use to flag when saving, so we dont try to save at the same time, since its async
 
+  //Helper function to determine and call post or patch
+  async function saveDraft(
+    payload: { poll: Partial<Poll>; voters?: string[]; choices?: string[] },
+  ) {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      if (pollId === null) {
+        const res = await fetch("/api/polls", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ poll: payload.poll }),
+        });
+        if (!res.ok) {
+          console.error(`Failed to create poll: ${res.status}`);
+          return;
+        }
+        const { pollId: newId } = await res.json();
+        setPollId(newId);
+      } else {
+        await fetch(`/api/polls/${pollId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  // Builds the Poll object and passes it up to CreatePollPage().
+  function buildPollData(): Partial<Poll> {
+    const startsAtValue = startNow
+      ? new Date().toISOString()
+      : (startDate && startsAt)
+      ? `${startDate}T${startsAt}`
+      : undefined;
+    const endsAtValue = (endDate && endsAt)
+      ? `${endDate}T${endsAt}`
+      : undefined;
+    return {
+      title,
+      description,
+      startsAt: startsAtValue,
+      endsAt: endsAtValue,
+      pollVisibility: visibility,
+      ballotPrivacy: privacy,
+      showTopN: topNOnly ? showTopN : 0,
+      ballotLimit,
+      useBuffer,
+    };
+  }
+
+  // Voters from step 2, passed to step 4 for overview.
+  const [voters, setVoters] = useState<string[]>([]);
+
+  // Choices from step 3, passed to step 4 for overview.
+  const [choices, setChoices] = useState<string[]>([""]);
+
+  const steps = [
+    "Afstemnings information",
+    "Rediger stemmeberettigede",
+    "Rediger valgmuligheder",
+    "Færdiggør afstemning",
+  ];
+
+  // Saves poll to backend.
+  // TODO: Replace with actual functioning fetch when backend is ready.
+
+  async function handleSave() {
+    await saveDraft({
+      poll: buildPollData(),
+      voters,
+      choices: choices.filter((c) => c.trim() !== ""),
+    });
+  }
+
+  async function handlePublish() {
+    if (pollId === null) {
+      console.error("cant publish without pollId");
+      return;
+    }
+    const res = await fetch(`/api/polls/${pollId}/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        poll: buildPollData(),
+        voters,
+        choices: choices.filter((c) => c.trim() !== ""),
+      }),
+    });
+    if (res.ok) {
+      onExit();
+    } else {
+      const msg = await res.text();
+      console.error(`Publish fejlede: ${res.status} ${msg}`);
+    }
+  }
+
+  async function handleDelete() {
+    if (pollId !== null) {
+      await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
+    }
+    onExit();
+  }
+  async function handleNext() {
+    await handleSave();
+    setStep((s) => s + 1);
+  }
+
+  return (
+    <div className="create-poll-page">
+      {/* Navbar at the top */}
+      <NavBar />
+
+      {/* Show the correct step */}
+      {step === 0 && (
+        <CreatePollStep1
+          title={title}
+          setTitle={setTitle}
+          description={description}
+          setDescription={setDescription}
+          visibility={visibility}
+          setVisibility={setVisibility}
+          privacy={privacy}
+          setPrivacy={setPrivacy}
+          startNow={startNow}
+          setStartNow={setStartNow}
+          useBuffer={useBuffer}
+          setUseBuffer={setUseBuffer}
+          startsAt={startsAt}
+          setStartsAt={setStartsAt}
+          endsAt={endsAt}
+          setEndsAt={setEndsAt}
+          startDate={startDate}
+          setStartDate={setStartDate}
+          endDate={endDate}
+          setEndDate={setEndDate}
+          onlyToday={onlyToday}
+          setOnlyToday={setOnlyToday}
+          showTopN={showTopN}
+          setShowTopN={setShowTopN}
+          topNOnly={topNOnly}
+          setTopNOnly={setTopNOnly}
+          ballotLimit={ballotLimit}
+          setBallotLimit={setBallotLimit}
+          onNext={handleNext}
+        />
+      )}
+      {step === 1 && (
+        <CreatePollStep2
+          onNext={handleNext}
+          voters={voters}
+          setVoters={setVoters}
+        />
+      )}
+      {step === 2 && (
+        <CreatePollStep3
+          onNext={handleNext}
+          choices={choices}
+          setChoices={setChoices}
+        />
+      )}
+      {step === 3 && (
+        <CreatePollStep4
+          onNext={handlePublish}
+          pollData={buildPollData()}
+          voters={voters}
+          choices={choices}
+        />
+      )}
+
+      {/* Bottom navigation bar */}
+      <div className="create-poll-nav">
+        <button type="button" className="button-danger" onClick={handleDelete}>
+          Slet afstemning
+        </button>
+
+        <div className="create-poll-nav-steps">
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+          >
+            «
+          </button>
+          {steps.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              className={i === step ? "" : "button-secondary"}
+              onClick={() => setStep(i)}
+              disabled={i === step}
+            >
+              {s}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => setStep((s) => Math.min(3, s + 1))}
+          >
+            »
+          </button>
+        </div>
+
+        <button type="button" onClick={handleSave}>
+          Gem kladde
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* Create poll page 1.
+    - Page where the creator of the poll inputs all relevant basic information.
+    - Uses data structure from WebLib to define data for input.
+    - TODO: Lacks sync with backend to save data (all pages).
+*/
+function CreatePollStep1({
+  title,
+  setTitle,
+  description,
+  setDescription,
+  visibility,
+  setVisibility,
+  privacy,
+  setPrivacy,
+  startNow,
+  setStartNow,
+  useBuffer,
+  setUseBuffer,
+  startsAt,
+  setStartsAt,
+  endsAt,
+  setEndsAt,
+  startDate,
+  setStartDate,
+  endDate,
+  setEndDate,
+  onlyToday,
+  setOnlyToday,
+  showTopN,
+  setShowTopN,
+  topNOnly,
+  setTopNOnly,
+  ballotLimit,
+  setBallotLimit,
+  onNext,
+}: {
+  title: string;
+  setTitle: (v: string) => void;
+  description: string;
+  setDescription: (v: string) => void;
+  visibility: pollVisibility;
+  setVisibility: (v: pollVisibility) => void;
+  privacy: ballotPrivacy;
+  setPrivacy: (v: ballotPrivacy) => void;
+  startNow: boolean;
+  setStartNow: (v: boolean) => void;
+  useBuffer: number;
+  setUseBuffer: (v: number) => void;
+  startsAt: string;
+  setStartsAt: (v: string) => void;
+  endsAt: string;
+  setEndsAt: (v: string) => void;
+  startDate: string;
+  setStartDate: (v: string) => void;
+  endDate: string;
+  setEndDate: (v: string) => void;
+  onlyToday: boolean;
+  setOnlyToday: (v: boolean) => void;
+  showTopN: number;
+  setShowTopN: (v: number) => void;
+  topNOnly: boolean;
+  setTopNOnly: (v: boolean) => void;
+  ballotLimit: number;
+  setBallotLimit: (v: number) => void;
+  onNext: () => void;
+}) {
   const today = new Date().toISOString().split("T")[0];
 
   // Locks date fields to today when checked.
@@ -44,52 +327,6 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
   function handleStartNow(checked: boolean) {
     setStartNow(checked);
     if (checked) setStartsAt("");
-  }
-
-  //Helper function to determine and call post or patch 
-  async function saveDraft(payload: {poll: Partial<Poll>; voters?: string[]; choices?: string[]}){
-	if (isSaving) return; 
-	setIsSaving(true); 
-	try {
-		if (pollId === null){
-			const res = await fetch("/api/polls", {method: "POST", headers: {"Content-Type": "application/json"}, 
-				body: JSON.stringify({poll: payload.poll}) });
-			if (!res.ok) {
-				console.error(`Failed to create poll: ${res.status}`); 
-				return; 
-			}
-			const {pollId: newId} = await res.json(); 
-			setPollId(newId);
-		} else {
-			await fetch(`/api/polls/${pollId}`, 
-				    {method: "PATCH",
-					    headers: {"Content-Type": "application/json"},
-					body: JSON.stringify(payload)});
-		}
-	} finally {
-		setIsSaving(false);
-	}
-  }
-  
-  // Builds the Poll object and passes it up to CreatePollPage().
-  function buildPollData(): Poll {
-    return {
-      id: 0,
-      title,
-      description,
-      status: "draft",
-      createdBy: 0,
-      createdAt: new Date().toISOString(),
-      startsAt: startNow
-        ? new Date().toISOString()
-        : `${startDate}T${startsAt}`,
-      endsAt: `${endDate}T${endsAt}`,
-      pollVisibility: visibility,
-      ballotPrivacy: privacy,
-      showTopN: topNOnly ? showTopN : 0,
-      ballotLimit,
-      useBuffer,
-    };
   }
 
   return (
@@ -287,7 +524,7 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
       </div>
 
       <br />
-      <button type="button" onClick={() => onNext(buildPollData())}>
+      <button type="button" onClick={() => onNext()}>
         Gem og fortsæt
       </button>
     </div>
@@ -299,7 +536,6 @@ function CreatePollStep1({ onNext }: { onNext: (data: Poll) => void }) {
     - For now only a textfield where names can be entered, added and deleted to the list.
     - TODO: Actual search function.
 */
-
 function CreatePollStep2({
   onNext,
   voters,
@@ -348,18 +584,22 @@ function CreatePollStep2({
 
       {/* List of added voters */}
       <div className="voter-list" style={{ marginTop: "1rem" }}>
-        {voters.length === 0 ? (
-          <p className="voter-empty">Ingen stemmeberettigede tilføjet endnu.</p>
-        ) : (
-          voters.map((voter, i) => (
-            <div key={i} className="voter-row">
-              <span>{voter}</span>
-              <button type="button" onClick={() => handleRemove(i)}>
-                Fjern
-              </button>
-            </div>
-          ))
-        )}
+        {voters.length === 0
+          ? (
+            <p className="voter-empty">
+              Ingen stemmeberettigede tilføjet endnu.
+            </p>
+          )
+          : (
+            voters.map((voter, i) => (
+              <div key={i} className="voter-row">
+                <span>{voter}</span>
+                <button type="button" onClick={() => handleRemove(i)}>
+                  Fjern
+                </button>
+              </div>
+            ))
+          )}
       </div>
 
       <br />
@@ -373,7 +613,6 @@ function CreatePollStep2({
 /* Create poll page 3.
     - Fields for entering the options that voters can choose between.
 */
-
 function CreatePollStep3({
   onNext,
   choices,
@@ -418,7 +657,10 @@ function CreatePollStep3({
           />
           {/* Only show remove if more than one choice */}
           {choices.length > 1 && (
-            <button type="button" onClick={() => handleRemoveChoice(i)}>
+            <button
+              type="button"
+              onClick={() => handleRemoveChoice(i)}
+            >
               Fjern
             </button>
           )}
@@ -446,7 +688,6 @@ function CreatePollStep3({
 /* Create poll page 4.
     - Shows an overview of all poll data before the creator finalizes.
 */
-
 function CreatePollStep4({
   onNext,
   pollData,
@@ -454,10 +695,16 @@ function CreatePollStep4({
   choices,
 }: {
   onNext: () => void;
-  pollData: Poll;
+  pollData: Partial<Poll>;
   voters: string[];
   choices: string[];
 }) {
+  const isComplete = !!pollData.title?.trim() &&
+    !!pollData.pollVisibility &&
+    !!pollData.ballotPrivacy &&
+    (pollData.ballotLimit ?? 0) > 0 &&
+    choices.filter((c) => c.trim() !== "").length > 0;
+
   return (
     <div className="create-poll-content">
       <h2>Færdiggør afstemning</h2>
@@ -487,7 +734,9 @@ function CreatePollStep4({
           </div>
           <div className="overview-field">
             <label>Vis top n resultater:</label>
-            <span>{(pollData.showTopN ?? 0) > 0 ? (pollData.showTopN ?? 0)  : "Nej"}</span>
+            <span>
+              {(pollData.showTopN ?? 0) > 0 ? (pollData.showTopN ?? 0) : "Nej"}
+            </span>
           </div>
           <div className="overview-field">
             <label>Max stemmer per deltager:</label>
@@ -505,182 +754,41 @@ function CreatePollStep4({
           {/* Voters */}
           <h2>Stemmeberettigede</h2>
           <div className="voter-list">
-            {voters.length === 0 ? (
-              <p className="voter-empty">Ingen tilføjet.</p>
-            ) : (
-              voters.map((voter, i) => (
-                <div key={i} className="voter-row">
-                  <span>{voter}</span>
-                </div>
-              ))
-            )}
+            {voters.length === 0
+              ? <p className="voter-empty">Ingen tilføjet.</p>
+              : (
+                voters.map((voter, i) => (
+                  <div key={i} className="voter-row">
+                    <span>{voter}</span>
+                  </div>
+                ))
+              )}
           </div>
         </div>
 
         {/* Right: choices */}
         <div>
           <h2>Valgmuligheder</h2>
-          {choices.filter((c) => c.trim() !== "").length === 0 ? (
-            <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
-          ) : (
-            choices
-              .filter((c) => c.trim() !== "")
-              .map((choice, i) => (
-                <div key={i} className="overview-field">
-                  <label>Valgmulighed {i + 1}:</label>
-                  <span>{choice}</span>
-                </div>
-              ))
-          )}
+          {choices.filter((c) => c.trim() !== "").length === 0
+            ? <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
+            : (
+              choices
+                .filter((c) => c.trim() !== "")
+                .map((choice, i) => (
+                  <div key={i} className="overview-field">
+                    <label>Valgmulighed {i + 1}:</label>
+                    <span>{choice}</span>
+                  </div>
+                ))
+            )}
         </div>
       </div>
 
       <br />
-      <button type="button" onClick={onNext}>
-        Start afstemning
+
+      <button type="button" onClick={onNext} disabled={!isComplete}>
+        Opret afstemning
       </button>
-    </div>
-  );
-}
-
-/* Navigation between the steps, as seen in all of the wireframes
-    - Lets the user freely navigate between the pages, plus delete and save poll.
-    - Save poll sends saved data to the backend.
-    - Delete poll returns the creator to the overview page.
-*/
-
-function CreatePollPage({ onExit }: { onExit: () => void }) {
-  // Tracks which step is currently shown.
-  const [step, setStep] = useState(0);
-
-  // Poll data from step 1, passed to step 4 for overview.
-  const [pollData, setPollData] = useState<Poll>({
-    id: 0,
-    title: "",
-    description: "",
-    status: "draft",
-    createdBy: 0,
-    createdAt: "",
-    pollVisibility: "private",
-    ballotPrivacy: "secret",
-    showTopN: 0,
-    ballotLimit: 1,
-    useBuffer: 0,
-  });
-
-  // Voters from step 2, passed to step 4 for overview.
-  const [voters, setVoters] = useState<string[]>([]);
-
-  // Choices from step 3, passed to step 4 for overview.
-  const [choices, setChoices] = useState<string[]>([""]);
-
-  const steps = [
-    "Afstemnings information",
-    "Rediger stemmeberettigede",
-    "Rediger valgmuligheder",
-    "Færdiggør afstemning",
-  ];
-
-  // Saves poll to backend.
-  // TODO: Replace with actual functioning fetch when backend is ready.
-
-  async function handleSave() {
-    try {
-      const res = await fetch("/api/polls", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          poll: pollData,
-          voters,
-          choices: choices.filter((c) => c.trim() !== ""),
-        }),
-      });
-      if (res.ok) {
-        onExit();
-      } else {
-        const msg = await res.text();
-        console.error(`Failed to save poll: ${res.status} ${msg}`);
-      }
-    } catch (err) {
-      console.error("Failed to save poll", err);
-    }
-  }
-
-  return (
-    <div className="create-poll-page">
-      {/* Navbar at the top */}
-      <NavBar />
-
-      {/* Show the correct step */}
-      {step === 0 && (
-        <CreatePollStep1
-          onNext={(data) => {
-            setPollData(data);
-            setStep(1);
-          }}
-        />
-      )}
-      {step === 1 && (
-        <CreatePollStep2
-          onNext={() => setStep(2)}
-          voters={voters}
-          setVoters={setVoters}
-        />
-      )}
-      {step === 2 && (
-        <CreatePollStep3
-          onNext={() => setStep(3)}
-          choices={choices}
-          setChoices={setChoices}
-        />
-      )}
-      {step === 3 && (
-        <CreatePollStep4
-          onNext={onExit}
-          pollData={pollData}
-          voters={voters}
-          choices={choices}
-        />
-      )}
-
-      {/* Bottom navigation bar */}
-      <div className="create-poll-nav">
-        <button type="button" className="button-danger" onClick={onExit}>
-          Slet afstemning
-        </button>
-
-        <div className="create-poll-nav-steps">
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-          >
-            «
-          </button>
-          {steps.map((s, i) => (
-            <button
-              key={i}
-              type="button"
-              className={i === step ? "" : "button-secondary"}
-              onClick={() => setStep(i)}
-              disabled={i === step}
-            >
-              {s}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="button-secondary"
- onClick={() => setStep((s) => Math.min(3, s + 1))}
-          >
-            »
-          </button>
-        </div>
-
-        <button type="button" onClick={handleSave}>
-          Gem afstemning
-        </button>
-      </div>
     </div>
   );
 }

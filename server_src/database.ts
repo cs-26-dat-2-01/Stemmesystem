@@ -322,8 +322,8 @@ export class WebappDatabase {
 
       const poll: Poll = {
         id: sqlResult.id,
-        title: sqlResult.title as Poll['title'],
-        description: sqlResult.description as Poll['description'],
+        title: sqlResult.title as Poll["title"],
+        description: sqlResult.description as Poll["description"],
         status: sqlResult.voteStatus as pollStatus,
         createdBy: sqlResult.createdBy,
         createdAt: sqlResult.createdAt.toString(),

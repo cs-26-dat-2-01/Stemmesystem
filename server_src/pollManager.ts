@@ -27,7 +27,8 @@ function validateForPublish(
     poll.ballotLimit === undefined ||
     !Number.isInteger(poll.ballotLimit) ||
     poll.ballotLimit === null ||
-    poll.ballotLimit < 1   ) {
+    poll.ballotLimit < 1
+  ) {
     return "ballotLimit must be a positive integer";
   }
   return null;
@@ -390,7 +391,7 @@ export class PollManager {
       httpStatusCode: 200,
     };
   }
-// createPoll skal "INSERT" som den første gang, her skal status være draft (ingen validering da vi accepterer tomme felter.) createPoll vil blive kaldt så snart brugeren skriver noget i et felt (tænker jeg) og så kan vi nemlig autosave med en UPDATE 
+  // createPoll skal "INSERT" som den første gang, her skal status være draft (ingen validering da vi accepterer tomme felter.) createPoll vil blive kaldt så snart brugeren skriver noget i et felt (tænker jeg) og så kan vi nemlig autosave med en UPDATE
   public async createPoll(
     createdByUserId: number,
     input: {
@@ -401,7 +402,6 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-
     const result = await this.DB.createPoll({
       title: input.poll.title,
       description: input.poll.description,
@@ -423,8 +423,6 @@ export class PollManager {
       };
     }
     return { pollId: result.pollId, httpStatusCode: 200 };
-
-
   }
 
   public async updatePoll(
@@ -581,5 +579,4 @@ export class PollManager {
     }
     return { ok: true, poll: result.poll };
   }
-
 }
