@@ -550,7 +550,6 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
         optionTexts: body.choices,
         voterUsernames: body.voters,
       });
-
       if (result.httpStatusCode !== 200) {
         return c.body(
           result.errorMsg ?? "Error publishing poll",
@@ -561,6 +560,26 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       return c.body(null, 200);
     });
   });
+
+router.delete("/api/polls/:pollId", async (c) => {
+    return await hasValidJWT(c, async (payload) => {
+      const pollId = Number(c.req.param("pollId"));                             
+      if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);      
+                                                                                
+      const userResult = await DB.getUserFromDB(payload.username as string);    
+      if (userResult.httpStatusCode !== 200 || !userResult.user) {              
+        return c.body("401 Unauthorized", 401);                                 
+      }                                                                         
+  
+      const result = await pollManager.deletePoll(userResult.user.id, pollId);  
+      if (result.httpStatusCode !== 200) {
+        return c.body(result.errorMsg ?? "Error deleting poll",                 
+  result.httpStatusCode);                                                       
+      }                                                                         
+      return c.body(null, 200);                                                 
+    });           
+  });
+
 
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;

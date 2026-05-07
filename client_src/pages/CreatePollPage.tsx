@@ -133,10 +133,15 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
 
   async function handleDelete() {
     if (pollId !== null) {
-      await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
-    }
+     const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
+    if (res.ok){
     onExit();
+    } else {
+	const msg = await res.text(); 
+	console.error(`Delete fejlede: ${res.status} ${msg}`); 
   }
+    }
+      }
   async function handleNext() {
     await handleSave();
     setStep((s) => s + 1);

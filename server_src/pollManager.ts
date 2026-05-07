@@ -576,7 +576,44 @@ export class PollManager {
         errorMsg: "Only drafts can be edited",
         httpStatusCode: 409,
       };
-    }
+}
     return { ok: true, poll: result.poll };
   }
+
+  public async deletePoll(
+	  userId: number,
+	  pollId: number,
+  ) : Promise<{
+  	errorMsg?: string; 
+	httpStatusCode: ContentfulStatusCode;
+  }> {
+	  const statusofVote = await this.DB.getPollFromDB(pollId);
+	  if (!statusofVote.poll){
+		  if (statusofVote.httpStatusCode === 500){
+			  return {errorMsg: statusofVote.errorMsg ?? "Database error",
+				  httpStatusCode: 500,
+			  }; 
+		  }
+		  return {errorMsg: "Poll not found", httpStatusCode: 404};
+	  }
+  
+	  if (statusofVote.poll.createdBy !== userId) {
+		  return {errorMsg: "Forbidden", httpStatusCode: 403};
+	  }
+
+	  if (statusofVote.poll.status !== "draft" && statusofVote.poll.status !== "saved"){
+		  return {errorMsg: "Only drafts and saved polls can be deleted", httpStatusCode: 403};
+	  }
+  
+	  const result = await this.DB.deletePoll(pollId);
+
+	  if (result.httpStatusCode !== 200){
+		return { errorMsg: result.errorMsg ?? "Error while deleting poll", httpStatusCode: result.httpStatusCode}; 
+	  } 
+	  this.DB.insertAuditLog("POLL_DELETED",
+      		`pollId:${pollId}, createdBy:${userId}}`);
+    	return {httpStatusCode: 200 };
+}
+
+  
 }

@@ -971,6 +971,19 @@ export class WebappDatabase {
     }
   }
 
+  public async deletePoll(pollId: number): Promise<{errorMsg?: string; httpStatusCode: ContentfulStatusCode}> {
+	  try{
+		  const DeletePoll = await this.prisma.poll.delete(
+			  { where: {id: pollId}}); 
+
+		return {httpStatusCode: 200}; 
+	  } catch (err) {
+		  const errMsg = err instanceof Error ? err.message : "unknown error"; 
+		  logger.error`Error while deleting poll. Error: ${errMsg}`;
+		  return {errorMsg: "Error while deleting poll", httpStatusCode: 500}; 
+	  }
+  }
+
   public async updatePoll(
     pollId: number,
     input: PollUpdateInput,
