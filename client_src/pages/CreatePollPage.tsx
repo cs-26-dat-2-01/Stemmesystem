@@ -194,6 +194,10 @@ function CreatePollPage(
 
   async function handleDelete() {
     if (pollId !== null) {
+	if (!window.confirm("Er du sikker på, at du vil slette afstemningen?")){
+		return; 
+	}
+
       const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
       if (res.ok) {
         onExit();
