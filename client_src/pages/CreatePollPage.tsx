@@ -603,8 +603,9 @@ function CreatePollStep1({
 
 /* Create poll page 2.
     - Lets the creator add eligible voters by their name in the system.
-    - For now only a textfield where names can be entered, added and deleted to the list.
-    - TODO: Actual search function.
+    - Fetches all users from the DB.
+    - Filters users by username.
+    - TODO: needs correct pathing.
 */
 function CreatePollStep2({
   onNext,
@@ -615,13 +616,52 @@ function CreatePollStep2({
   voters: string[];
   setVoters: (v: string[]) => void;
 }) {
-  const [name, setName] = useState("");
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [allUsers, setAllUsers] = useState<Array<{id: number, username: string}>>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+
+  // Fetch all users once when component mounts.
+  useEffect(() => {
+    async function fetchUsers() {
+      setLoading(true);
+      try {
+        const response = await fetch("/api/users", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setAllUsers(data);
+        } else {
+          setError("Kunne ikke hente brugere.");
+        }
+      } catch {
+          setError("Kunne ikke forbinde til serveren.");
+      } finally {
+          setLoading(false);
+      }
+    }
+    fetchUsers();
+    }, []);
+
+    // Filters users based on search query and exclude already added voters.
+    const filteredUsers = allUsers.filter((user) => {
+      const matchesSearch = user.username.toLowerCase().includes(searchQuery.toLocaleLowerCase());
+      const notAlreadyAdded = !voters.includes(user.username);
+      return matchesSearch && notAlreadyAdded;
+    })
 
   // Adds the entered name to the voter list and clears the input.
-  function handleAdd() {
-    if (name.trim() === "") return;
-    setVoters([...voters, name.trim()]);
-    setName("");
+  function handleAdd(username: string) {
+    if (!voters.includes(username)) {
+      setVoters([...voters, username]);
+    }
+    setSearchQuery("");
+    setShowDropdown(false);
   }
 
   // Removes a voter at the given index.
@@ -633,34 +673,62 @@ function CreatePollStep2({
     <div className="create-poll-content">
       <h2>Rediger stemmeberettigede</h2>
       <p className="field-hint">
-        Tilføj de personer som må stemme i afstemningen.
+        Søg efter brugere og tilføj dem som stemmeberettigede i afstemningen.
       </p>
 
-      <label htmlFor="name">Navn</label>
-      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
-        <input
-          id="name"
-          name="name"
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          style={{ flex: 1 }}
-        />
-        <button type="button" onClick={handleAdd}>
-          Tilføj
-        </button>
-      </div>
+      <label htmlFor="search">Søg efter brugere</label>
+
+      {/* Show loading or error state instead of the search box if relevant. */}
+      {loading && <p className="field-hint">Henter brugere...</p>}
+      {error && <p className="field-hint" style={{ color: "#e74c3c"}}>{error}</p>}
+      
+      {/* Only show search once users have been loaded AND there is no error. */}
+      {!loading && !error && (
+        <div className="search-container">
+          <input 
+            id="search"
+            name="search"
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setShowDropdown(true);
+            }}
+            onFocus={() => setShowDropdown(true)}
+            // Small delay allows the click on a result to register before the dropdown closes-
+            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+            placeholder="Søg efter brugernavn..."
+          />
+          {/* Dropdown which is only shown when search field has content. */}
+
+          {showDropdown && searchQuery.trim() && (
+            <div className="search-dropdown">
+              {filteredUsers.length === 0 ? (
+                <div className="search-no-results"> Ingen brugere fundet</div>
+              ) : (
+                filteredUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="search-result-item"
+                    onClick={() => handleAdd(user.username)}
+                  >
+                    {user.username}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* List of added voters */}
-      <div className="voter-list" style={{ marginTop: "1rem" }}>
-        {voters.length === 0
-          ? (
+      <h2 style={{ marginTop: "1.5rem" }}>Tilføjede stemmeberettigede</h2>
+      <div className="voter-list">
+        {voters.length === 0 ? (
             <p className="voter-empty">
               Ingen stemmeberettigede tilføjet endnu.
             </p>
-          )
-          : (
+          ) : (
             voters.map((voter, i) => (
               <div key={i} className="voter-row">
                 <span>{voter}</span>
@@ -679,6 +747,7 @@ function CreatePollStep2({
     </div>
   );
 }
+
 
 /* Create poll page 3.
     - Fields for entering the options that voters can choose between.
