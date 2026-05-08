@@ -170,7 +170,7 @@ input[type="number"] {
 /* Voter list */
 
 .voter-list {
-  margin-top: 0.75;
+  margin-top: 0.75rem;
   border: 1px solid #ddd;
   border-radius: 4px;
 }
@@ -181,7 +181,7 @@ input[type="number"] {
   justify-content: space-between;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid #f0f0f0;
-  font-size: 0.875;
+  font-size: 0.875rem;
 }
 
 .voter-row:last-child {
@@ -227,7 +227,7 @@ input[type="number"] {
   opacity: 0.85;
 }
 
- .create-poll-content button:disabled {
+.create-poll-content button:disabled {
   background: var(--blue-button-color);
   opacity: 1;
   font-weight: 700;
@@ -304,7 +304,7 @@ input[type="number"] {
   z-index: 20;
   max-height: 200px;
   overflow-y: auto;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .search-result-item {
@@ -315,7 +315,7 @@ input[type="number"] {
 }
 
 .search-result-item:hover {
-  background: #f0f4ff
+  background: #f0f4ff;
 }
 
 .search-no-resilts {

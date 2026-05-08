@@ -902,21 +902,26 @@ export class WebappDatabase {
   }
 
   /**
-   * Inserts a new poll along with its options and eligible voters in a
-   * single transaction. Either everything is persisted or nothing is —
-   * partial inserts (poll without options, or options without voters)
-   * are not allowed.
+   * Inserts a new poll, optionally along with its options and eligible
+   * voters, in a single transaction. The three inserts are atomic: if any
+   * step fails, nothing is persisted.
+   *
+   * Options and voters are both optional — a poll may be created on its
+   * own and have them added later. Empty or missing `optionTexts` /
+   * `voterUserIds` simply skip the corresponding insert.
    *
    * @remarks
-   * `votesAllowed` for every eligible voter is set to `ballotLimit`. When
-   * per-voter voting power is introduced, this should be replaced by an
-   * explicit per-voter value passed in by the caller.
+   * `votesAllowed` for every eligible voter is set to `input.ballotLimit`,
+   * falling back to `1` when `ballotLimit` is undefined. When per-voter
+   * voting power is introduced, this should be replaced by an explicit
+   * per-voter value passed in by the caller.
    *
    * @param input the data needed to materialize the poll. `createdBy`
    *   must originate from a verified JWT, never from the request body.
    * @returns `{ pollId, httpStatusCode: 201 }` on success;
    *   `{ errorMsg, httpStatusCode: 500 }` if the transaction fails.
    */
+
   public async createPoll(input: PollCreateInput): Promise<{
     pollId?: number;
     errorMsg?: string;
@@ -1099,32 +1104,36 @@ export class WebappDatabase {
     }
   }
 
-  public async getAllUsersFromDB(): Promise <{
-	  users: {id: number; username: string;}[];
-	  httpStatusCode: ContentfulStatusCode;
-	  errorMsg?: string; 
-  }>{
-	try {
-		const users = await this.prisma.user.findMany({
-		select: {id: true, username: true}});
+  public async getAllUsersFromDB(): Promise<{
+    users: { id: number; username: string }[];
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
+      const users = await this.prisma.user.findMany({
+        select: { id: true, username: true },
+      });
 
-		if (users.length === 0){
-			return { users: [], httpStatusCode: 200, errorMsg: "Didnt get users from DB"};
-		}
+      if (users.length === 0) {
+        return {
+          users: [],
+          httpStatusCode: 200,
+          errorMsg: "Didnt get users from DB",
+        };
+      }
 
-		return {
-			users: users,
-			httpStatusCode: 200, 
-		}; 
-	} catch (err){
-		const errMsg = err instanceof Error ? err.message : "Unknown error";
-		logger.error`Error fetching audit log. Error: ${errMsg}`;
-		return {
-			users: [],
-			errorMsg: "Error fetching audit log",
-			httpStatusCode: 500,
-		};
-	}
+      return {
+        users: users,
+        httpStatusCode: 200,
+      };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error fetching audit log. Error: ${errMsg}`;
+      return {
+        users: [],
+        errorMsg: "Error fetching audit log",
+        httpStatusCode: 500,
+      };
+    }
   }
 }
-

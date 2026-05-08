@@ -2459,7 +2459,10 @@ Deno.test({
       if (result.result.ballotPrivacy === "open") {
         assertEquals(result.result.votes[0].uuid, uuid);
         assertEquals(result.result.votes[0].optionId, poll.options[0].id);
-        assertEquals(result.result.votes[0].optionText, poll.options[0].optionText);
+        assertEquals(
+          result.result.votes[0].optionText,
+          poll.options[0].optionText,
+        );
       }
     } finally {
       await prisma.$disconnect();
@@ -3778,7 +3781,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "tickPollStatuses moves not-started polls to started when startsAt has passed",
+  name:
+    "tickPollStatuses moves not-started polls to started when startsAt has passed",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -3822,7 +3826,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "tickPollStatuses moves started polls to finished when endsAt has passed",
+  name:
+    "tickPollStatuses moves started polls to finished when endsAt has passed",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -3910,7 +3915,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "DB.getUserIdsByUsernames returns ids for known users and notFound for unknown",
+  name:
+    "DB.getUserIdsByUsernames returns ids for known users and notFound for unknown",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -4038,7 +4044,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "DB.getEligibleVoterUsernames returns empty array when poll has no voters",
+  name:
+    "DB.getEligibleVoterUsernames returns empty array when poll has no voters",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);

@@ -61,8 +61,8 @@ function CreatePollPage(
       setBallotLimit(data.poll.ballotLimit ?? 1);
       setShowTopN(data.poll.showTopN ?? 0);
       setTopNOnly((data.poll.showTopN ?? 0) > 0);
-      // startsAt/endsAt gemmes som ISO i DB ("2026-05-07T14:30..."),
-      // men UI'en holder dato og tid i hver sit felt.
+      // startsAt/endsAt saves as  ISO in the DB ("2026-05-07T14:30..."),
+      // UI holds time and date seperate
       if (data.poll.startsAt) {
         const [d, t] = data.poll.startsAt.split("T");
         setStartDate(d);
@@ -73,11 +73,8 @@ function CreatePollPage(
         setEndDate(d);
         setEndsAt(t.slice(0, 5));
       }
-
-      // Voters er bare array af usernames.
       setVoters(data.voters ?? []);
-
-      // Options har {optionText, displayOrder, ...}; UI'en bruger string[].
+      // Option has {optionText, displayOrder,..}, but UI uses string[].
       setChoices(
         (data.options ?? [])
           .sort((a: PollOption, b: PollOption) =>
@@ -92,7 +89,27 @@ function CreatePollPage(
     loadDraft();
   }, []);
 
-  //Helper function to determine and call post or patch
+  /**
+   * Persits a poll draft to the bachkend.
+   *
+   * On the first call when 'pollId' is 'null, it creates a new poll via POST /api/polls
+   * and stores the returned id in component state. On subsequent calls, it only patches the
+   * existing poll via PATCH /api/polls/:id with the ull payload (poll fields, voters, and choices).
+   *
+   * Concurrent invocations are guarded by the `isSaving` flag: if a save is already in flight, the
+   * call is a no-go.
+   *
+   * @param payload - the draft data to save.
+   * @param poyload.poll - Partial poll fields to create or update
+   * @param payload.voters - Optional list of voter identifiers. Only sent on PATCH
+   * @param payload.choices - optional list of poll choices. Only sent on PATCH
+   *
+   * @remarks
+   * - The initial POST sends only 'payload.poll'( voters and choices are ignored until the poll exists
+   *   and can be patched, this is because it saves after the first step, so you cant input voters or choices
+   *   before you have the initial POST.
+   *   - Patch responses are not currently checked for success.
+   */
   async function saveDraft(
     payload: { poll: Partial<Poll>; voters?: string[]; choices?: string[] },
   ) {
@@ -123,7 +140,16 @@ function CreatePollPage(
     }
   }
 
-  // Builds the Poll object and passes it up to CreatePollPage().
+  /**
+   * Assembles the current form state into a `Partial<Poll>` payload suitable for sending to the
+   * poll create/update endpoints.
+   *
+   * Date and time fields are combined from their seperate inputs, but this also does so date and time
+   * needs to be set before it can save it to the database.
+   *
+   * @returns A partial poll object reflecting the current form state. Fields with incomplete date/time are omitted (left: undefined)
+   * rather than sent as malformed strings.
+   */
   function buildPollData(): Partial<Poll> {
     const startsAtValue = startNow
       ? new Date().toISOString()
@@ -159,9 +185,9 @@ function CreatePollPage(
     "Færdiggør afstemning",
   ];
 
-  // Saves poll to backend.
-  // TODO: Replace with actual functioning fetch when backend is ready.
-
+  /**
+   * Saves the current form state as a draft via {@link saveDraft}.
+   */
   async function handleSave() {
     await saveDraft({
       poll: buildPollData(),
@@ -169,7 +195,18 @@ function CreatePollPage(
       choices: choices.filter((c) => c.trim() !== ""),
     });
   }
-
+  /**
+   * Publishes the current poll, transitioning it from draft to active state.
+   *
+   * Requires an existing `pollId` — calling this before the draft has been
+   * persisted (i.e. while `pollId` is `null`) logs an error and returns
+   * without making a request.
+   *
+   * The full current form state is sent in the request body so the server
+   * can apply any unsaved edits as part of the publish step. On success,
+   * `onExit` is invoked to leave the editor; on failure, the response status
+   * and body are logged to the console.
+   */
   async function handlePublish() {
     if (pollId === null) {
       console.error("cant publish without pollId");
@@ -192,6 +229,14 @@ function CreatePollPage(
     }
   }
 
+  /**
+   * Deletes the current poll after user confirmation.
+   *
+   * No-op when `pollId` is `null` (nothing has been persisted yet). Otherwise
+   * prompts the user via `window.confirm`; if confirmed, sends
+   * `DELETE /api/polls/:id` and calls `onExit` on success. Failures are
+   * logged to the console and the editor remains open.
+   */
   async function handleDelete() {
     if (pollId !== null) {
       if (!window.confirm("Er du sikker på, at du vil slette afstemningen?")) {
@@ -319,7 +364,6 @@ function CreatePollPage(
 /* Create poll page 1.
     - Page where the creator of the poll inputs all relevant basic information.
     - Uses data structure from WebLib to define data for input.
-    - TODO: Lacks sync with backend to save data (all pages).
 */
 function CreatePollStep1({
   title,
@@ -605,7 +649,6 @@ function CreatePollStep1({
     - Lets the creator add eligible voters by their name in the system.
     - Fetches all users from the DB.
     - Filters users by username.
-    - TODO: needs correct pathing.
 */
 function CreatePollStep2({
   onNext,
@@ -616,13 +659,13 @@ function CreatePollStep2({
   voters: string[];
   setVoters: (v: string[]) => void;
 }) {
-
   const [searchQuery, setSearchQuery] = useState("");
-  const [allUsers, setAllUsers] = useState<Array<{id: number, username: string}>>([]);
+  const [allUsers, setAllUsers] = useState<
+    Array<{ id: number; username: string }>
+  >([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
 
   // Fetch all users once when component mounts.
   useEffect(() => {
@@ -640,20 +683,22 @@ function CreatePollStep2({
           setError("Kunne ikke hente brugere.");
         }
       } catch {
-          setError("Kunne ikke forbinde til serveren.");
+        setError("Kunne ikke forbinde til serveren.");
       } finally {
-          setLoading(false);
+        setLoading(false);
       }
     }
     fetchUsers();
-    }, []);
+  }, []);
 
-    // Filters users based on search query and exclude already added voters.
-    const filteredUsers = allUsers.filter((user) => {
-      const matchesSearch = user.username.toLowerCase().includes(searchQuery.toLocaleLowerCase());
-      const notAlreadyAdded = !voters.includes(user.username);
-      return matchesSearch && notAlreadyAdded;
-    })
+  // Filters users based on search query and exclude already added voters.
+  const filteredUsers = allUsers.filter((user) => {
+    const matchesSearch = user.username.toLowerCase().includes(
+      searchQuery.toLocaleLowerCase(),
+    );
+    const notAlreadyAdded = !voters.includes(user.username);
+    return matchesSearch && notAlreadyAdded;
+  });
 
   // Adds the entered name to the voter list and clears the input.
   function handleAdd(username: string) {
@@ -680,12 +725,14 @@ function CreatePollStep2({
 
       {/* Show loading or error state instead of the search box if relevant. */}
       {loading && <p className="field-hint">Henter brugere...</p>}
-      {error && <p className="field-hint" style={{ color: "#e74c3c"}}>{error}</p>}
-      
+      {error && (
+        <p className="field-hint" style={{ color: "#e74c3c" }}>{error}</p>
+      )}
+
       {/* Only show search once users have been loaded AND there is no error. */}
       {!loading && !error && (
         <div className="search-container">
-          <input 
+          <input
             id="search"
             name="search"
             type="text"
@@ -703,19 +750,19 @@ function CreatePollStep2({
 
           {showDropdown && searchQuery.trim() && (
             <div className="search-dropdown">
-              {filteredUsers.length === 0 ? (
-                <div className="search-no-results"> Ingen brugere fundet</div>
-              ) : (
-                filteredUsers.map((user) => (
-                  <div
-                    key={user.id}
-                    className="search-result-item"
-                    onClick={() => handleAdd(user.username)}
-                  >
-                    {user.username}
-                  </div>
-                ))
-              )}
+              {filteredUsers.length === 0
+                ? <div className="search-no-results">Ingen brugere fundet</div>
+                : (
+                  filteredUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="search-result-item"
+                      onClick={() => handleAdd(user.username)}
+                    >
+                      {user.username}
+                    </div>
+                  ))
+                )}
             </div>
           )}
         </div>
@@ -724,11 +771,13 @@ function CreatePollStep2({
       {/* List of added voters */}
       <h2 style={{ marginTop: "1.5rem" }}>Tilføjede stemmeberettigede</h2>
       <div className="voter-list">
-        {voters.length === 0 ? (
+        {voters.length === 0
+          ? (
             <p className="voter-empty">
               Ingen stemmeberettigede tilføjet endnu.
             </p>
-          ) : (
+          )
+          : (
             voters.map((voter, i) => (
               <div key={i} className="voter-row">
                 <span>{voter}</span>
@@ -747,7 +796,6 @@ function CreatePollStep2({
     </div>
   );
 }
-
 
 /* Create poll page 3.
     - Fields for entering the options that voters can choose between.
