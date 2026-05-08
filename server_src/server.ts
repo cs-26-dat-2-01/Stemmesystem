@@ -451,7 +451,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   });
 
   // POST /api/polls — opret ny afstemning (KLADDE, ALTSÅ DET VIL ALTID VÆRE DRAFT) fra CreatePollPage.
-  // Body: { poll: Poll, voters: string[], choices: string[] }
+  // Body: { poll: Poll, voters: Array<{username, votesAllowed}>, choices: string[] }
   // createdBy hentes fra JWT, ikke fra request body.
   router.post("/api/polls", async (c) => {
     return await hasValidJWT(c, async (payload) => {
@@ -507,8 +507,22 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       if (!body.poll || typeof body.poll !== "object") {
         return c.body("Missing poll", 400);
       }
-      if (body.voters !== undefined && !Array.isArray(body.voters)) {
-        return c.body("voters must be an array", 400);
+      if (body.voters !== undefined) {
+        if (!Array.isArray(body.voters)) {
+          return c.body("voters must be an array", 400);
+        }
+        for (const v of body.voters) {
+          if (
+            !v || typeof v !== "object" ||
+            typeof v.username !== "string" ||
+            !Number.isInteger(v.votesAllowed)
+          ) {
+            return c.body(
+              "voters must be objects with username (string) and votesAllowed (integer)",
+              400,
+            );
+          }
+        }
       }
       if (body.choices !== undefined && !Array.isArray(body.choices)) {
         return c.body("choices must be an array", 400);
@@ -521,7 +535,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       const result = await pollManager.updatePoll(userResult.user.id, pollId, {
         poll: body.poll,
         optionTexts: body.choices,
-        voterUsernames: body.voters,
+        voters: body.voters,
       });
 
       if (result.httpStatusCode !== 200) {
@@ -559,6 +573,18 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       if (!Array.isArray(body.voters) || !Array.isArray(body.choices)) {
         return c.body("voters and choices must be arrays", 400);
       }
+      for (const v of body.voters) {
+        if (
+          !v || typeof v !== "object" ||
+          typeof v.username !== "string" ||
+          !Number.isInteger(v.votesAllowed)
+        ) {
+          return c.body(
+            "voters must be objects with username (string) and votesAllowed (integer)",
+            400,
+          );
+        }
+      }
       const userResult = await DB.getUserFromDB(payload.username as string);
       if (userResult.httpStatusCode !== 200 || !userResult.user) {
         return c.body("401 Unauthorized", 401);
@@ -567,7 +593,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       const result = await pollManager.publishPoll(userResult.user.id, pollId, {
         poll: body.poll,
         optionTexts: body.choices,
-        voterUsernames: body.voters,
+        voters: body.voters,
       });
       if (result.httpStatusCode !== 200) {
         return c.body(

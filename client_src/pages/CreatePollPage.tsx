@@ -111,7 +111,11 @@ function CreatePollPage(
    *   - Patch responses are not currently checked for success.
    */
   async function saveDraft(
-    payload: { poll: Partial<Poll>; voters?: string[]; choices?: string[] },
+    payload: {
+      poll: Partial<Poll>;
+      voters?: Array<{ username: string; votesAllowed: number }>;
+      choices?: string[];
+    },
   ) {
     if (isSaving) return;
     setIsSaving(true);
@@ -173,7 +177,9 @@ function CreatePollPage(
   }
 
   // Voters from step 2, passed to step 4 for overview.
-  const [voters, setVoters] = useState<string[]>([]);
+  const [voters, setVoters] = useState<
+    Array<{ username: string; votesAllowed: number }>
+  >([]);
 
   // Choices from step 3, passed to step 4 for overview.
   const [choices, setChoices] = useState<string[]>([""]);
@@ -301,6 +307,7 @@ function CreatePollPage(
           onNext={handleNext}
           voters={voters}
           setVoters={setVoters}
+          ballotLimit={ballotLimit}
         />
       )}
       {step === 2 && (
@@ -666,10 +673,12 @@ function CreatePollStep2({
   onNext,
   voters,
   setVoters,
+  ballotLimit,
 }: {
   onNext: () => void;
-  voters: string[];
-  setVoters: (v: string[]) => void;
+  voters: Array<{ username: string; votesAllowed: number }>;
+  setVoters: (v: Array<{ username: string; votesAllowed: number }>) => void;
+  ballotLimit: number;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [allUsers, setAllUsers] = useState<
@@ -708,14 +717,14 @@ function CreatePollStep2({
     const matchesSearch = user.username.toLowerCase().includes(
       searchQuery.toLocaleLowerCase(),
     );
-    const notAlreadyAdded = !voters.includes(user.username);
+    const notAlreadyAdded = !voters.some((v) => v.username === user.username);
     return matchesSearch && notAlreadyAdded;
   });
 
   // Adds the entered name to the voter list and clears the input.
   function handleAdd(username: string) {
-    if (!voters.includes(username)) {
-      setVoters([...voters, username]);
+    if (!voters.some((v) => v.username === username)) {
+      setVoters([...voters, { username, votesAllowed: 1 }]);
     }
     setSearchQuery("");
     setShowDropdown(false);
@@ -724,6 +733,15 @@ function CreatePollStep2({
   // Removes a voter at the given index.
   function handleRemove(index: number) {
     setVoters(voters.filter((_, i) => i !== index));
+  }
+
+  // Updates the votesAllowed for a voter, clamped to [1, ballotLimit].
+  function handleVotesChange(index: number, raw: number) {
+    const n = Number.isFinite(raw) ? raw : 1;
+    const clamped = Math.min(Math.max(1, Math.floor(n)), ballotLimit);
+    setVoters(
+      voters.map((v, i) => (i === index ? { ...v, votesAllowed: clamped } : v)),
+    );
   }
 
   return (
@@ -792,7 +810,18 @@ function CreatePollStep2({
           : (
             voters.map((voter, i) => (
               <div key={i} className="voter-row">
-                <span>{voter}</span>
+                <span>{voter.username}</span>
+                <label className="voter-votes">
+                  Stemmer:
+                  <input
+                    type="number"
+                    min={1}
+                    max={ballotLimit}
+                    value={voter.votesAllowed}
+                    onChange={(e) =>
+                      handleVotesChange(i, Number(e.target.value))}
+                  />
+                </label>
                 <button type="button" onClick={() => handleRemove(i)}>
                   Fjern
                 </button>
@@ -897,16 +926,25 @@ export function CreatePollStep4({
 }: {
   onNext: () => void;
   pollData: Partial<Poll>;
-  voters: string[];
+  voters: Array<{ username: string; votesAllowed?: number }>;
   choices: string[];
   hideAction?: boolean;
   heading?: string;
 }) {
+  const ballotLimit = pollData.ballotLimit ?? 0;
+  const invalidVoters = voters.filter(
+    (v) =>
+      v.votesAllowed !== undefined &&
+      ballotLimit > 0 &&
+      v.votesAllowed > ballotLimit,
+  );
+
   const isComplete = !!pollData.title?.trim() &&
     !!pollData.pollVisibility &&
     !!pollData.ballotPrivacy &&
-    (pollData.ballotLimit ?? 0) > 0 &&
-    choices.filter((c) => c.trim() !== "").length > 0;
+    ballotLimit > 0 &&
+    choices.filter((c) => c.trim() !== "").length > 0 &&
+    invalidVoters.length === 0;
 
   return (
     <div className="create-poll-content">
@@ -956,15 +994,33 @@ export function CreatePollStep4({
 
           {/* Voters */}
           <h2>Stemmeberettigede</h2>
+          {invalidVoters.length > 0 && (
+            <p className="field-hint" style={{ color: "#e74c3c" }}>
+              Følgende stemmeberettigede har flere stemmer end max ({ballotLimit}):
+              {" "}
+              {invalidVoters.map((v) => v.username).join(", ")}. Ret det inden
+              afstemningen kan oprettes.
+            </p>
+          )}
           <div className="voter-list">
             {voters.length === 0
               ? <p className="voter-empty">Ingen tilføjet.</p>
               : (
-                voters.map((voter, i) => (
-                  <div key={i} className="voter-row">
-                    <span>{voter}</span>
-                  </div>
-                ))
+                voters.map((voter, i) => {
+                  const exceeds = voter.votesAllowed !== undefined &&
+                    ballotLimit > 0 &&
+                    voter.votesAllowed > ballotLimit;
+                  return (
+                    <div key={i} className="voter-row">
+                      <span>{voter.username}</span>
+                      {voter.votesAllowed !== undefined && (
+                        <span style={exceeds ? { color: "#e74c3c" } : undefined}>
+                          Stemmer: {voter.votesAllowed}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
               )}
           </div>
         </div>

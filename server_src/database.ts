@@ -78,7 +78,7 @@ export interface PollUpdateInput {
   useBuffer?: number | null;
   voteStatus?: pollStatus;
   optionTexts?: string[];
-  voterUserIds?: number[];
+  voters?: Array<{ userId: number; votesAllowed: number }>;
 }
 
 /**
@@ -882,10 +882,13 @@ export class WebappDatabase {
    *   that did not match a User row, so callers can reject the request
    *   with a precise error instead of silently dropping voters.
    */
-  public async getUserIdsByUsernames(
+  public async getUsersByUsernames(
     usernames: string[],
-  ): Promise<{ userIds: number[]; notFound: string[] }> {
-    if (usernames.length === 0) return { userIds: [], notFound: [] };
+  ): Promise<{
+    users: Array<{ id: number; username: string }>;
+    notFound: string[];
+  }> {
+    if (usernames.length === 0) return { users: [], notFound: [] };
     try {
       const found = await this.prisma.user.findMany({
         where: { username: { in: usernames } },
@@ -893,11 +896,11 @@ export class WebappDatabase {
       });
       const foundNames = new Set(found.map((u) => u.username));
       const notFound = usernames.filter((n) => !foundNames.has(n));
-      return { userIds: found.map((u) => u.id), notFound };
+      return { users: found, notFound };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error looking up usernames. Error: ${errMsg}`;
-      return { userIds: [], notFound: usernames };
+      logger.error`Error looking up users by usernames. Error: ${errMsg}`;
+      return { users: [], notFound: usernames };
     }
   }
 
@@ -992,12 +995,20 @@ export class WebappDatabase {
     }
   }
 
-  public async getEligibleVoterUsernames(pollId: number): Promise<string[]> {
+  public async getEligibleVoters(
+    pollId: number,
+  ): Promise<Array<{ username: string; votesAllowed: number }>> {
     const rows = await this.prisma.pollEligibleVoter.findMany({
       where: { pollId },
-      select: { user: { select: { username: true } } },
+      select: {
+        votesAllowed: true,
+        user: { select: { username: true } },
+      },
     });
-    return rows.map((r) => r.user.username);
+    return rows.map((r) => ({
+      username: r.user.username,
+      votesAllowed: r.votesAllowed,
+    }));
   }
 
   public async updatePoll(
@@ -1045,19 +1056,14 @@ export class WebappDatabase {
           }
         }
 
-        if (input.voterUserIds !== undefined) {
-          const current = await tx.poll.findUnique({
-            where: { id: pollId },
-            select: { ballotLimit: true },
-          });
-          const votesAllowed = current?.ballotLimit ?? 1;
+        if (input.voters !== undefined) {
           await tx.pollEligibleVoter.deleteMany({ where: { pollId } });
-          if (input.voterUserIds.length > 0) {
+          if (input.voters.length > 0) {
             await tx.pollEligibleVoter.createMany({
-              data: input.voterUserIds.map((userId) => ({
+              data: input.voters.map((v) => ({
                 pollId,
-                userId,
-                votesAllowed,
+                userId: v.userId,
+                votesAllowed: v.votesAllowed,
               })),
             });
           }

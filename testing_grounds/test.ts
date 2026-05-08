@@ -3048,7 +3048,7 @@ Deno.test({
       assertEquals(body.poll.id, poll.id);
       assertEquals(body.poll.status, "draft");
       assertEquals(body.options.length, 3);
-      assertEquals(body.voters, ["voter1"]);
+      assertEquals(body.voters, [{ username: "voter1", votesAllowed: 1 }]);
     } finally {
       ac.abort();
       await server;
@@ -3182,7 +3182,10 @@ Deno.test({
               ballotLimit: 2,
             },
             choices: ["Rød", "Grøn", "Blå"],
-            voters: ["alice", "bob"],
+            voters: [
+              { username: "alice", votesAllowed: 1 },
+              { username: "bob", votesAllowed: 2 },
+            ],
           }),
           headers: {
             "Content-Type": "application/json",
@@ -3250,7 +3253,7 @@ Deno.test({
           method: "PATCH",
           body: JSON.stringify({
             poll: { title: "X" },
-            voters: ["does-not-exist"],
+            voters: [{ username: "does-not-exist", votesAllowed: 1 }],
           }),
           headers: {
             "Content-Type": "application/json",
@@ -3359,7 +3362,7 @@ Deno.test({
               ballotLimit: 1,
             },
             choices: ["Ja", "Nej"],
-            voters: ["alice"],
+            voters: [{ username: "alice", votesAllowed: 1 }],
           }),
           headers: {
             "Content-Type": "application/json",
@@ -3433,6 +3436,72 @@ Deno.test({
       const text = await res.text();
       assertEquals(res.status, 400, text);
       assert(text.toLowerCase().includes("ballotlimit"));
+
+      const stillDraft = await prisma.poll.findUniqueOrThrow({
+        where: { id: poll.id },
+      });
+      assertEquals(stillDraft.voteStatus, "draft");
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "publishPoll rejects voters with votesAllowed exceeding ballotLimit",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      await seedUser(prisma, "alice", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "draft",
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const res = await fetch(
+        `http://localhost:8000/api/polls/${poll.id}/publish`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            poll: {
+              title: "Stemmeoverskridelse",
+              pollVisibility: "public",
+              ballotPrivacy: "secret",
+              ballotLimit: 2,
+            },
+            choices: ["Ja", "Nej"],
+            voters: [{ username: "alice", votesAllowed: 5 }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+      const text = await res.text();
+      assertEquals(res.status, 400, text);
+      assert(text.includes("alice"));
 
       const stillDraft = await prisma.poll.findUniqueOrThrow({
         where: { id: poll.id },
@@ -3684,7 +3753,7 @@ Deno.test({
       const body = JSON.parse(text);
       assertEquals(body.poll.id, poll.id);
       assertEquals(body.options.length, 3);
-      assertEquals(body.voters, ["voter1"]);
+      assertEquals(body.voters, [{ username: "voter1", votesAllowed: 1 }]);
     } finally {
       ac.abort();
       await server;
@@ -3916,7 +3985,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "DB.getUserIdsByUsernames returns ids for known users and notFound for unknown",
+    "DB.getUsersByUsernames returns users for known names and notFound for unknown",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -3928,17 +3997,16 @@ Deno.test({
       const alice = await seedUser(prisma, "alice", "pw");
       const bob = await seedUser(prisma, "bob", "pw");
 
-      const empty = await DB.getUserIdsByUsernames([]);
-      assertEquals(empty, { userIds: [], notFound: [] });
+      const empty = await DB.getUsersByUsernames([]);
+      assertEquals(empty, { users: [], notFound: [] });
 
-      const result = await DB.getUserIdsByUsernames([
-        "alice",
-        "bob",
-        "ghost",
-      ]);
+      const result = await DB.getUsersByUsernames(["alice", "bob", "ghost"]);
       assertEquals(
-        result.userIds.sort((a, b) => a - b),
-        [alice.id, bob.id].sort((a, b) => a - b),
+        result.users.sort((a, b) => a.id - b.id),
+        [
+          { id: alice.id, username: "alice" },
+          { id: bob.id, username: "bob" },
+        ].sort((a, b) => a.id - b.id),
       );
       assertEquals(result.notFound, ["ghost"]);
     } finally {
@@ -4044,8 +4112,7 @@ Deno.test({
 });
 
 Deno.test({
-  name:
-    "DB.getEligibleVoterUsernames returns empty array when poll has no voters",
+  name: "DB.getEligibleVoters returns empty array when poll has no voters",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -4062,8 +4129,8 @@ Deno.test({
         voteStatus: "draft",
       });
 
-      const usernames = await DB.getEligibleVoterUsernames(poll.id);
-      assertEquals(usernames, []);
+      const voters = await DB.getEligibleVoters(poll.id);
+      assertEquals(voters, []);
     } finally {
       await prisma.$disconnect();
       await DB.closeDB();

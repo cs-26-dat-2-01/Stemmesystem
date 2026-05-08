@@ -5,7 +5,9 @@ import type { Poll, PollOption } from "../WebLib.ts";
 
 function PollOverviewPage({ pollId }: { pollId: number }) {
   const [pollData, setPollData] = useState<Partial<Poll>>({});
-  const [voters, setVoters] = useState<string[]>([]);
+  const [voters, setVoters] = useState<
+    Array<{ username: string; votesAllowed: number }>
+  >([]);
   const [choices, setChoices] = useState<string[]>([]);
 
   useEffect(() => {

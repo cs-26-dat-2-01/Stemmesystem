@@ -14,6 +14,7 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 function validateForPublish(
   poll: Partial<Poll>,
   optionTexts: string[],
+  voters: Array<{ username: string; votesAllowed: number }>,
 ): string | null {
   if (!poll.title || poll.title.trim().length === 0) return "Title is required";
   if (optionTexts.length === 0) return "At least one option is required";
@@ -30,6 +31,20 @@ function validateForPublish(
     poll.ballotLimit < 1
   ) {
     return "ballotLimit must be a positive integer";
+  }
+  const overLimit = voters.filter((v) => v.votesAllowed > poll.ballotLimit!);
+  if (overLimit.length > 0) {
+    return `Voters exceed ballotLimit (${poll.ballotLimit}): ${
+      overLimit.map((v) => v.username).join(", ")
+    }`;
+  }
+  const invalidVotes = voters.filter(
+    (v) => !Number.isInteger(v.votesAllowed) || v.votesAllowed < 1,
+  );
+  if (invalidVotes.length > 0) {
+    return `Voters have invalid votesAllowed: ${
+      invalidVotes.map((v) => v.username).join(", ")
+    }`;
   }
   return null;
 }
@@ -433,7 +448,7 @@ export class PollManager {
     pollId: number,
     input: {
       poll: Partial<Poll>;
-      voterUsernames?: string[];
+      voters?: Array<{ username: string; votesAllowed: number }>;
       optionTexts?: string[];
     },
   ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
@@ -442,21 +457,36 @@ export class PollManager {
       return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
 
-    let voterUserIds: number[] | undefined;
-    if (input.voterUsernames !== undefined) {
-      const uniqueUsernames = [
-        ...new Set(
-          input.voterUsernames.map((n) => n.trim()).filter((n) => n.length > 0),
-        ),
-      ];
-      const lookup = await this.DB.getUserIdsByUsernames(uniqueUsernames);
+    let resolvedVoters:
+      | Array<{ userId: number; votesAllowed: number }>
+      | undefined;
+    if (input.voters !== undefined) {
+      const dedup = new Map<
+        string,
+        { username: string; votesAllowed: number }
+      >();
+      for (const v of input.voters) {
+        const name = v.username.trim();
+        if (name.length === 0) continue;
+        dedup.set(name, { username: name, votesAllowed: v.votesAllowed });
+      }
+      const uniqueVoters = [...dedup.values()];
+      const lookup = await this.DB.getUsersByUsernames(
+        uniqueVoters.map((v) => v.username),
+      );
       if (lookup.notFound.length > 0) {
         return {
           errorMsg: `Unknown voters: ${lookup.notFound.join(", ")}`,
           httpStatusCode: 400,
         };
       }
-      voterUserIds = lookup.userIds;
+      const usernameToId = new Map(
+        lookup.users.map((u) => [u.username, u.id]),
+      );
+      resolvedVoters = uniqueVoters.map((v) => ({
+        userId: usernameToId.get(v.username)!,
+        votesAllowed: v.votesAllowed,
+      }));
     }
 
     const result = await this.DB.updatePoll(pollId, {
@@ -470,7 +500,7 @@ export class PollManager {
       ballotLimit: input.poll.ballotLimit,
       useBuffer: input.poll.useBuffer,
       optionTexts: input.optionTexts,
-      voterUserIds,
+      voters: resolvedVoters,
     });
 
     if (result.httpStatusCode !== 200) {
@@ -487,7 +517,7 @@ export class PollManager {
     pollId: number,
     input: {
       poll: Poll;
-      voterUsernames: string[];
+      voters: Array<{ username: string; votesAllowed: number }>;
       optionTexts: string[];
     },
   ): Promise<{
@@ -504,12 +534,19 @@ export class PollManager {
       .map((c) => c.trim())
       .filter((c) => c.length > 0);
 
-    const uniqueUsernames = [
-      ...new Set(
-        input.voterUsernames.map((n) => n.trim()).filter((n) => n.length > 0),
-      ),
-    ];
-    const lookup = await this.DB.getUserIdsByUsernames(uniqueUsernames);
+    const dedup = new Map<
+      string,
+      { username: string; votesAllowed: number }
+    >();
+    for (const v of input.voters) {
+      const name = v.username.trim();
+      if (name.length === 0) continue;
+      dedup.set(name, { username: name, votesAllowed: v.votesAllowed });
+    }
+    const uniqueVoters = [...dedup.values()];
+    const lookup = await this.DB.getUsersByUsernames(
+      uniqueVoters.map((v) => v.username),
+    );
     if (lookup.notFound.length > 0) {
       return {
         errorMsg: `Unknown voters: ${lookup.notFound.join(", ")}`,
@@ -517,10 +554,20 @@ export class PollManager {
       };
     }
 
-    const validationError = validateForPublish(input.poll, optionTexts);
+    const validationError = validateForPublish(
+      input.poll,
+      optionTexts,
+      uniqueVoters,
+    );
     if (validationError !== null) {
       return { errorMsg: validationError, httpStatusCode: 400 };
     }
+
+    const usernameToId = new Map(lookup.users.map((u) => [u.username, u.id]));
+    const resolvedVoters = uniqueVoters.map((v) => ({
+      userId: usernameToId.get(v.username)!,
+      votesAllowed: v.votesAllowed,
+    }));
 
     const result = await this.DB.updatePoll(pollId, {
       title: input.poll.title,
@@ -534,7 +581,7 @@ export class PollManager {
       useBuffer: input.poll.useBuffer,
       voteStatus: "not started",
       optionTexts,
-      voterUserIds: lookup.userIds,
+      voters: resolvedVoters,
     });
 
     if (result.httpStatusCode !== 200) {
@@ -546,7 +593,7 @@ export class PollManager {
 
     this.DB.insertAuditLog(
       "POLL_PUBLISHED",
-      `pollId:${pollId}, createdBy:${userId}, options:${optionTexts.length}, voters:${lookup.userIds.length}`,
+      `pollId:${pollId}, createdBy:${userId}, options:${optionTexts.length}, voters:${resolvedVoters.length}`,
     );
 
     return { pollId, httpStatusCode: 200 };
@@ -631,7 +678,11 @@ export class PollManager {
   }
 
   public async getDraft(userId: number, pollId: number): Promise<{
-    result?: { poll: Poll; options: PollOption[]; voters: string[] };
+    result?: {
+      poll: Poll;
+      options: PollOption[];
+      voters: Array<{ username: string; votesAllowed: number }>;
+    };
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
@@ -649,7 +700,7 @@ export class PollManager {
       return { errorMsg: "Poll is not editable", httpStatusCode: 403 };
     }
     const options = await this.DB.getPollOptionsFromDB(pollId);
-    const voters = await this.DB.getEligibleVoterUsernames(pollId);
+    const voters = await this.DB.getEligibleVoters(pollId);
     return { result: { poll, options, voters }, httpStatusCode: 200 };
   }
 
@@ -664,7 +715,11 @@ export class PollManager {
   }
 
   public async getPollOverview(userId: number, pollId: number): Promise<{
-    result?: { poll: Poll; options: PollOption[]; voters: string[] };
+    result?: {
+      poll: Poll;
+      options: PollOption[];
+      voters: Array<{ username: string; votesAllowed: number }>;
+    };
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
@@ -686,7 +741,7 @@ export class PollManager {
     }
 
     const options = await this.DB.getPollOptionsFromDB(pollId);
-    const voters = await this.DB.getEligibleVoterUsernames(pollId);
+    const voters = await this.DB.getEligibleVoters(pollId);
     return { result: { poll, options, voters }, httpStatusCode: 200 };
   }
 }
