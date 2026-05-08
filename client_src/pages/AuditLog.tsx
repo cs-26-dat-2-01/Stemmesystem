@@ -202,15 +202,15 @@ function AuditLog() {
               </th>
 
               <th onClick={() => handleSort("action")}>
-                Action {renderArrow("action")}
+                Handling {renderArrow("action")}
               </th>
 
               <th onClick={() => handleSort("timestamp")}>
-                Time Stamp {renderArrow("timestamp")}
+                Tidspunkt {renderArrow("timestamp")}
               </th>
 
               <th onClick={() => handleSort("details")}>
-                Details {renderArrow("details")}
+                Detaljer {renderArrow("details")}
               </th>
             </tr>
           </thead>
@@ -232,7 +232,7 @@ function AuditLog() {
             onClick={() => setCurrentPage(currentPage - 1)}
             disabled={currentPage === 1}
           >
-            Previous
+            Forrige
           </button>
           <span>
             Side {currentPage} af {totalPages}
@@ -242,7 +242,7 @@ function AuditLog() {
             onClick={() => setCurrentPage(currentPage + 1)}
             disabled={currentPage === totalPages}
           >
-            Next
+            Næste
           </button>
           <div className="divider" />
           <label className="label">
