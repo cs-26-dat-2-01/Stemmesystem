@@ -262,7 +262,7 @@ function AuditLog() {
               <option value={100}>100</option>
               <option value={500}>500</option>
               <option value={1000}>1000</option>
-              <option value={entries.length}>All</option>
+              <option value={entries.length}>Alle</option>
             </select>
           </label>
         </div>
