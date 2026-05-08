@@ -24,6 +24,8 @@ function validateForPublish(
   if (poll.ballotPrivacy !== "open" && poll.ballotPrivacy !== "secret") {
     return "Invalid ballotPrivacy";
   }
+  if (!poll.startsAt) return "startsAt is required";
+  if (!poll.endsAt) return "endsAt is required"; 
   if (
     poll.ballotLimit === undefined ||
     !Number.isInteger(poll.ballotLimit) ||

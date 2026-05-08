@@ -549,6 +549,10 @@ function CreatePollStep1({
             />
             Start nu
           </label>
+	{attempted && !startsAt && !startNow && (
+            <p style={{ color: "red" }}>Vælg venligst enten starttidspunkt eller start nu.</p>
+          )}
+
 
           <label className="checkbox-label">
             <input
@@ -568,6 +572,10 @@ function CreatePollStep1({
             value={endsAt}
             onChange={(e) => setEndsAt(e.target.value)}
           />
+	  {attempted && !endsAt && (
+            <p style={{ color: "red" }}>Vælg venligst sluttidspunkt.</p>
+          )}
+
         </div>
       </div>
 
@@ -631,6 +639,9 @@ function CreatePollStep1({
             disabled={onlyToday}
             onChange={(e) => setStartDate(e.target.value)}
           />
+	  {attempted && !startDate && (
+		  <p style={{ color: "red" }}>Vælg venligst startdato.</p>
+          )}
 
           <label htmlFor="endDate">Slut dato</label>
           <input
@@ -641,6 +652,9 @@ function CreatePollStep1({
             disabled={onlyToday}
             onChange={(e) => setEndDate(e.target.value)}
           />
+	  {attempted && !endDate && (
+		  <p style={{ color: "red" }}>Vælg venligst slutdato.</p>
+          )}
 
           <label className="checkbox-label">
             <input
@@ -656,7 +670,7 @@ function CreatePollStep1({
       <br />
       <button type="button" onClick={() => { 
           setAttempted(true); 
-          if (visibility && privacy) onNext();
+          if (visibility && privacy && ((startsAt && startDate) || startNow) && endsAt && endDate) onNext();
           }}>
         Gem og fortsæt
       </button>
@@ -942,9 +956,21 @@ export function CreatePollStep4({
   const isComplete = !!pollData.title?.trim() &&
     !!pollData.pollVisibility &&
     !!pollData.ballotPrivacy &&
+    !!pollData.startsAt &&
+    !!pollData.endsAt &&
     ballotLimit > 0 &&
     choices.filter((c) => c.trim() !== "").length > 0 &&
     invalidVoters.length === 0;
+
+    const missing: string[] = [];
+    if (!pollData.title?.trim()) missing.push("titel");
+    if (!pollData.pollVisibility) missing.push("offentlig/privat");
+    if (!pollData.ballotPrivacy) missing.push("åben/hemmelig stemme");
+    if (!pollData.startsAt) missing.push("starttidspunkt");
+    if (!pollData.endsAt) missing.push("sluttidspunkt");
+    if (ballotLimit <= 0) missing.push("max stemmer per deltager");
+    if (choices.filter((c) => c.trim() !== "").length === 0)
+	    missing.push("valgmuligheder");
 
   return (
     <div className="create-poll-content">
@@ -1044,6 +1070,12 @@ export function CreatePollStep4({
       </div>
 
       <br />
+      {!isComplete && missing.length > 0 && (
+	      <p className="field-hint" style={{ color: "#e74c3c" }}>
+	      Følgende mangler før afstemningen kan oprettes: {missing.join(", ")}.
+		      </p>
+      )}
+
       {!hideAction && (
         <button type="button" onClick={onNext} disabled={!isComplete}>
           Opret afstemning
