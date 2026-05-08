@@ -17,16 +17,6 @@
   width: border-box;
 }
 
-/* Section headings */
-
-.create-poll-header h2 {
-  font-size: 1rem;
-  font-weight: 600;
-  margin-top: 1.25;
-  margin-bottom: 0.5rem;
-  color: #222;
-}
-
 /* Form elements */
 
 .create-poll-content label {
@@ -293,7 +283,7 @@ input[type="number"] {
   position: relative;
 }
 
-.search-drowdown {
+.search-dropdown {
   position: absolute;
   top: 100%;
   left: 0;
@@ -318,7 +308,7 @@ input[type="number"] {
   background: #f0f4ff;
 }
 
-.search-no-resilts {
+.search-no-results {
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   color: #aaa;

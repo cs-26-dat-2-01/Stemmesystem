@@ -25,8 +25,8 @@ function CreatePollPage(
   // All state variables for page 1. Allows for easy update of the variable between rendering.
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [visibility, setVisibility] = useState<pollVisibility>("private");
-  const [privacy, setPrivacy] = useState<ballotPrivacy>("secret");
+  const [visibility, setVisibility] = useState<pollVisibility>("" as pollVisibility);
+  const [privacy, setPrivacy] = useState<ballotPrivacy>("" as ballotPrivacy);
   const [startNow, setStartNow] = useState(false);
   const [useBuffer, setUseBuffer] = useState(0);
   const [startsAt, setStartsAt] = useState("");
@@ -426,6 +426,7 @@ function CreatePollStep1({
   setBallotLimit: (v: number) => void;
   onNext: () => void;
 }) {
+  const [attempted, setAttempted] = useState(false);
   const today = new Date().toISOString().split("T")[0];
 
   // Locks date fields to today when checked.
@@ -490,9 +491,13 @@ function CreatePollStep1({
             className="input-createPoll"
             onChange={(e) => setVisibility(e.target.value as pollVisibility)}
           >
+            <option value="" disabled>Vælg...</option>
             <option value="public">Offentlig</option>
             <option value="private">Privat</option>
           </select>
+          {attempted && !visibility && (
+            <p style={{ color: "red" }}>Vælg venligst offentlig eller privat afstemning.</p>
+          )}
 
           {/* Open or secret */}
           <label htmlFor="secrecyMode">Åben eller hemmelig stemme</label>
@@ -504,9 +509,13 @@ function CreatePollStep1({
             className="input-createPoll"
             onChange={(e) => setPrivacy(e.target.value as ballotPrivacy)}
           >
+            <option value="" disabled>Vælg...</option>
             <option value="open">Åben</option>
             <option value="secret">Hemmelig</option>
           </select>
+          {attempted && !privacy && (
+            <p style={{ color: "red" }}>Vælg venligst åben eller hemmelig stemme.</p>
+          )}
         </div>
 
         {/* Right: start and end time */}
@@ -638,7 +647,10 @@ function CreatePollStep1({
       </div>
 
       <br />
-      <button type="button" onClick={() => onNext()}>
+      <button type="button" onClick={() => { 
+          setAttempted(true); 
+          if (visibility && privacy) onNext();
+          }}>
         Gem og fortsæt
       </button>
     </div>
