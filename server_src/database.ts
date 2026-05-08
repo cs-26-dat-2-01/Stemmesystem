@@ -847,6 +847,7 @@ export class WebappDatabase {
           hasVoted: userVoteCount > 0,
           pollProgress: await this.getVoteProgress(poll.id),
           timeLeft: "not initialized",
+          pollOwnerUsername: poll.creator.username,
         };
         return result;
       }));

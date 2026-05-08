@@ -236,7 +236,7 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
             <td className="ov-col-anon">
               {poll.poll.ballotPrivacy === "secret" ? <FaCheck /> : <FaXmark />}
             </td>
-            <td className="ov-col-owner">{poll.poll.createdBy}</td>{" "}
+            <td className="ov-col-owner">{poll.pollOwnerUsername}</td>{" "}
             {/*To-do: Change to username.*/}
           </tr>
         ))}

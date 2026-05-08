@@ -151,6 +151,7 @@ export interface FrontEndPoll {
   hasVoted: boolean;
   pollProgress: string;
   timeLeft: string;
+  pollOwnerUsername: string;
 }
 
 /**

@@ -48,7 +48,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/auditlog/*" element={<AuditLog />} />
             <Route path="/createpoll/*" element={<CreatePollPage />} />
             <Route
-              path="/poll/:id"
+              path="/poll/:id/vote"
               element={<BallotPageWrapper />}
             />
             <Route
