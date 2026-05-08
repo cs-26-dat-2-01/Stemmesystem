@@ -2,7 +2,11 @@ import "./OverviewPage.css";
 import { useContext, useEffect, useState } from "react";
 import { WebSocketContext } from "../WebsocketContext.tsx";
 import NavBar from "../components/NavBar.tsx";
-import { calculateTimeRemaining, type FrontEndPoll } from "../WebLib.ts";
+import {
+  calculateTimeRemaining,
+  callbackTypes,
+  type FrontEndPoll,
+} from "../WebLib.ts";
 import { FaCheck, FaXmark } from "react-icons/fa6"; //SVG icons
 import { FaSearch } from "react-icons/fa";
 import { Link, useNavigate } from "react-router/internal/react-server-client";
@@ -259,13 +263,18 @@ function OverviewPage() {
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [serverCallback, setServerCallback] = useState(callbackTypes.nil);
 
   const ws = useContext(WebSocketContext);
 
   if (ws) {
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      console.log("Received WebSocket message:", message);
+      // console.log("Received WebSocket message:", message);
+      if (message.type === callbackTypes.refetchVoteCount) {
+        console.log("ws: recived refreshVoteCount");
+        setServerCallback(message.type);
+      }
     };
   }
 
@@ -302,7 +311,7 @@ function OverviewPage() {
       }
     };
     fetchPolls();
-  }, []);
+  }, [serverCallback]);
 
   const folderMap = buildFolders(polls);
 

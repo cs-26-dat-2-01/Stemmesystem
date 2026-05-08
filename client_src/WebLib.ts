@@ -8,6 +8,7 @@
  * E.g. if the client sends a message with the type `refetchVoteCount`, the server can handle this by refetching the vote count for the relevant poll and sending it back to the client.
  */
 export const callbackTypes = {
+  nil: "nil",
   refetchVoteCount: "refetchVoteCount",
 } as const;
 

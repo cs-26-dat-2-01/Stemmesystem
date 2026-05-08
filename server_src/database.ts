@@ -789,7 +789,7 @@ export class WebappDatabase {
     const totalEligible = await this.prisma.pollEligibleVoter.count({
       where: { pollId: pollId },
     });
-    const ballotsCast = this.prisma.vote.count();
+    const ballotsCast = await this.prisma.vote.count();
 
     return `${ballotsCast}/${totalEligible}`;
   }
@@ -845,7 +845,7 @@ export class WebappDatabase {
           },
           isUserEligibleVoter: poll.eligibleVoters.length > 0,
           hasVoted: userVoteCount > 0,
-          pollProgress: "not initialized",
+          pollProgress: await this.getVoteProgress(poll.id),
           timeLeft: "not initialized",
         };
         return result;
