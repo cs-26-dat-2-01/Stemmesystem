@@ -16,7 +16,7 @@ import {
   Vote,
 } from "../client_src/WebLib.ts";
 
-import { Prisma, PrismaClient, User as PrismaUser } from "../generated/prisma/client.ts";
+import { Prisma, PrismaClient } from "../generated/prisma/client.ts";
 
 /**
  * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.

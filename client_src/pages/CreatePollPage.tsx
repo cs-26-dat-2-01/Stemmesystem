@@ -635,7 +635,7 @@ function CreatePollStep2({
         });
         if (response.ok) {
           const data = await response.json();
-          setAllUsers(data);
+          setAllUsers(data.users);
         } else {
           setError("Kunne ikke hente brugere.");
         }
