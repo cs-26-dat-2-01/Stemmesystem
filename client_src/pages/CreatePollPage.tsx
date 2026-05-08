@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "./CreatePollPage.css";
 import type { ballotPrivacy, Poll, pollVisibility } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
+import { useNavigate } from "react-router/internal/react-server-client";
 
 /**
  * React hook that determines whether the viewport width is below a given breakpoint.
@@ -353,22 +354,26 @@ function CreatePollStep2({
 
       {/* List of added voters */}
       <div className="voter-list" style={{ marginTop: "1rem" }}>
-        {voters.length === 0 ? (
-          <p className="voter-empty">Ingen stemmeberettigede tilføjet endnu.</p>
-        ) : (
-          voters.map((voter, i) => (
-            <div key={i} className="voter-row">
-              <span>{voter}</span>
-              <button
-                type="button"
-                className="create-poll-button"
-                onClick={() => handleRemove(i)}
-              >
-                Fjern
-              </button>
-            </div>
-          ))
-        )}
+        {voters.length === 0
+          ? (
+            <p className="voter-empty">
+              Ingen stemmeberettigede tilføjet endnu.
+            </p>
+          )
+          : (
+            voters.map((voter, i) => (
+              <div key={i} className="voter-row">
+                <span>{voter}</span>
+                <button
+                  type="button"
+                  className="create-poll-button"
+                  onClick={() => handleRemove(i)}
+                >
+                  Fjern
+                </button>
+              </div>
+            ))
+          )}
       </div>
 
       <br />
@@ -427,7 +432,10 @@ function CreatePollStep3({
           />
           {/* Only show remove if more than one choice */}
           {choices.length > 1 && (
-            <button type="button" onClick={() => handleRemoveChoice(i)}>
+            <button
+              type="button"
+              onClick={() => handleRemoveChoice(i)}
+            >
               Fjern
             </button>
           )}
@@ -514,33 +522,33 @@ function CreatePollStep4({
           {/* Voters */}
           <h2>Stemmeberettigede</h2>
           <div className="voter-list">
-            {voters.length === 0 ? (
-              <p className="voter-empty">Ingen tilføjet.</p>
-            ) : (
-              voters.map((voter, i) => (
-                <div key={i} className="voter-row">
-                  <span>{voter}</span>
-                </div>
-              ))
-            )}
+            {voters.length === 0
+              ? <p className="voter-empty">Ingen tilføjet.</p>
+              : (
+                voters.map((voter, i) => (
+                  <div key={i} className="voter-row">
+                    <span>{voter}</span>
+                  </div>
+                ))
+              )}
           </div>
         </div>
 
         {/* Right: choices */}
         <div>
           <h2>Valgmuligheder</h2>
-          {choices.filter((c) => c.trim() !== "").length === 0 ? (
-            <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
-          ) : (
-            choices
-              .filter((c) => c.trim() !== "")
-              .map((choice, i) => (
-                <div key={i} className="overview-field">
-                  <label>Valgmulighed {i + 1}:</label>
-                  <span>{choice}</span>
-                </div>
-              ))
-          )}
+          {choices.filter((c) => c.trim() !== "").length === 0
+            ? <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
+            : (
+              choices
+                .filter((c) => c.trim() !== "")
+                .map((choice, i) => (
+                  <div key={i} className="overview-field">
+                    <label>Valgmulighed {i + 1}:</label>
+                    <span>{choice}</span>
+                  </div>
+                ))
+            )}
         </div>
       </div>
 
@@ -558,7 +566,11 @@ function CreatePollStep4({
     - Delete poll returns the creator to the overview page.
 */
 
-function CreatePollPage({ onExit }: { onExit: () => void }) {
+function CreatePollPage() {
+  const onExit = () => {
+    const navigate = useNavigate();
+    navigate("/");
+  };
   // Toggle mobile viewport at 900px
   const isMobile = useIsMobile(900);
   // Tracks which step is currently shown.
@@ -672,24 +684,28 @@ function CreatePollPage({ onExit }: { onExit: () => void }) {
           >
             «
           </button>
-          {isMobile ? (
-            <span className="step-indicator">
-              {step + 1}/{steps.length}
-              <div className="step-label">{steps[step]}</div>
-            </span>
-          ) : (
-            steps.map((s, i) => (
-              <button
-                key={i}
-                type="button"
-                className={`create-poll-button ${i === step ? "" : "button-secondary"}`}
-                onClick={() => setStep(i)}
-                disabled={i === step}
-              >
-                {s}
-              </button>
-            ))
-          )}
+          {isMobile
+            ? (
+              <span className="step-indicator">
+                {step + 1}/{steps.length}
+                <div className="step-label">{steps[step]}</div>
+              </span>
+            )
+            : (
+              steps.map((s, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`create-poll-button ${
+                    i === step ? "" : "button-secondary"
+                  }`}
+                  onClick={() => setStep(i)}
+                  disabled={i === step}
+                >
+                  {s}
+                </button>
+              ))
+            )}
           <button
             type="button"
             className="button-secondary create-poll-button"

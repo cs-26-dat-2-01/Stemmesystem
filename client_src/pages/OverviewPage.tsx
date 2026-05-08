@@ -1,9 +1,15 @@
 import "./OverviewPage.css";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import { WebSocketContext } from "../WebsocketContext.tsx";
 import NavBar from "../components/NavBar.tsx";
-import { calculateTimeRemaining, type FrontEndPoll } from "../WebLib.ts";
+import {
+  calculateTimeRemaining,
+  callbackTypes,
+  type FrontEndPoll,
+} from "../WebLib.ts";
 import { FaCheck, FaXmark } from "react-icons/fa6"; //SVG icons
 import { FaSearch } from "react-icons/fa";
+import { Link, useNavigate } from "react-router/internal/react-server-client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Poll-interfacet beskriver formen på et afstemnings-objekt som vi forventer
@@ -60,6 +66,8 @@ function Sidebar(
     onFolderClick,
   }: SidebarProps,
 ) {
+  const navigate = useNavigate();
+
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
 
   function toggleFolder(name: string) {
@@ -68,7 +76,13 @@ function Sidebar(
 
   return (
     <aside className="ov-sidebar">
-      <a href="/createpoll" className="btn-create">Opret afstemning</a>
+      <button
+        type="button"
+        className="btn-create"
+        onClick={() => navigate("/createpoll")}
+      >
+        Opret afstemning
+      </button>
       <nav className="ov-filter-nav">
         <button
           type="button"
@@ -141,9 +155,10 @@ function Sidebar(
               {isOpen && (
                 <div className="ov-folder-children">
                   {folderMap[name].map((poll) => (
-                    <a
+                    <button
+                      type="button"
                       key={poll.poll.id}
-                      href={`/poll/${poll.poll.id}`}
+                      onClick={() => navigate(`/poll/${poll.poll.id}`)}
                       className={`ov-folder-item ${
                         activeFolderFilter === name
                           ? "ov-folder-item--active"
@@ -151,7 +166,7 @@ function Sidebar(
                       }`}
                     >
                       {poll.poll.title}
-                    </a>
+                    </button>
                   ))}
                 </div>
               )}
@@ -171,6 +186,8 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
   if (polls.length === 0) {
     return <p className="ov-empty">Ingen afstemninger fundet.</p>;
   }
+  const navigate = useNavigate();
+
   return (
     <table className="ov-table">
       <thead>
@@ -188,7 +205,9 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
         {polls.map((poll) => (
           <tr key={poll.poll.id}>
             <td className="ov-col-title">
-              <a href={`/poll/${poll.poll.id}`}>{poll.poll.title}</a>
+              <Link className="ov-link-btn" to={`/poll/${poll.poll.id}`}>
+                {poll.poll.title}
+              </Link>
             </td>
             <td className="ov-col-mystatus">
               {poll.hasVoted
@@ -199,9 +218,13 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                 )
                 : poll.poll.status === "started"
                 ? (
-                  <a href={`/poll/${poll.poll.id}/vote`} className="btn-vote">
-                    Vote
-                  </a>
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/poll/${poll.poll.id}/vote`)}
+                  >
+                    Stem
+                  </button>
                 )
                 : null}
             </td>
@@ -213,7 +236,7 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
             <td className="ov-col-anon">
               {poll.poll.ballotPrivacy === "secret" ? <FaCheck /> : <FaXmark />}
             </td>
-            <td className="ov-col-owner">{poll.poll.createdBy}</td>{" "}
+            <td className="ov-col-owner">{poll.pollOwnerUsername}</td>{" "}
             {/*To-do: Change to username.*/}
           </tr>
         ))}
@@ -230,13 +253,40 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
 //   - Søgetilstand
 // Sender de processerede data ned til <Sidebar> og <PollTable>.
 function OverviewPage() {
+  // This array is unbounded, as it fetches ALL polls from the database,
+  // this will lead to performance issues as the application scales.
   const [polls, setPolls] = useState<FrontEndPoll[]>([]);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [activeFolderFilter, setActiveFolderFilter] = useState<string | null>(
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [serverCallback, setServerCallback] = useState(callbackTypes.nil);
+
+  const ws = useContext(WebSocketContext);
+
+  if (ws) {
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      // console.log("Received WebSocket message:", message);
+      if (message.type === callbackTypes.refetchVoteCount) {
+        console.log("ws: recived refreshVoteCount");
+        setServerCallback(message.type);
+      }
+    };
+  }
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => {
+      clearInterval(id);
+    };
+  }, []);
 
   // Hent afstemninger fra serveren når siden indlæses.
   // useEffect med tomt dependency-array [] kører kun én gang – ved første render.
@@ -252,11 +302,8 @@ function OverviewPage() {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const poll: FrontEndPoll[] = await res.json(); // Check this
-        poll.forEach((poll) => {
-          poll.timeLeft = calculateTimeRemaining(poll.poll);
-        });
-        setPolls(poll);
+        const pollData: FrontEndPoll[] = await res.json();
+        setPolls(pollData);
       } catch (err) {
         console.error("Failed to fetch polls:", err);
       } finally {
@@ -264,7 +311,7 @@ function OverviewPage() {
       }
     };
     fetchPolls();
-  }, []);
+  }, [serverCallback]);
 
   const folderMap = buildFolders(polls);
 
@@ -286,6 +333,15 @@ function OverviewPage() {
         searchQuery.toLowerCase(),
       ) // To-do: Change to fetch username for the poll
     );
+
+  const displayedPolls = filteredPolls.map((poll) => {
+    const timeLeft = calculateTimeRemaining(poll.poll.endsAt, now);
+
+    return {
+      ...poll,
+      timeLeft: timeLeft === "00:00:00" ? "afsluttet" : timeLeft,
+    };
+  });
 
   return (
     <>
@@ -319,7 +375,7 @@ function OverviewPage() {
                 <span>Henter afstemninger…</span>
               </div>
             )
-            : <PollTable polls={filteredPolls} />}
+            : <PollTable polls={displayedPolls} />}
         </main>
       </div>
     </>
