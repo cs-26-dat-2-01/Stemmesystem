@@ -640,6 +640,14 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+ router.get("/api/users", async (c) => {
+    return await hasValidJWT(c, async () => {
+      const results = await DB.getAllUsersFromDB();
+      return c.json(results, results.httpStatusCode);
+    });
+  });
+
+
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;
   //   ac.abort(); // Gracefully shut down server

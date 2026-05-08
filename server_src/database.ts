@@ -16,7 +16,7 @@ import {
   Vote,
 } from "../client_src/WebLib.ts";
 
-import { Prisma, PrismaClient } from "../generated/prisma/client.ts";
+import { Prisma, PrismaClient, User as PrismaUser } from "../generated/prisma/client.ts";
 
 /**
  * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.
@@ -1098,4 +1098,33 @@ export class WebappDatabase {
       return { started: 0, finished: 0 };
     }
   }
+
+  public async getAllUsersFromDB(): Promise <{
+	  users: {id: number; username: string;}[];
+	  httpStatusCode: ContentfulStatusCode;
+	  errorMsg?: string; 
+  }>{
+	try {
+		const users = await this.prisma.user.findMany({
+		select: {id: true, username: true}});
+
+		if (users.length === 0){
+			return { users: [], httpStatusCode: 200, errorMsg: "Didnt get users from DB"};
+		}
+
+		return {
+			users: users,
+			httpStatusCode: 200, 
+		}; 
+	} catch (err){
+		const errMsg = err instanceof Error ? err.message : "Unknown error";
+		logger.error`Error fetching audit log. Error: ${errMsg}`;
+		return {
+			users: [],
+			errorMsg: "Error fetching audit log",
+			httpStatusCode: 500,
+		};
+	}
+  }
 }
+
