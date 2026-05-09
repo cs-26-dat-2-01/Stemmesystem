@@ -19,7 +19,7 @@ import { Link, useNavigate } from "react-router/internal/react-server-client";
 type FilterType = "all" | "eligible" | "drafts";
 
 function statusLabel(poll: FrontEndPoll): string {
-  if (poll.poll.status === "finished" || poll.poll.status === "not started") {
+  if (poll.poll.status === "finished" || poll.poll.status === "not started" || poll.poll.status === "draft") {
     return poll.poll.status;
   }
 
@@ -230,6 +230,16 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                     Stem
                   </button>
                 )
+		: poll.poll.status === "draft"
+		? (
+			<button
+			type="button"
+			className="btn-vote"
+			onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
+			>
+			Rediger kladde
+			</button>
+		)
                 : null}
             </td>
             <td className="ov-col-status">{statusLabel(poll)}</td>
