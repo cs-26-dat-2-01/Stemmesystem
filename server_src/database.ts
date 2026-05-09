@@ -913,12 +913,6 @@ export class WebappDatabase {
    * own and have them added later. Empty or missing `optionTexts` /
    * `voterUserIds` simply skip the corresponding insert.
    *
-   * @remarks
-   * `votesAllowed` for every eligible voter is set to `input.ballotLimit`,
-   * falling back to `1` when `ballotLimit` is undefined. When per-voter
-   * voting power is introduced, this should be replaced by an explicit
-   * per-voter value passed in by the caller.
-   *
    * @param input the data needed to materialize the poll. `createdBy`
    *   must originate from a verified JWT, never from the request body.
    * @returns `{ pollId, httpStatusCode: 201 }` on success;
@@ -979,6 +973,15 @@ export class WebappDatabase {
     }
   }
 
+/**
+ * Deletes the poll identified by 'pollId'. Cascades to related rows 
+ * (options, eligible voters, votes) which are governed by the schema's 
+ * foreign-key rules, not by this method. 
+ *
+ * @param pollId the id of the poll to delete.
+ * @returns `httpStatuscode 200 on success; 500 if the delete fails - including 
+ * 	the case where no poll with 'pollId' exists 
+ */
   public async deletePoll(
     pollId: number,
   ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
@@ -995,6 +998,16 @@ export class WebappDatabase {
     }
   }
 
+  /** 
+   * Looks up every eligible voter for a given poll along with how many
+   * votes each is allowed to cast. Joins through 'pollEligibleVoter' so
+   * the usernames come from the the 'user' table. 
+   *
+   * @param pollId the id of the poll whose eligible voters to fetch
+   * @returns an array of '{username, votesAllowed}'. Empty if the poll has 
+   * 	no eligible voters or does not exists. Errors are not caught and will 
+   * 	propagte to the caller. 
+   */
   public async getEligibleVoters(
     pollId: number,
   ): Promise<Array<{ username: string; votesAllowed: number }>> {
@@ -1010,7 +1023,27 @@ export class WebappDatabase {
       votesAllowed: r.votesAllowed,
     }));
   }
-
+/** 
+ * Applies a partial update to a poll, optionally replacing its options
+ * and/or eligible voters, in a single atomic transaction. The poll update,
+ * options replacement, and voters replacement all succeed or all roll back
+ * together. 
+ *
+ * Only fields explicitly set on 'input' are written; 'undefined' leaves
+ * the existing value untouched, while 'null' clears it (where the column
+ * allows it). 'startsAt' / 'endsAt' accept ISO strings and are converted 
+ * to 'Date' 
+ *
+ * Options and voters are full replacements, not merges: if 'optionTexts' is 
+ * provided, all existing options for the poll are deleted and recreated from 
+ * the new array (an empty array clears them). The same applies to 'voters'.
+ * If either field is 'undefined' the corresponding rows are left as-is. 
+ *
+ * @param pollId the id of the poll to update. 
+ * @param input the fields to change. Per-voter 'votesAllowed' is taken directly 
+ * 	form each entry in 'voters'
+ * @returns httpstatuscode: 200 on success, 500 if the transaction fails. 
+ */ 
   public async updatePoll(
     pollId: number,
     input: PollUpdateInput,
@@ -1078,8 +1111,19 @@ export class WebappDatabase {
   }
 
   /**
-   * Moves polls that has hit their time limit: "not started" -> "started" when starts <= now,
-   * and "started" -> "finished" when endsAt <= now.
+   * Moves polls that has hit their time limit:
+   * 	1. Polls in 'not started' whose 'startsAt' is now in the past 
+   * 	   are moved to 'started'.
+   * 	2. Polls in 'started' whose 'endsAt' is now in the past are 
+   * 	   moved to 'finished'. 
+   *
+   * Both passes share the same 'now' timestamp so if a poll has already
+   * passed it startsAt and endsAt will progress to 'finished' in a single call. 
+   *
+   * Errors are caught and logged: the method never throws: on failure
+   * the returned counts are started: 0 finished: 0, which is indistringuishable
+   * from a tick which just havent done anything - so it is required to check the logs
+   * to tell them apart. 
    *
    * @returns number of rows changed (for logging/debuggin):
    */
@@ -1110,6 +1154,17 @@ export class WebappDatabase {
     }
   }
 
+  /**
+   * Fetches the id and username of every user in the database. Used to 
+   * populate user pickers (e.g.  when assigning eligible voters to a poll), 
+   * so the passwords and other sensitive columns are deliberately excluded 
+   * from the projection. 
+   *
+   * @returns ' {users, httpStatuscode: 200}' on success. If the table is empty
+   * 	'usersø is '[]' and errorMsg is set to a descriptive message - the status
+   * 	is still 200 because an empty user list is not an error. On a qury failure, 'users'
+   * 	is '[]', and errorMsg is set and the status is now 500. 
+   */
   public async getAllUsersFromDB(): Promise<{
     users: { id: number; username: string }[];
     httpStatusCode: ContentfulStatusCode;

@@ -11,6 +11,22 @@ import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 
+ /**
+   * Validates that a poll has all the fields and invariants required to
+   * leave draft state and be published. Used as the gate in
+   * `publishPoll` before any database writes happen.
+   *
+   * @param poll the poll fields to publish.
+   * @param optionTexts the final list of option texts for the poll.
+   * @param voters the final eligible voter roll, with each voter's
+   *   `votesAllowed`.
+   * @returns `null` when the input is valid; otherwise a human-readable
+   *   error message describing the first violation found. Returning
+   *   `null` for the success case means the caller can write
+   *   `const err = validateForPublish(...); if (err) return err;` and
+   *   forward the message straight to the client without an extra
+   *   wrapper object or thrown exception.
+   */
 function validateForPublish(
   poll: Partial<Poll>,
   optionTexts: string[],
@@ -445,6 +461,26 @@ export class PollManager {
     return { pollId: result.pollId, httpStatusCode: 200 };
   }
 
+  /**
+   * Creates a new poll in `draft` state, owned by the given user. Only
+   * the poll's own fields are set here — options and eligible voters
+   * are added later via `updatePoll` / `publishPoll`.
+   *
+   * No validation of the poll's fields is performed at this stage; a
+   * draft is allowed to be incomplete. The full publish-time invariants
+   * (title required, voters within `ballotLimit`, etc.) are enforced
+   * by `validateForPublish` when the poll is later promoted out of
+   * draft.
+   *
+   * @param createdByUserId the id of the authenticated user who will
+   *   own the poll. Must come from a verified JWT, never from the
+   *   request body.
+   * @param input the poll fields to seed the draft with.
+   * @returns `{ pollId, httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` propagated from the database layer
+   *   on failure. Note the status is normalized from the DB layer's
+   *   `201` down to `200` for the API surface.
+   */
   public async updatePoll(
     userId: number,
     pollId: number,

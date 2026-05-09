@@ -487,7 +487,34 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
-  // PATCH /api/polls/:pollId til at opdaterer (autosave, klade gem og side-overgange)
+  /**
+   * PATCH `/api/polls/:pollId` — updates an existing poll, optionally
+   * replacing its options and/or eligible voters. Requires a valid JWT;
+   * authorization (whether the caller is allowed to edit this specific
+   * poll) is delegated to `pollManager.updatePoll`.
+   *
+   * Path params:
+   * - `pollId` — must parse as an integer, else `400 Invalid pollId`.
+   *
+   * Request body (`application/json`):
+   * - `poll` *(required)* — partial poll fields to update. Only fields
+   *   present here are written; missing fields are left untouched.
+   * - `choices` *(optional)* — array of option texts. If provided, fully
+   *   replaces the poll's existing options.
+   * - `voters` *(optional)* — array of `{ username: string;
+   *   votesAllowed: integer }`. If provided, fully replaces the poll's
+   *   existing eligible voters. `username` is resolved to a user id
+   *   downstream.
+   *
+   * Responses:
+   * - `200` — update applied.
+   * - `400` — malformed JSON, missing `poll`, or `voters` / `choices`
+   *   failing shape validation.
+   * - `401` — JWT invalid or the authenticated user no longer exists.
+   * - other — propagated from `pollManager.updatePoll` (e.g. `500` on
+   *   transaction failure), with the manager's `errorMsg` as the body.
+   */
+
   router.patch("/api/polls/:pollId", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
@@ -549,7 +576,39 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
-  // POST /api/polls/:pollid/publish til endelig udgivelse. kalder pollManager.publishPoll(...)
+  /**
+   * POST `/api/polls/:pollId/publish` — promotes a draft poll to a
+   * published state, atomically setting its final options and eligible
+   * voters in the same call. Requires a valid JWT; authorization
+   * (whether the caller is allowed to publish this poll, and whether
+   * the poll is in a publishable state) is delegated to
+   * `pollManager.publishPoll`.
+   *
+   * Unlike PATCH, both `voters` and `choices` are required here: a poll
+   * cannot transition out of draft without a complete option set and
+   * voter roll.
+   *
+   * Path params:
+   * - `pollId` — must parse as an integer, else `400 Invalid pollId`.
+   *
+   * Request body (`application/json`):
+   * - `poll` *(required)* — poll fields to apply at publish time
+   *   (e.g. title, description, startsAt/endsAt, ballotPrivacy).
+   * - `choices` *(required)* — array of option texts. Fully replaces
+   *   any existing options on the poll.
+   * - `voters` *(required)* — array of `{ username: string;
+   *   votesAllowed: integer }`. Fully replaces the poll's eligible
+   *   voter roll. `username` is resolved to a user id downstream.
+   *
+   * Responses:
+   * - `200` — poll published.
+   * - `400` — malformed JSON, missing `poll`, or `voters` / `choices`
+   *   missing or failing shape validation.
+   * - `401` — JWT invalid or the authenticated user no longer exists.
+   * - other — propagated from `pollManager.publishPoll` (e.g. `403` if
+   *   the caller may not publish, `500` on transaction failure), with
+   *   the manager's `errorMsg` as the body.
+   */
   router.post("/api/polls/:pollId/publish", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
@@ -606,6 +665,25 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+  /**
+   * DELETE `/api/polls/:pollId` — deletes a poll. Requires a valid JWT;
+   * authorization (whether the caller is allowed to delete this poll)
+   * is delegated to `pollManager.deletePoll`. Cascading of related
+   * rows (options, eligible voters, votes) is governed by the schema's
+   * foreign-key rules, not by this handler.
+   *
+   * Path params:
+   * - `pollId` — must parse as an integer, else `400 Invalid pollId`.
+   *
+   * Responses:
+   * - `200` — poll deleted.
+   * - `400` — `pollId` is not a valid integer.
+   * - `401` — JWT invalid or the authenticated user no longer exists.
+   * - other — propagated from `pollManager.deletePoll` (e.g. `403` if
+   *   the caller may not delete, `404` if the poll does not exist,
+   *   `500` on database failure), with the manager's `errorMsg` as the
+   *   body.
+   */
   router.delete("/api/polls/:pollId", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
@@ -626,7 +704,28 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       return c.body(null, 200);
     });
   });
-  // til at hente data ned hvis poll er  draft
+
+  /**
+   * GET `/api/polls/:pollId` — fetches a poll's current editable state
+   * (poll fields, options, and eligible voters) for the edit/publish UI.
+   * Despite the generic path, this delegates to `pollManager.getDraft`,
+   * which applies the same authorization checks as the edit endpoints —
+   * this is not a public read endpoint for finished polls.
+   *
+   * Path params:
+   * - `pollId` — must parse as an integer, else `400 Invalid pollId`.
+   *
+   * Responses:
+   * - `200` — JSON body with the poll's editable state, as returned by
+   *   `pollManager.getDraft`.
+   * - `400` — `pollId` is not a valid integer.
+   * - `401` — JWT invalid or the authenticated user no longer exists.
+   * - other — propagated from `pollManager.getDraft` (e.g. `403` if the
+   *   caller may not view this poll, `404` if it does not exist), with
+   *   the manager's `errorMsg` as the body. Note that a missing
+   *   `result.result` is treated as a non-success even if the manager
+   *   returned `200`.
+   */
   router.get("/api/polls/:pollId", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
@@ -645,6 +744,28 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+  /**
+   * GET `/api/polls/:pollId/overview` — returns a summary view of a
+   * poll suitable for an overview / status page (e.g. current
+   * status, vote totals or progress) as opposed to the full editable
+   * state served by `GET /api/polls/:pollId`. Requires a valid JWT;
+   * visibility rules (who is allowed to see the overview for this poll)
+   * are delegated to `pollManager.getPollOverview`.
+   *
+   * Path params:
+   * - `pollId` — must parse as an integer, else `400 Invalid pollId`.
+   *
+   * Responses:
+   * - `200` — JSON body with the overview payload returned by
+   *   `pollManager.getPollOverview`.
+   * - `400` — `pollId` is not a valid integer.
+   * - `401` — JWT invalid or the authenticated user no longer exists.
+   * - other — propagated from `pollManager.getPollOverview` (e.g. `403`
+   *   if the caller may not view this poll, `404` if it does not
+   *   exist), with the manager's `errorMsg` as the body. A missing
+   *   `result.result` is treated as a non-success even if the manager
+   *   returned `200`.
+   */
   router.get("/api/polls/:pollId/overview", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
@@ -666,6 +787,26 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+/**
+   * GET `/api/users` — returns the id and username of every user in the
+   * database. Used to populate user pickers (e.g. when assigning
+   * eligible voters to a poll). Requires a valid JWT, but is otherwise
+   * unscoped — any authenticated user can list all users.
+   *
+   * Responses:
+   * - `200` — JSON body `{ users, httpStatusCode, errorMsg? }` from
+   *   `DB.getAllUsersFromDB`. `users` may be empty (with `errorMsg`
+   *   set) if the table contains no users; this is still a `200`.
+   * - `401` — JWT invalid.
+   * - `500` — database query failed; `users` is `[]` and `errorMsg` is
+   *   set.
+   *
+   * @remarks
+   * The full result object — including `httpStatusCode` and any
+   * `errorMsg` — is serialized into the response body, not just the
+   * `users` array. Clients should read `body.users` rather than
+   * assuming the body is a bare array.
+   */
   router.get("/api/users", async (c) => {
     return await hasValidJWT(c, async () => {
       const results = await DB.getAllUsersFromDB();
