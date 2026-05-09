@@ -348,6 +348,7 @@ function CreatePollPage(
           voters={voters}
           choices={choices}
 	  pollId={pollId}
+	  startNow={startNow}
         />
       )}
 
@@ -485,6 +486,20 @@ function CreatePollStep1({
     setStartNow(checked);
     if (checked) setStartsAt("");
   }
+  // check to see if the dates are valid ( for example not in the past, or end before start)
+  const now = new Date(); 
+ const startDateTime = startNow
+    ? now
+    : startDate && startsAt
+    ? new Date(`${startDate}T${startsAt}`)
+    : null;
+  const endDateTime = endDate && endsAt
+    ? new Date(`${endDate}T${endsAt}`)
+    : null;
+  const datesValid = !!startDateTime && !!endDateTime &&
+	  startDateTime >= now &&
+	  endDateTime > startDateTime;
+
 
   return (
     // Added "field-hints" as there are in the wireframe, to tell the user what each field does.
@@ -703,9 +718,20 @@ function CreatePollStep1({
       </div>
 
       <br />
+      {attempted && startDateTime && startDateTime < now && (
+    <p style={{ color: "red" }}>
+      Starttidspunktet skal være i fremtiden (eller brug "Start nu").
+    </p>
+  )}
+  {attempted && startDateTime && endDateTime && endDateTime <= startDateTime &&
+  (
+    <p style={{ color: "red" }}>Sluttidspunktet skal være efter
+  starttidspunktet.</p>
+  )}
+
       <button type="button" onClick={() => { 
           setAttempted(true); 
-          if (visibility && privacy && ((startsAt && startDate) || startNow) && endsAt && endDate) onNext();
+          if (visibility && privacy && ((startsAt && startDate) || startNow) && endsAt && endDate && datesValid) onNext();
           }}>
         Gem og fortsæt
       </button>
@@ -973,6 +999,7 @@ export function CreatePollStep4({
   hideAction = false,
   heading = "Færdiggør afstemning",
   pollId,
+  startNow = false,
 }: {
   onNext: () => void;
   pollData: Partial<Poll>;
@@ -981,6 +1008,7 @@ export function CreatePollStep4({
   hideAction?: boolean;
   heading?: string;
   pollId: number | null;
+  startNow?: boolean;
 }) {
   const ballotLimit = pollData.ballotLimit ?? 0;
   const invalidVoters = voters.filter(
@@ -990,6 +1018,15 @@ export function CreatePollStep4({
       v.votesAllowed > ballotLimit,
   );
 
+  // check to see if date is wrong 
+   const now = new Date();
+  const startDateTime = pollData.startsAt ? new Date(pollData.startsAt) : null;
+  const endDateTime = pollData.endsAt ? new Date(pollData.endsAt) : null;
+  const startInPast = !hideAction && !startNow && !!startDateTime && startDateTime < now;
+  const endBeforeStart = !hideAction && !!startDateTime && !!endDateTime &&
+    endDateTime <= startDateTime;
+  
+  //validate the poll is complete 
   const isComplete = !!pollData.title?.trim() &&
     pollId !== null && 
     !!pollData.pollVisibility &&
@@ -998,7 +1035,8 @@ export function CreatePollStep4({
     !!pollData.endsAt &&
     ballotLimit > 0 &&
     choices.filter((c) => c.trim() !== "").length > 0 &&
-    invalidVoters.length === 0;
+    invalidVoters.length === 0 &&
+    !startInPast && !endBeforeStart;
 
     const missing: string[] = [];
     if (!pollData.title?.trim()) missing.push("titel");
@@ -1010,6 +1048,9 @@ export function CreatePollStep4({
     if (choices.filter((c) => c.trim() !== "").length === 0)
 	    missing.push("valgmuligheder");
     if (pollId === null) missing.push("Afstemningen er ikke gemt endnu - klik venligst 'Gem kladde' og prøv igen!"); 
+    if (startInPast) missing.push("gyldigt starttidspunkt (skal være i fremtiden)");
+    if (endBeforeStart) missing.push("gyldigt sluttidspunkt (skal være efter starttidspunktet)");
+
 
   return (
     <div className="create-poll-content">

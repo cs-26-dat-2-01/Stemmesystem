@@ -42,6 +42,18 @@ function validateForPublish(
   }
   if (!poll.startsAt) return "startsAt is required";
   if (!poll.endsAt) return "endsAt is required"; 
+  const startDateTime = new Date(poll.startsAt);
+  const endDateTime = new Date(poll.endsAt);
+  if (Number.isNaN(startDateTime.getTime())) return "startsAt is not a valid date";
+  if (Number.isNaN(endDateTime.getTime())) return "endsAt is not a valid date";
+
+  const TOLERANCE_MS = 60_000;
+  if (startDateTime.getTime() < Date.now() - TOLERANCE_MS) {
+    return "startsAt must not be in the past";
+  }
+  if (endDateTime <= startDateTime) {
+    return "endsAt must be after startsAt";
+  }
   if (
     poll.ballotLimit === undefined ||
     !Number.isInteger(poll.ballotLimit) ||

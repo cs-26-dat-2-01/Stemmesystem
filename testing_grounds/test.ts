@@ -3132,7 +3132,7 @@ Deno.test({
           headers: { "Cookie": cookies, "version": CLIENT_VERSION },
         },
       );
-      assertEquals(res.status, 403, await res.text());
+      assertEquals(res.status, 409, await res.text());
     } finally {
       ac.abort();
       await server;
@@ -3350,6 +3350,9 @@ Deno.test({
         env.ADMIN_USER_PASSWORD,
       );
 
+      const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const endsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
       const res = await fetch(
         `http://localhost:8000/api/polls/${poll.id}/publish`,
         {
@@ -3360,6 +3363,8 @@ Deno.test({
               pollVisibility: "public",
               ballotPrivacy: "secret",
               ballotLimit: 1,
+              startsAt,
+              endsAt,
             },
             choices: ["Ja", "Nej"],
             voters: [{ username: "alice", votesAllowed: 1 }],
@@ -3413,6 +3418,9 @@ Deno.test({
         env.ADMIN_USER_PASSWORD,
       );
 
+      const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const endsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
       const res = await fetch(
         `http://localhost:8000/api/polls/${poll.id}/publish`,
         {
@@ -3422,6 +3430,8 @@ Deno.test({
               title: "Mangler ballotLimit",
               pollVisibility: "public",
               ballotPrivacy: "secret",
+              startsAt,
+              endsAt,
             },
             choices: ["Ja"],
             voters: [],
@@ -3478,6 +3488,9 @@ Deno.test({
         env.ADMIN_USER_PASSWORD,
       );
 
+      const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const endsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
       const res = await fetch(
         `http://localhost:8000/api/polls/${poll.id}/publish`,
         {
@@ -3488,6 +3501,8 @@ Deno.test({
               pollVisibility: "public",
               ballotPrivacy: "secret",
               ballotLimit: 2,
+              startsAt,
+              endsAt,
             },
             choices: ["Ja", "Nej"],
             voters: [{ username: "alice", votesAllowed: 5 }],
@@ -4132,6 +4147,217 @@ Deno.test({
       const voters = await DB.getEligibleVoters(poll.id);
       assertEquals(voters, []);
     } finally {
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "publishPoll rejects when endsAt is before startsAt",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      await seedUser(prisma, "alice", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "draft",
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const endsAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+      const res = await fetch(
+        `http://localhost:8000/api/polls/${poll.id}/publish`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            poll: {
+              title: "Slut foer start",
+              pollVisibility: "public",
+              ballotPrivacy: "secret",
+              ballotLimit: 1,
+              startsAt,
+              endsAt,
+            },
+            choices: ["Ja"],
+            voters: [{ username: "alice", votesAllowed: 1 }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+      const text = await res.text();
+      assertEquals(res.status, 400, text);
+      assert(text.toLowerCase().includes("endsat"));
+
+      const stillDraft = await prisma.poll.findUniqueOrThrow({
+        where: { id: poll.id },
+      });
+      assertEquals(stillDraft.voteStatus, "draft");
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "publishPoll rejects when startsAt is in the past",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      await seedUser(prisma, "alice", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "draft",
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const startsAt = new Date("2020-01-01T00:00:00Z").toISOString();
+      const endsAt = new Date("2020-01-02T00:00:00Z").toISOString();
+
+      const res = await fetch(
+        `http://localhost:8000/api/polls/${poll.id}/publish`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            poll: {
+              title: "Start i fortiden",
+              pollVisibility: "public",
+              ballotPrivacy: "secret",
+              ballotLimit: 1,
+              startsAt,
+              endsAt,
+            },
+            choices: ["Ja"],
+            voters: [{ username: "alice", votesAllowed: 1 }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+      const text = await res.text();
+      assertEquals(res.status, 400, text);
+      assert(text.toLowerCase().includes("startsat"));
+
+      const stillDraft = await prisma.poll.findUniqueOrThrow({
+        where: { id: poll.id },
+      });
+      assertEquals(stillDraft.voteStatus, "draft");
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "publishPoll accepts startsAt close to now (within tolerance)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      await seedUser(prisma, "alice", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "draft",
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      const startsAt = new Date().toISOString();
+      const endsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+      const res = await fetch(
+        `http://localhost:8000/api/polls/${poll.id}/publish`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            poll: {
+              title: "Start nu",
+              pollVisibility: "public",
+              ballotPrivacy: "secret",
+              ballotLimit: 1,
+              startsAt,
+              endsAt,
+            },
+            choices: ["Ja"],
+            voters: [{ username: "alice", votesAllowed: 1 }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+      assertEquals(res.status, 200, await res.text());
+
+      const updated = await prisma.poll.findUniqueOrThrow({
+        where: { id: poll.id },
+      });
+      assertEquals(updated.voteStatus, "not started");
+    } finally {
+      ac.abort();
+      await server;
       await prisma.$disconnect();
       await DB.closeDB();
       await removeSqliteFiles(databaseUrl);
