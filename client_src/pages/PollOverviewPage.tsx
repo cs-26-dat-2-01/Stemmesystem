@@ -40,7 +40,7 @@ function PollOverviewPage({ pollId }: { pollId: number }) {
         onNext={() => {}}
         hideAction
         heading="Afstemnings oversigt"
-	pollId={pollId}
+        pollId={pollId}
       />
     </div>
   );

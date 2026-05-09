@@ -11,22 +11,22 @@ import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 
- /**
-   * Validates that a poll has all the fields and invariants required to
-   * leave draft state and be published. Used as the gate in
-   * `publishPoll` before any database writes happen.
-   *
-   * @param poll the poll fields to publish.
-   * @param optionTexts the final list of option texts for the poll.
-   * @param voters the final eligible voter roll, with each voter's
-   *   `votesAllowed`.
-   * @returns `null` when the input is valid; otherwise a human-readable
-   *   error message describing the first violation found. Returning
-   *   `null` for the success case means the caller can write
-   *   `const err = validateForPublish(...); if (err) return err;` and
-   *   forward the message straight to the client without an extra
-   *   wrapper object or thrown exception.
-   */
+/**
+ * Validates that a poll has all the fields and invariants required to
+ * leave draft state and be published. Used as the gate in
+ * `publishPoll` before any database writes happen.
+ *
+ * @param poll the poll fields to publish.
+ * @param optionTexts the final list of option texts for the poll.
+ * @param voters the final eligible voter roll, with each voter's
+ *   `votesAllowed`.
+ * @returns `null` when the input is valid; otherwise a human-readable
+ *   error message describing the first violation found. Returning
+ *   `null` for the success case means the caller can write
+ *   `const err = validateForPublish(...); if (err) return err;` and
+ *   forward the message straight to the client without an extra
+ *   wrapper object or thrown exception.
+ */
 function validateForPublish(
   poll: Partial<Poll>,
   optionTexts: string[],
@@ -41,10 +41,12 @@ function validateForPublish(
     return "Invalid ballotPrivacy";
   }
   if (!poll.startsAt) return "startsAt is required";
-  if (!poll.endsAt) return "endsAt is required"; 
+  if (!poll.endsAt) return "endsAt is required";
   const startDateTime = new Date(poll.startsAt);
   const endDateTime = new Date(poll.endsAt);
-  if (Number.isNaN(startDateTime.getTime())) return "startsAt is not a valid date";
+  if (Number.isNaN(startDateTime.getTime())) {
+    return "startsAt is not a valid date";
+  }
   if (Number.isNaN(endDateTime.getTime())) return "endsAt is not a valid date";
 
   const TOLERANCE_MS = 60_000;
@@ -440,7 +442,7 @@ export class PollManager {
     };
   }
 
-/**
+  /**
    * Creates a new poll in `draft` state, owned by the given user. Only
    * the poll's own fields are set here — options and eligible voters
    * are added later via `updatePoll` / `publishPoll`.
@@ -531,7 +533,7 @@ export class PollManager {
    *   voters, or whatever status `loadEditableDraft` / `DB.updatePoll`
    *   propagate (`403` / `404` / `409` / `500`).
    */
-    public async updatePoll(
+  public async updatePoll(
     userId: number,
     pollId: number,
     input: {
@@ -631,7 +633,7 @@ export class PollManager {
    *   voters or validation failures, or whatever status
    *   `loadEditableDraft` / `DB.updatePoll` propagate (e.g. `403`,
    *   `404`, `500`).
-   * 
+   *
    * @remarks
    * The audit-log write on step 7 is fire-and-forget — it is not
    * awaited and its failure does not affect the response. The poll is
@@ -724,7 +726,7 @@ export class PollManager {
     return { pollId, httpStatusCode: 200 };
   }
 
- /**
+  /**
    * Loads a poll and verifies that the caller is allowed to edit it.
    * Used as the authorization gate for `updatePoll`, `publishPoll`, and
    * `getDraft` so the same rules apply across all edit-related paths
@@ -840,10 +842,10 @@ export class PollManager {
     return { httpStatusCode: 200 };
   }
 
-/**
+  /**
    * Loads a poll's full editable state — poll fields, options, and the
    * eligible voter roll — for the create/edit UI. Restricted to the
-   * poll's creator while it is still in `"draft"`; any other state returns 
+   * poll's creator while it is still in `"draft"`; any other state returns
    * 409 (the poll has moverd past the editable phase..)
    *
    * @param userId the id of the authenticated caller (from a verified
@@ -853,8 +855,11 @@ export class PollManager {
    *   `{ errorMsg, httpStatusCode }` on failure (`403` / `404` / `500`).
    */
   public async getDraft(userId: number, pollId: number): Promise<{
-    result?: { poll: Poll; options: PollOption[]; voters: Array<{ username:
-  string; votesAllowed: number }> };
+    result?: {
+      poll: Poll;
+      options: PollOption[];
+      voters: Array<{ username: string; votesAllowed: number }>;
+    };
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
@@ -870,11 +875,11 @@ export class PollManager {
     };
   }
 
-/**
+  /**
    * Advances poll lifecycle states based on the current time, by
    * delegating to `DB.tickPollStatuses` (which moves polls from
    * `"not started"` → `"started"` and `"started"` → `"finished"` based
-   * on `startsAt` / `endsAt`). Intended to be called on a internval and 
+   * on `startsAt` / `endsAt`). Intended to be called on a internval and
    * whenever someone tries to cast vote, openPoll and getResults and get /api/polls.
    *
    * Writes one audit log entry per non-empty transition bucket:
@@ -892,7 +897,7 @@ export class PollManager {
     }
   }
 
- /**
+  /**
    * Loads a poll's overview view — poll fields, options, and the
    * eligible voter roll — for read-only display (the status / progress
    * page, as opposed to the editor served by `getDraft`). Available in

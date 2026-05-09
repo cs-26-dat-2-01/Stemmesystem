@@ -19,7 +19,10 @@ import { Link, useNavigate } from "react-router/internal/react-server-client";
 type FilterType = "all" | "eligible" | "drafts";
 
 function statusLabel(poll: FrontEndPoll): string {
-  if (poll.poll.status === "finished" || poll.poll.status === "not started" || poll.poll.status === "draft") {
+  if (
+    poll.poll.status === "finished" || poll.poll.status === "not started" ||
+    poll.poll.status === "draft"
+  ) {
     return poll.poll.status;
   }
 
@@ -205,21 +208,24 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
         {polls.map((poll) => (
           <tr key={poll.poll.id}>
             <td className="ov-col-title">
-              <Link className="ov-link-btn" to={`/poll/${poll.poll.id}/overview`}>
+              <Link
+                className="ov-link-btn"
+                to={`/poll/${poll.poll.id}/overview`}
+              >
                 {poll.poll.title}
               </Link>
             </td>
             <td className="ov-col-mystatus">
               {poll.hasVoted
                 ? (
-			<button
-			type="button"
-			className="btn-vote"
-			onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
-			>
-			Se resultat <FaCheck />
-			</button>
-		)
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
+                  >
+                    Se resultat <FaCheck />
+                  </button>
+                )
                 : poll.poll.status === "started"
                 ? (
                   <button
@@ -230,16 +236,16 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                     Stem
                   </button>
                 )
-		: poll.poll.status === "draft"
-		? (
-			<button
-			type="button"
-			className="btn-vote"
-			onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
-			>
-			Rediger kladde
-			</button>
-		)
+                : poll.poll.status === "draft"
+                ? (
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
+                  >
+                    Rediger kladde
+                  </button>
+                )
                 : null}
             </td>
             <td className="ov-col-status">{statusLabel(poll)}</td>

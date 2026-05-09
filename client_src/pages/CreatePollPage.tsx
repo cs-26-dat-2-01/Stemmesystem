@@ -20,7 +20,7 @@ import NavBar from "../components/NavBar.tsx";
  *   // Render mobile layout
  * }
  */
- /* jeg kommenterer lige ud da jeg får en "fejl" i deno check, da den ikke bliver brugt pt. 
+/* jeg kommenterer lige ud da jeg får en "fejl" i deno check, da den ikke bliver brugt pt.
 function useIsMobile(breakpoint: number) {
   const [isMobile, setIsMobile] = useState(globalThis.innerWidth < breakpoint);
 
@@ -49,7 +49,9 @@ function CreatePollPage(
   // All state variables for page 1. Allows for easy update of the variable between rendering.
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [visibility, setVisibility] = useState<pollVisibility>("" as pollVisibility);
+  const [visibility, setVisibility] = useState<pollVisibility>(
+    "" as pollVisibility,
+  );
   const [privacy, setPrivacy] = useState<ballotPrivacy>("" as ballotPrivacy);
   const [startNow, setStartNow] = useState(false);
   const [useBuffer, setUseBuffer] = useState(0);
@@ -347,8 +349,8 @@ function CreatePollPage(
           pollData={buildPollData()}
           voters={voters}
           choices={choices}
-	  pollId={pollId}
-	  startNow={startNow}
+          pollId={pollId}
+          startNow={startNow}
         />
       )}
 
@@ -362,11 +364,10 @@ function CreatePollPage(
           <button
             type="button"
             className="button-secondary"
-            onClick={async () => { 
-		    await handleSave();
-		    setStep((s) => Math.max(0, s - 1));
-	    }
-	    }
+            onClick={async () => {
+              await handleSave();
+              setStep((s) => Math.max(0, s - 1));
+            }}
           >
             «
           </button>
@@ -376,9 +377,9 @@ function CreatePollPage(
               type="button"
               className={i === step ? "" : "button-secondary"}
               onClick={async () => {
-		      await handleSave();
-		      setStep(i);
-	      }}
+                await handleSave();
+                setStep(i);
+              }}
               disabled={i === step}
             >
               {s}
@@ -387,16 +388,21 @@ function CreatePollPage(
           <button
             type="button"
             className="button-secondary"
-            onClick={ async () => {
-		    await handleSave();
-		    setStep((s) => Math.min(3, s + 1))
-	    }}
+            onClick={async () => {
+              await handleSave();
+              setStep((s) => Math.min(3, s + 1));
+            }}
           >
             »
           </button>
         </div>
 
-        <button type="button" onClick={ async () => {await handleSave();}}>
+        <button
+          type="button"
+          onClick={async () => {
+            await handleSave();
+          }}
+        >
           Gem kladde
         </button>
       </div>
@@ -487,8 +493,8 @@ function CreatePollStep1({
     if (checked) setStartsAt("");
   }
   // check to see if the dates are valid ( for example not in the past, or end before start)
-  const now = new Date(); 
- const startDateTime = startNow
+  const now = new Date();
+  const startDateTime = startNow
     ? now
     : startDate && startsAt
     ? new Date(`${startDate}T${startsAt}`)
@@ -497,9 +503,8 @@ function CreatePollStep1({
     ? new Date(`${endDate}T${endsAt}`)
     : null;
   const datesValid = !!startDateTime && !!endDateTime &&
-	  startDateTime >= now &&
-	  endDateTime > startDateTime;
-
+    startDateTime >= now &&
+    endDateTime > startDateTime;
 
   return (
     // Added "field-hints" as there are in the wireframe, to tell the user what each field does.
@@ -553,7 +558,9 @@ function CreatePollStep1({
             <option value="private">Privat</option>
           </select>
           {attempted && !visibility && (
-            <p style={{ color: "red" }}>Vælg venligst offentlig eller privat afstemning.</p>
+            <p style={{ color: "red" }}>
+              Vælg venligst offentlig eller privat afstemning.
+            </p>
           )}
 
           {/* Open or secret */}
@@ -571,7 +578,9 @@ function CreatePollStep1({
             <option value="secret">Hemmelig</option>
           </select>
           {attempted && !privacy && (
-            <p style={{ color: "red" }}>Vælg venligst åben eller hemmelig stemme.</p>
+            <p style={{ color: "red" }}>
+              Vælg venligst åben eller hemmelig stemme.
+            </p>
           )}
         </div>
 
@@ -599,10 +608,11 @@ function CreatePollStep1({
             />
             Start nu
           </label>
-	{attempted && !startsAt && !startNow && (
-            <p style={{ color: "red" }}>Vælg venligst enten starttidspunkt eller start nu.</p>
+          {attempted && !startsAt && !startNow && (
+            <p style={{ color: "red" }}>
+              Vælg venligst enten starttidspunkt eller start nu.
+            </p>
           )}
-
 
           <label className="checkbox-label">
             <input
@@ -622,10 +632,9 @@ function CreatePollStep1({
             value={endsAt}
             onChange={(e) => setEndsAt(e.target.value)}
           />
-	  {attempted && !endsAt && (
+          {attempted && !endsAt && (
             <p style={{ color: "red" }}>Vælg venligst sluttidspunkt.</p>
           )}
-
         </div>
       </div>
 
@@ -689,8 +698,8 @@ function CreatePollStep1({
             disabled={onlyToday}
             onChange={(e) => setStartDate(e.target.value)}
           />
-	  {attempted && !startDate && (
-		  <p style={{ color: "red" }}>Vælg venligst startdato.</p>
+          {attempted && !startDate && (
+            <p style={{ color: "red" }}>Vælg venligst startdato.</p>
           )}
 
           <label htmlFor="endDate">Slut dato</label>
@@ -702,8 +711,8 @@ function CreatePollStep1({
             disabled={onlyToday}
             onChange={(e) => setEndDate(e.target.value)}
           />
-	  {attempted && !endDate && (
-		  <p style={{ color: "red" }}>Vælg venligst slutdato.</p>
+          {attempted && !endDate && (
+            <p style={{ color: "red" }}>Vælg venligst slutdato.</p>
           )}
 
           <label className="checkbox-label">
@@ -719,20 +728,28 @@ function CreatePollStep1({
 
       <br />
       {attempted && startDateTime && startDateTime < now && (
-    <p style={{ color: "red" }}>
-      Starttidspunktet skal være i fremtiden (eller brug "Start nu").
-    </p>
-  )}
-  {attempted && startDateTime && endDateTime && endDateTime <= startDateTime &&
-  (
-    <p style={{ color: "red" }}>Sluttidspunktet skal være efter
-  starttidspunktet.</p>
-  )}
+        <p style={{ color: "red" }}>
+          Starttidspunktet skal være i fremtiden (eller brug "Start nu").
+        </p>
+      )}
+      {attempted && startDateTime && endDateTime &&
+        endDateTime <= startDateTime &&
+        (
+          <p style={{ color: "red" }}>
+            Sluttidspunktet skal være efter starttidspunktet.
+          </p>
+        )}
 
-      <button type="button" onClick={() => { 
-          setAttempted(true); 
-          if (visibility && privacy && ((startsAt && startDate) || startNow) && endsAt && endDate && datesValid) onNext();
-          }}>
+      <button
+        type="button"
+        onClick={() => {
+          setAttempted(true);
+          if (
+            visibility && privacy && ((startsAt && startDate) || startNow) &&
+            endsAt && endDate && datesValid
+          ) onNext();
+        }}
+      >
         Gem og fortsæt
       </button>
     </div>
@@ -1018,17 +1035,18 @@ export function CreatePollStep4({
       v.votesAllowed > ballotLimit,
   );
 
-  // check to see if date is wrong 
-   const now = new Date();
+  // check to see if date is wrong
+  const now = new Date();
   const startDateTime = pollData.startsAt ? new Date(pollData.startsAt) : null;
   const endDateTime = pollData.endsAt ? new Date(pollData.endsAt) : null;
-  const startInPast = !hideAction && !startNow && !!startDateTime && startDateTime < now;
+  const startInPast = !hideAction && !startNow && !!startDateTime &&
+    startDateTime < now;
   const endBeforeStart = !hideAction && !!startDateTime && !!endDateTime &&
     endDateTime <= startDateTime;
-  
-  //validate the poll is complete 
+
+  //validate the poll is complete
   const isComplete = !!pollData.title?.trim() &&
-    pollId !== null && 
+    pollId !== null &&
     !!pollData.pollVisibility &&
     !!pollData.ballotPrivacy &&
     !!pollData.startsAt &&
@@ -1038,19 +1056,27 @@ export function CreatePollStep4({
     invalidVoters.length === 0 &&
     !startInPast && !endBeforeStart;
 
-    const missing: string[] = [];
-    if (!pollData.title?.trim()) missing.push("titel");
-    if (!pollData.pollVisibility) missing.push("offentlig/privat");
-    if (!pollData.ballotPrivacy) missing.push("åben/hemmelig stemme");
-    if (!pollData.startsAt) missing.push("starttidspunkt");
-    if (!pollData.endsAt) missing.push("sluttidspunkt");
-    if (ballotLimit <= 0) missing.push("max stemmer per deltager");
-    if (choices.filter((c) => c.trim() !== "").length === 0)
-	    missing.push("valgmuligheder");
-    if (pollId === null) missing.push("Afstemningen er ikke gemt endnu - klik venligst 'Gem kladde' og prøv igen!"); 
-    if (startInPast) missing.push("gyldigt starttidspunkt (skal være i fremtiden)");
-    if (endBeforeStart) missing.push("gyldigt sluttidspunkt (skal være efter starttidspunktet)");
-
+  const missing: string[] = [];
+  if (!pollData.title?.trim()) missing.push("titel");
+  if (!pollData.pollVisibility) missing.push("offentlig/privat");
+  if (!pollData.ballotPrivacy) missing.push("åben/hemmelig stemme");
+  if (!pollData.startsAt) missing.push("starttidspunkt");
+  if (!pollData.endsAt) missing.push("sluttidspunkt");
+  if (ballotLimit <= 0) missing.push("max stemmer per deltager");
+  if (choices.filter((c) => c.trim() !== "").length === 0) {
+    missing.push("valgmuligheder");
+  }
+  if (pollId === null) {
+    missing.push(
+      "Afstemningen er ikke gemt endnu - klik venligst 'Gem kladde' og prøv igen!",
+    );
+  }
+  if (startInPast) {
+    missing.push("gyldigt starttidspunkt (skal være i fremtiden)");
+  }
+  if (endBeforeStart) {
+    missing.push("gyldigt sluttidspunkt (skal være efter starttidspunktet)");
+  }
 
   return (
     <div className="create-poll-content">
@@ -1102,10 +1128,10 @@ export function CreatePollStep4({
           <h2>Stemmeberettigede</h2>
           {invalidVoters.length > 0 && (
             <p className="field-hint" style={{ color: "#e74c3c" }}>
-              Følgende stemmeberettigede har flere stemmer end max ({ballotLimit}):
-              {" "}
-              {invalidVoters.map((v) => v.username).join(", ")}. Ret det inden
-              afstemningen kan oprettes.
+              Følgende stemmeberettigede har flere stemmer end max
+              ({ballotLimit}): {invalidVoters.map((v) =>
+                v.username
+              ).join(", ")}. Ret det inden afstemningen kan oprettes.
             </p>
           )}
           <div className="voter-list">
@@ -1120,7 +1146,9 @@ export function CreatePollStep4({
                     <div key={i} className="voter-row">
                       <span>{voter.username}</span>
                       {voter.votesAllowed !== undefined && (
-                        <span style={exceeds ? { color: "#e74c3c" } : undefined}>
+                        <span
+                          style={exceeds ? { color: "#e74c3c" } : undefined}
+                        >
                           Stemmer: {voter.votesAllowed}
                         </span>
                       )}
@@ -1151,9 +1179,9 @@ export function CreatePollStep4({
 
       <br />
       {!isComplete && missing.length > 0 && (
-	      <p className="field-hint" style={{ color: "#e74c3c" }}>
-	      Følgende mangler før afstemningen kan oprettes: {missing.join(", ")}.
-		      </p>
+        <p className="field-hint" style={{ color: "#e74c3c" }}>
+          Følgende mangler før afstemningen kan oprettes: {missing.join(", ")}.
+        </p>
       )}
 
       {!hideAction && (

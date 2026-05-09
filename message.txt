@@ -1,0 +1,56 @@
+Validate poll start/end times before publish
+
+  A poll could be saved with endsAt before startsAt or with startsAt
+  already in the past, producing a poll that was "finished" before any
+  voter could cast a ballot. The frontend only checked that the date
+  fields were non-empty, never their relationship; the server's
+  validateForPublish had the same gap.
+
+  Frontend (CreatePollPage step 1):
+  - Compute startDateTime/endDateTime from the form state and gate
+    "Gem og fortsæt" on two new rules: startDateTime >= now and
+    endDateTime > startDateTime. The end-in-future check is omitted
+    because it follows transitively from the other two.
+  - "Start nu" is the explicit escape hatch: it sets startDateTime to
+    the current moment, so the >= check trivially passes.
+  - Two distinct red error messages (start-in-past, end-before-start)
+    so the user knows which field to fix.
+
+  Frontend (CreatePollPage step 4 / overview):
+  - Same checks added to isComplete and the "missing" list, so the
+    "Opret afstemning" button is disabled with a clear reason.
+  - startNow is now passed as a prop so step 4 can distinguish "user
+    picked a time that is now in the past" from "user clicked Start
+    nu and a few hundred ms have elapsed since buildPollData ran".
+  - Both new checks are gated on !hideAction so PollOverviewPage
+    (which reuses step 4 read-only) does not show false errors for
+    already-running or finished polls.
+
+  Server (pollManager.validateForPublish):
+  - Parse startsAt/endsAt as Date and reject malformed strings.
+  - Reject startsAt more than 60s in the past. The 60s tolerance
+    absorbs network latency, server queue time, and clock skew so
+    legitimate "Start nu" requests are not falsely rejected. An
+    attacker bypassing the UI cannot send fx 2020 timestamps.
+  - Reject endsAt <= startsAt.
+
+  Tests (testing_grounds/test.ts):
+  - Three pre-existing publish tests (creator can publish a complete
+    draft poll, publishPoll rejects when ballotLimit is missing,
+    publishPoll rejects voters with votesAllowed exceeding
+    ballotLimit) did not send startsAt/endsAt and had been failing
+    since the startsAt/endsAt requirement was added in #100. They
+    now compute startsAt = now+1h, endsAt = now+2h and pass them in
+    the request body, so each test reaches the assertion it was
+    written to verify.
+  - Three new tests cover the new validation:
+    publishPoll rejects when endsAt is before startsAt,
+    publishPoll rejects when startsAt is in the past (using a 2020
+    date so it is unambiguously outside the tolerance window), and
+    publishPoll accepts startsAt close to now (within tolerance)
+  - Fixed started poll is not editable via getDraft: it expected
+    status 403, but loadEditableDraft deliberately returns 409 when
+    the caller is the creator but the poll has left draft state
+    (state conflict, not authorization). The test expectation was
+    wrong; updated to 409 to match the documented behavior on
+    pollManager.ts:736-737.
