@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import "./LoginPage.css";
 import { getCookie } from "../WebLib.ts";
 import { FaLock, FaUser } from "react-icons/fa";
@@ -8,15 +8,20 @@ type LoginPageProps = {
 };
 
 function LoginPage({ setIsLoggedIn }: LoginPageProps) {
-  let username: string;
-  let password: string;
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+
+  //Form validation error
+  const [error, setError] = useState(false);
 
   function handleUsernameChange(event: React.ChangeEvent<HTMLInputElement>) {
-    username = event.target.value;
+    setUsername(event.target.value);
+    setError(false);
   }
 
   function handlePasswordChange(event: React.ChangeEvent<HTMLInputElement>) {
-    password = event.target.value;
+    setPassword(event.target.value);
+    setError(false);
   }
 
   async function handleLogin(event: React.SubmitEvent) {
@@ -37,45 +42,51 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
       setIsLoggedIn(getCookie("isLoggedIn", document.cookie));
     } else {
       console.log("login failed with code: " + res.status);
+      setError(true);
     }
   }
 
   return (
     <>
-      <div className="login-container">
-        <div className="form">
-          <h1>Login</h1>
-          <form onSubmit={handleLogin}>
-            <div className="input-wrapper">
-              <FaUser className="input-icon" />
-              <input
-                name="username"
-                id="username"
-                type="text"
-                autoComplete="username"
-                placeholder="brugernavn"
-                className="input-field"
-                required
-                onChange={handleUsernameChange}
-              />
-            </div>
-            <div className="input-wrapper">
-              <FaLock className="input-icon" />
-              <input
-                name="password"
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder="adgangskode"
-                className="input-field"
-                required
-                onChange={handlePasswordChange}
-              />
-            </div>
-            <button type="submit" className="input-submit">
-              Login
-            </button>
-          </form>
+      <div className="login-page">
+        <div className="login-container">
+          <div className="form">
+            <h1>Login</h1>
+            {error && (
+              <p className="error-text">Forkert brugernavn eller adgangskode</p>
+            )}
+            <form onSubmit={handleLogin}>
+              <div className="input-wrapper">
+                <FaUser className="input-icon" />
+                <input
+                  name="username"
+                  id="username"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="brugernavn"
+                  className={`input-field ${error ? "input-error" : ""}`}
+                  required
+                  onChange={handleUsernameChange}
+                />
+              </div>
+              <div className="input-wrapper">
+                <FaLock className="input-icon" />
+                <input
+                  name="password"
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="adgangskode"
+                  className={`input-field ${error ? "input-error" : ""}`}
+                  required
+                  onChange={handlePasswordChange}
+                />
+              </div>
+              <button type="submit" className="input-submit">
+                Login
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </>

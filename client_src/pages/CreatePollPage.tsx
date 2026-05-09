@@ -7,7 +7,31 @@ import type {
   pollVisibility,
 } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
-// import { build } from "npm:vite@^8.0.10";
+import { useNavigate } from "react-router/internal/react-server-client";
+
+/**
+ * React hook that determines whether the viewport width is below a given breakpoint.
+ *
+ * @param breakpoint - The pixel width threshold used to determine "mobile".
+ * @returns A boolean indicating whether the current viewport width is less than the breakpoint.
+ *
+ * @example
+ * const isMobile = useIsMobile(900);
+ * if (isMobile) {
+ *   // Render mobile layout
+ * }
+ */
+function useIsMobile(breakpoint: number) {
+  const [isMobile, setIsMobile] = useState(globalThis.innerWidth < breakpoint);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(globalThis.innerWidth < breakpoint);
+    globalThis.addEventListener("resize", onResize);
+    return () => globalThis.removeEventListener("resize", onResize);
+  }, [breakpoint]);
+
+  return isMobile;
+}
 
 /* Navigation between the steps, as seen in all of the wireframes
     - Lets the user freely navigate between the pages, plus delete and save poll.
@@ -856,7 +880,7 @@ function CreatePollStep2({
       </div>
 
       <br />
-      <button type="button" onClick={onNext}>
+      <button type="button" className="create-poll-button" onClick={onNext}>
         Gem og fortsæt
       </button>
     </div>
@@ -923,7 +947,7 @@ function CreatePollStep3({
       <br />
       <button
         type="button"
-        className="button-secondary"
+        className="button-secondary create-poll-button"
         onClick={handleAddChoice}
       >
         + Tilføj valgmulighed
@@ -931,7 +955,7 @@ function CreatePollStep3({
 
       <br />
       <br />
-      <button type="button" onClick={onNext}>
+      <button type="button" className="create-poll-button" onClick={onNext}>
         Gem og fortsæt
       </button>
     </div>

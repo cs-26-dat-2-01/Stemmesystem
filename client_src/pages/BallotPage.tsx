@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
 import "./BallotPage.css";
 import type { Poll, PollOption } from "../WebLib.ts";
+import { Link } from "react-router/internal/react-server-client";
 
 /* What i can see is i can make a "render screen" where we create the UUID, and send it back to the server, we then
 use useEffect from React to do all of this, and then use useState to rerender the page.
@@ -239,9 +240,9 @@ function BallotPage({ pollId }: BallotPageProps) {
           <div className="ballot-done">
             <h2>Tak for din stemme!</h2>
             <p>Din stemme er blevet registreret.</p>
-            <a href="/" className="ballot-back-link">
+            <Link to="/" className="ballot-back-link">
               Tilbage til oversigten
-            </a>
+            </Link>
           </div>
         </div>
       </>
@@ -255,9 +256,9 @@ function BallotPage({ pollId }: BallotPageProps) {
           <div className="ballot-error">
             <h2>Noget gik galt</h2>
             <p>{errorMessage || "Ukendt fejl."}</p>
-            <a href="/" className="ballot-back-link">
+            <Link to="/" className="ballot-back-link">
               Tilbage til oversigten
-            </a>
+            </Link>
           </div>
         </div>
       </>

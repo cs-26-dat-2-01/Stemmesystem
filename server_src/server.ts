@@ -1,12 +1,15 @@
 import { Hono } from "@hono/hono";
+import { upgradeWebSocket } from "@hono/hono/deno";
+import { WSContext } from "@hono/hono/ws";
 import { deleteCookie, setCookie } from "@hono/hono/cookie";
 import * as argon2 from "npm:argon2@0.44.0";
 import { logger, MIME_TYPES } from "./main_lib.ts";
 import { WebappDatabase } from "./database.ts";
-import { User } from "../client_src/WebLib.ts";
+import { callbackTypes, User } from "../client_src/WebLib.ts";
 import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
 import { addUser, assertClientVersion } from "./api.ts";
 import { PollManager } from "./pollManager.ts";
+import { JWTPayload } from "@panva/jose";
 
 /**
  * Start the web application.
@@ -15,14 +18,13 @@ import { PollManager } from "./pollManager.ts";
  */
 export function startServer(DB: WebappDatabase, ac: AbortController) {
   const { signal } = ac;
-
   const router = new Hono();
-
   const pollManager = new PollManager(DB);
+
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {
     logger
-      .info`Received login request. Attempting to parse JSON body for username and password.`;
+      .trace`Received login request. Attempting to parse JSON body for username and password.`;
 
     // Parse user credential from request body. If parsing fails, then the user provided an invalid JSON body and a 400 response is returned.
     let userCredentials = undefined;
@@ -155,10 +157,11 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   });
 
   router.post("/api/admin/add-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload) => {
-      if (verifiedPayload.username !== "admin") { // To-do: Create better authentication for this.
+    return await hasValidJWT(c, async (verifiedPayload: JWTPayload) => {
+      if (verifiedPayload.username !== "admin") {
+        // To-do: Create better authentication for this.
         logger.trace`Failed authenication atempt on admin API route.`;
-        return c.body("401 Unauthorized", 401);
+        return c.body("403 Unauthorized", 403);
       }
       const req = await c.req.json();
 
@@ -166,6 +169,21 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       return c.body("", result);
     });
   });
+
+  /*
+  Route: /api/me
+  Description:
+   Validates the JWT and returns the current user's username and admin status.
+ */
+  router.get("/api/me", async (c) => {
+    return await hasValidJWT(c, (payload: JWTPayload) => {
+      return c.json({
+        username: payload.username,
+        isAdmin: payload.username === "admin",
+      });
+    });
+  });
+
   /**
    * Serves the SPA shell (`dist/index.html`) for the root URL.
    *
@@ -342,7 +360,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
-  /*
+  /**
    * Cast a vote for a specific user, and a specific poll.
    *
    * @remarks
@@ -391,19 +409,39 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
         return c.body("Invalid vote shape", 400);
       }
       const userid = payload.userId as number;
-      const castedVote = await pollManager.castVote(
-        pollId,
-        userid,
-        body.votes,
-      );
+      const castedVote = await pollManager.castVote(pollId, userid, body.votes);
       if (castedVote.success === false) {
         return c.body(castedVote.errorMsg ?? "Vote failed", 400);
       }
+
+      // Calulate the effect of casting the vote for front end clients and send update signal via websockets for effected clients.
+      const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
+      if (
+        eligibleVotersResult.httpStatusCode !== 200 ||
+        !eligibleVotersResult.voters
+      ) {
+        logger
+          .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
+      }
+      logger.trace`eligibleVotersResult.voters: ${eligibleVotersResult.voters}`;
+      for (const voter of eligibleVotersResult.voters) {
+        const ws = clientWebsockets.get(voter.userId);
+        logger.trace`ws: ${ws}`;
+        if (ws) {
+          logger
+            .trace`Sending websocket message to userId: ${voter.userId} about new vote cast for pollId: ${pollId}`;
+          ws.send(JSON.stringify({
+            type: callbackTypes.refetchVoteCount,
+            pollId,
+          }));
+        }
+      }
+
       return c.body("Vote cast", 200);
     });
   });
 
-  /*
+  /**
    * Fetch the results of a finished poll.
    *
    * @remarks
@@ -813,6 +851,38 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       return c.json(results, results.httpStatusCode);
     })
   });
+   * Map containting active websockets tied to the user id of the connected client.
+   */
+  const clientWebsockets = new Map<number, WSContext>();
+
+  /**
+   * Websocket route for sending real-time updates to clients. The websocket connection is kept alive in the `clientWebsockets` map, where the key is the userId of the client and the value is the WSContext object which can be used to send messages to the client. The WSContext is created when a client connects to this route and is removed from the map when the connection is closed. Currently this websocket is used to send updates to clients when a vote is cast, so clients can update their UI without needing to poll for changes.
+   * Authentication is done via the `hasValidJWT` function, so only clients with a valid JWT cookie can establish a websocket connection.
+   */
+  router.get(
+    "/api/websocket",
+    async (c) => {
+      return await hasValidJWT(c, async (payload) => {
+        const response = await upgradeWebSocket(() => {
+          return {
+            onOpen(_event, ws) {
+              logger.trace`WebSocket connection opened for ${payload.username}`;
+              clientWebsockets.set(payload.userId as number, ws);
+            },
+            onMessage(event, _ws) {
+              logger.trace`Received WebSocket message: ${event.data}`;
+            },
+            onClose: () => {
+              logger.trace`Connection closed for ${payload.username}`;
+              clientWebsockets.delete(payload.userId as number); // To-do: Create better clean up of closed connections.
+            },
+          };
+        })(c, () => Promise.resolve());
+
+        return response ?? c.body("Failed to upgrade WebSocket", 400);
+      });
+    },
+  );
 
   // Deno.addSignalListener("SIGINT", () => {
   //   logger.info`Caught SIGINT, shutting down...`;
@@ -822,6 +892,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   // });
 
   const server = Deno.serve({ signal }, router.fetch);
+
   return server.finished;
 
   // closeDB(); // Figure out where to actually close this.

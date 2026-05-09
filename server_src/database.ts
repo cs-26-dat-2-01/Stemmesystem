@@ -862,8 +862,9 @@ export class WebappDatabase {
           },
           isUserEligibleVoter: poll.eligibleVoters.length > 0,
           hasVoted: userVoteCount > 0,
-          pollProgress: "not initialized",
+          pollProgress: await this.getVoteProgress(poll.id),
           timeLeft: "not initialized",
+          pollOwnerUsername: poll.creator.username,
         };
         return result;
       }));
