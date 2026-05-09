@@ -63,7 +63,7 @@ export type pollStatus =
 export interface PollOption {
   id: pollOptionId;
   pollId: pollId;
-  optionText: string;
+  optionText: string | null;
   displayOrder: number;
 }
 
@@ -94,18 +94,18 @@ export interface Vote {
  */
 export interface Poll {
   id: pollId;
-  title: string;
-  description: string;
+  title: string | null;
+  description: string | null;
   status: pollStatus;
   createdBy: userId;
   createdAt: string;
   startsAt?: string;
   endsAt?: string;
-  pollVisibility: pollVisibility;
-  ballotPrivacy: ballotPrivacy;
-  showTopN: number;
-  ballotLimit: number;
-  useBuffer: number;
+  pollVisibility: pollVisibility | null;
+  ballotPrivacy: ballotPrivacy | null;
+  showTopN: number | null;
+  ballotLimit: number | null;
+  useBuffer: number | null;
 }
 
 export interface OpenpollResult {

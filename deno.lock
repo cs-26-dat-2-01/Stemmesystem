@@ -28,6 +28,7 @@
     "npm:eslint@^9.39.4": "9.39.4",
     "npm:globals@^17.5.0": "17.5.0",
     "npm:jose@5.9.6": "5.9.6",
+    "npm:prisma@*": "7.8.0_typescript@5.9.3_@types+react@19.2.14_@types+react-dom@19.2.3__@types+react@19.2.14_react@19.2.5_react-dom@19.2.5__react@19.2.5",
     "npm:prisma@^4.5.0": "4.16.2",
     "npm:prisma@^7.8.0": "7.8.0_typescript@5.9.3_@types+react@19.2.14_@types+react-dom@19.2.3__@types+react@19.2.14_react@19.2.5_react-dom@19.2.5__react@19.2.5",
     "npm:react-dom@^19.2.5": "19.2.5_react@19.2.5",

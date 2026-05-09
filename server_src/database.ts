@@ -52,20 +52,35 @@ export interface VoteInsert {
 }
 
 export interface PollCreateInput {
-  title: string;
-  description: string;
-  status: pollStatus;
+  title?: string | null;
+  description?: string | null;
+  voteStatus: pollStatus | null;
   createdBy: number;
-  startsAt: string | null;
-  endsAt: string | null;
-  pollVisibility: pollVisibility;
-  ballotPrivacy: ballotPrivacy;
-  showTopN: number;
-  ballotLimit: number;
-  useBuffer: number;
-  optionTexts: string[];
-  voterUserIds: number[];
+  startsAt?: string | null;
+  endsAt?: string | null;
+  pollVisibility?: pollVisibility | null;
+  ballotPrivacy?: ballotPrivacy | null;
+  showTopN?: number | null;
+  ballotLimit?: number | null;
+  useBuffer?: number | null;
+  optionTexts?: string[];
+  voterUserIds?: number[];
 }
+export interface PollUpdateInput {
+  title?: string | null;
+  description?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  pollVisibility?: pollVisibility | null;
+  ballotPrivacy?: ballotPrivacy | null;
+  showTopN?: number | null;
+  ballotLimit?: number | null;
+  useBuffer?: number | null;
+  voteStatus?: pollStatus;
+  optionTexts?: string[];
+  voters?: Array<{ userId: number; votesAllowed: number }>;
+}
+
 /**
  * Class for creating an ad hoc database object for the web application.
  */
@@ -307,8 +322,8 @@ export class WebappDatabase {
 
       const poll: Poll = {
         id: sqlResult.id,
-        title: sqlResult.title,
-        description: sqlResult.description,
+        title: sqlResult.title as Poll["title"],
+        description: sqlResult.description as Poll["description"],
         status: sqlResult.voteStatus as pollStatus,
         createdBy: sqlResult.createdBy,
         createdAt: sqlResult.createdAt.toString(),
@@ -316,8 +331,8 @@ export class WebappDatabase {
           ? sqlResult.startsAt.toString()
           : undefined,
         endsAt: sqlResult.endsAt ? sqlResult.endsAt.toString() : undefined,
-        pollVisibility: sqlResult.pollVisibility as pollVisibility,
-        ballotPrivacy: sqlResult.ballotPrivacy as ballotPrivacy,
+        pollVisibility: sqlResult.pollVisibility as pollVisibility | null,
+        ballotPrivacy: sqlResult.ballotPrivacy as ballotPrivacy | null,
         showTopN: sqlResult.showTopN,
         ballotLimit: sqlResult.ballotLimit,
         useBuffer: sqlResult.useBuffer,
@@ -789,7 +804,9 @@ export class WebappDatabase {
     const totalEligible = await this.prisma.pollEligibleVoter.count({
       where: { pollId: pollId },
     });
-    const ballotsCast = await this.prisma.vote.count();
+    const ballotsCast = await this.prisma.vote.count({
+    	where: {pollId},
+    });
 
     return `${ballotsCast}/${totalEligible}`;
   }
@@ -837,8 +854,8 @@ export class WebappDatabase {
             createdAt: poll.createdAt.toString(),
             startsAt: poll.startsAt ? poll.startsAt.toString() : undefined,
             endsAt: poll.endsAt ? poll.endsAt.toString() : undefined,
-            pollVisibility: poll.pollVisibility as pollVisibility,
-            ballotPrivacy: poll.ballotPrivacy as ballotPrivacy,
+            pollVisibility: poll.pollVisibility as pollVisibility | null,
+            ballotPrivacy: poll.ballotPrivacy as ballotPrivacy | null,
             showTopN: poll.showTopN,
             ballotLimit: poll.ballotLimit,
             useBuffer: poll.useBuffer,
@@ -868,10 +885,13 @@ export class WebappDatabase {
    *   that did not match a User row, so callers can reject the request
    *   with a precise error instead of silently dropping voters.
    */
-  public async getUserIdsByUsernames(
+  public async getUsersByUsernames(
     usernames: string[],
-  ): Promise<{ userIds: number[]; notFound: string[] }> {
-    if (usernames.length === 0) return { userIds: [], notFound: [] };
+  ): Promise<{
+    users: Array<{ id: number; username: string }>;
+    notFound: string[];
+  }> {
+    if (usernames.length === 0) return { users: [], notFound: [] };
     try {
       const found = await this.prisma.user.findMany({
         where: { username: { in: usernames } },
@@ -879,30 +899,29 @@ export class WebappDatabase {
       });
       const foundNames = new Set(found.map((u) => u.username));
       const notFound = usernames.filter((n) => !foundNames.has(n));
-      return { userIds: found.map((u) => u.id), notFound };
+      return { users: found, notFound };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error looking up usernames. Error: ${errMsg}`;
-      return { userIds: [], notFound: usernames };
+      logger.error`Error looking up users by usernames. Error: ${errMsg}`;
+      return { users: [], notFound: usernames };
     }
   }
 
   /**
-   * Inserts a new poll along with its options and eligible voters in a
-   * single transaction. Either everything is persisted or nothing is —
-   * partial inserts (poll without options, or options without voters)
-   * are not allowed.
+   * Inserts a new poll, optionally along with its options and eligible
+   * voters, in a single transaction. The three inserts are atomic: if any
+   * step fails, nothing is persisted.
    *
-   * @remarks
-   * `votesAllowed` for every eligible voter is set to `ballotLimit`. When
-   * per-voter voting power is introduced, this should be replaced by an
-   * explicit per-voter value passed in by the caller.
+   * Options and voters are both optional — a poll may be created on its
+   * own and have them added later. Empty or missing `optionTexts` /
+   * `voterUserIds` simply skip the corresponding insert.
    *
    * @param input the data needed to materialize the poll. `createdBy`
    *   must originate from a verified JWT, never from the request body.
    * @returns `{ pollId, httpStatusCode: 201 }` on success;
    *   `{ errorMsg, httpStatusCode: 500 }` if the transaction fails.
    */
+
   public async createPoll(input: PollCreateInput): Promise<{
     pollId?: number;
     errorMsg?: string;
@@ -914,7 +933,7 @@ export class WebappDatabase {
           data: {
             title: input.title,
             description: input.description,
-            voteStatus: input.status,
+            voteStatus: input.voteStatus ?? "draft",
             createdBy: input.createdBy,
             startsAt: input.startsAt ? new Date(input.startsAt) : null,
             endsAt: input.endsAt ? new Date(input.endsAt) : null,
@@ -926,7 +945,7 @@ export class WebappDatabase {
           },
         });
 
-        if (input.optionTexts.length > 0) {
+        if (input.optionTexts && input.optionTexts.length > 0) {
           await tx.pollOption.createMany({
             data: input.optionTexts.map((text, i) => ({
               pollId: poll.id,
@@ -936,12 +955,12 @@ export class WebappDatabase {
           });
         }
 
-        if (input.voterUserIds.length > 0) {
+        if (input.voterUserIds && input.voterUserIds.length > 0) {
           await tx.pollEligibleVoter.createMany({
             data: input.voterUserIds.map((userId) => ({
               pollId: poll.id,
               userId,
-              votesAllowed: input.ballotLimit,
+              votesAllowed: input.ballotLimit ?? 1,
             })),
           });
         }
@@ -957,30 +976,226 @@ export class WebappDatabase {
     }
   }
 
-  /**
-   * Fetches the list of eligible voters for a given poll, returning their userIds.
+/**
+ * Deletes the poll identified by 'pollId'. Cascades to related rows 
+ * (options, eligible voters, votes) which are governed by the schema's 
+ * foreign-key rules, not by this method. 
+ *
+ * @param pollId the id of the poll to delete.
+ * @returns `httpStatuscode 200 on success; 500 if the delete fails - including 
+ * 	the case where no poll with 'pollId' exists 
+ */
+  public async deletePoll(
+    pollId: number,
+  ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
+    try {
+      const DeletePoll = await this.prisma.poll.delete(
+        { where: { id: pollId } },
+      );
+
+      return { httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "unknown error";
+      logger.error`Error while deleting poll. Error: ${errMsg}`;
+      return { errorMsg: "Error while deleting poll", httpStatusCode: 500 };
+    }
+  }
+
+  /** 
+   * Looks up every eligible voter for a given poll along with how many
+   * votes each is allowed to cast. Joins through 'pollEligibleVoter' so
+   * the usernames come from the the 'user' table. 
    *
-   * @param pollId - the ID of the poll to fetch eligible voters for.
-   * @returns An object containing an array of voter userIds, an HTTP status code, and an optional error message if the operation failed. Returns 200 on success (with an empty array if no eligible voters exist) and 500 if an error occurs during fetching, in which case `voters` is an empty array.
+   * @param pollId the id of the poll whose eligible voters to fetch
+   * @returns an array of '{username, votesAllowed}'. Empty if the poll has 
+   * 	no eligible voters or does not exists. Errors are not caught and will 
+   * 	propagte to the caller. 
    */
-  public async getAllEligibleVotersForPoll(pollId: number): Promise<{
-    voters: { userId: number }[];
+  public async getEligibleVoters(
+    pollId: number,
+  ): Promise<Array<{ username: string; votesAllowed: number }>> {
+    const rows = await this.prisma.pollEligibleVoter.findMany({
+      where: { pollId },
+      select: {
+        votesAllowed: true,
+        user: { select: { username: true } },
+      },
+    });
+    return rows.map((r) => ({
+      username: r.user.username,
+      votesAllowed: r.votesAllowed,
+    }));
+  }
+/** 
+ * Applies a partial update to a poll, optionally replacing its options
+ * and/or eligible voters, in a single atomic transaction. The poll update,
+ * options replacement, and voters replacement all succeed or all roll back
+ * together. 
+ *
+ * Only fields explicitly set on 'input' are written; 'undefined' leaves
+ * the existing value untouched, while 'null' clears it (where the column
+ * allows it). 'startsAt' / 'endsAt' accept ISO strings and are converted 
+ * to 'Date' 
+ *
+ * Options and voters are full replacements, not merges: if 'optionTexts' is 
+ * provided, all existing options for the poll are deleted and recreated from 
+ * the new array (an empty array clears them). The same applies to 'voters'.
+ * If either field is 'undefined' the corresponding rows are left as-is. 
+ *
+ * @param pollId the id of the poll to update. 
+ * @param input the fields to change. Per-voter 'votesAllowed' is taken directly 
+ * 	form each entry in 'voters'
+ * @returns httpstatuscode: 200 on success, 500 if the transaction fails. 
+ */ 
+  public async updatePoll(
+    pollId: number,
+    input: PollUpdateInput,
+  ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const data: Prisma.PollUpdateInput = {};
+        if (input.title !== undefined) data.title = input.title;
+        if (input.description !== undefined) {
+          data.description = input.description;
+        }
+        if (input.startsAt !== undefined) {
+          data.startsAt = input.startsAt ? new Date(input.startsAt) : null;
+        }
+        if (input.endsAt !== undefined) {
+          data.endsAt = input.endsAt ? new Date(input.endsAt) : null;
+        }
+        if (input.pollVisibility !== undefined) {
+          data.pollVisibility = input.pollVisibility;
+        }
+        if (input.ballotPrivacy !== undefined) {
+          data.ballotPrivacy = input.ballotPrivacy;
+        }
+        if (input.showTopN !== undefined) data.showTopN = input.showTopN;
+        if (input.ballotLimit !== undefined) {
+          data.ballotLimit = input.ballotLimit;
+        }
+        if (input.useBuffer !== undefined) data.useBuffer = input.useBuffer;
+        if (input.voteStatus !== undefined) data.voteStatus = input.voteStatus;
+
+        await tx.poll.update({ where: { id: pollId }, data });
+
+        if (input.optionTexts !== undefined) {
+          await tx.pollOption.deleteMany({ where: { pollId } });
+          if (input.optionTexts.length > 0) {
+            await tx.pollOption.createMany({
+              data: input.optionTexts.map((text, i) => ({
+                pollId,
+                optionText: text,
+                displayOrder: i,
+              })),
+            });
+          }
+        }
+
+        if (input.voters !== undefined) {
+          await tx.pollEligibleVoter.deleteMany({ where: { pollId } });
+          if (input.voters.length > 0) {
+            await tx.pollEligibleVoter.createMany({
+              data: input.voters.map((v) => ({
+                pollId,
+                userId: v.userId,
+                votesAllowed: v.votesAllowed,
+              })),
+            });
+          }
+        }
+      });
+      return { httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error updating poll. Error: ${errMsg}`;
+      return { errorMsg: "Error updating poll", httpStatusCode: 500 };
+    }
+  }
+
+  /**
+   * Moves polls that has hit their time limit:
+   * 	1. Polls in 'not started' whose 'startsAt' is now in the past 
+   * 	   are moved to 'started'.
+   * 	2. Polls in 'started' whose 'endsAt' is now in the past are 
+   * 	   moved to 'finished'. 
+   *
+   * Both passes share the same 'now' timestamp so if a poll has already
+   * passed it startsAt and endsAt will progress to 'finished' in a single call. 
+   *
+   * Errors are caught and logged: the method never throws: on failure
+   * the returned counts are started: 0 finished: 0, which is indistringuishable
+   * from a tick which just havent done anything - so it is required to check the logs
+   * to tell them apart. 
+   *
+   * @returns number of rows changed (for logging/debuggin):
+   */
+  public async tickPollStatuses(): Promise<
+    { started: number; finished: number }
+  > {
+    const now = new Date();
+    try {
+      const started = await this.prisma.poll.updateMany({
+        where: {
+          voteStatus: "not started",
+          startsAt: { lte: now },
+        },
+        data: { voteStatus: "started" },
+      });
+      const finished = await this.prisma.poll.updateMany({
+        where: {
+          voteStatus: "started",
+          endsAt: { lte: now },
+        },
+        data: { voteStatus: "finished" },
+      });
+      return { started: started.count, finished: finished.count };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error`tickPollStatuses failed: ${errMsg}`;
+      return { started: 0, finished: 0 };
+    }
+  }
+
+  /**
+   * Fetches the id and username of every user in the database. Used to 
+   * populate user pickers (e.g.  when assigning eligible voters to a poll), 
+   * so the passwords and other sensitive columns are deliberately excluded 
+   * from the projection. 
+   *
+   * @returns ' {users, httpStatuscode: 200}' on success. If the table is empty
+   * 	'usersø is '[]' and errorMsg is set to a descriptive message - the status
+   * 	is still 200 because an empty user list is not an error. On a qury failure, 'users'
+   * 	is '[]', and errorMsg is set and the status is now 500. 
+   */
+  public async getAllUsersFromDB(): Promise<{
+    users: { id: number; username: string }[];
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
   }> {
     try {
-      const voters = await this.prisma.pollEligibleVoter.findMany({
-        where: { pollId },
-        select: { userId: true },
+      const users = await this.prisma.user.findMany({
+        select: { id: true, username: true },
       });
-      return { voters, httpStatusCode: 200 };
+
+      if (users.length === 0) {
+        return {
+          users: [],
+          httpStatusCode: 200,
+          errorMsg: "Didnt get users from DB",
+        };
+      }
+
+      return {
+        users: users,
+        httpStatusCode: 200,
+      };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching audit log. Error: ${errMsg}`;
       return {
-        voters: [],
-        errorMsg: "Error fetching eligible voters",
+        users: [],
+        errorMsg: "Error fetching all users from DB",
         httpStatusCode: 500,
       };
     }
