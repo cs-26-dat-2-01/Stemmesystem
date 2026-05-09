@@ -427,7 +427,27 @@ export class PollManager {
       httpStatusCode: 200,
     };
   }
-  // createPoll skal "INSERT" som den første gang, her skal status være draft (ingen validering da vi accepterer tomme felter.) createPoll vil blive kaldt så snart brugeren skriver noget i et felt (tænker jeg) og så kan vi nemlig autosave med en UPDATE
+
+/**
+   * Creates a new poll in `draft` state, owned by the given user. Only
+   * the poll's own fields are set here — options and eligible voters
+   * are added later via `updatePoll` / `publishPoll`.
+   *
+   * No validation of the poll's fields is performed at this stage; a
+   * draft is allowed to be incomplete. The full publish-time invariants
+   * (title required, voters within `ballotLimit`, etc.) are enforced
+   * by `validateForPublish` when the poll is later promoted out of
+   * draft.
+   *
+   * @param createdByUserId the id of the authenticated user who will
+   *   own the poll. Must come from a verified JWT, never from the
+   *   request body.
+   * @param input the poll fields to seed the draft with.
+   * @returns `{ pollId, httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` propagated from the database layer
+   *   on failure. Note the status is normalized from the DB layer's
+   *   `201` down to `200` for the API surface.
+   */
   public async createPoll(
     createdByUserId: number,
     input: {
@@ -462,26 +482,44 @@ export class PollManager {
   }
 
   /**
-   * Creates a new poll in `draft` state, owned by the given user. Only
-   * the poll's own fields are set here — options and eligible voters
-   * are added later via `updatePoll` / `publishPoll`.
-   *
-   * No validation of the poll's fields is performed at this stage; a
-   * draft is allowed to be incomplete. The full publish-time invariants
-   * (title required, voters within `ballotLimit`, etc.) are enforced
-   * by `validateForPublish` when the poll is later promoted out of
+   * Applies a partial update to an existing draft, optionally replacing
+   * its options and/or eligible voters. Used as the autosave path while
+   * the user is editing — every step in the create-flow patches the
+   * draft via this method, and `publishPoll` later promotes it out of
    * draft.
    *
-   * @param createdByUserId the id of the authenticated user who will
-   *   own the poll. Must come from a verified JWT, never from the
-   *   request body.
-   * @param input the poll fields to seed the draft with.
-   * @returns `{ pollId, httpStatusCode: 200 }` on success;
-   *   `{ errorMsg, httpStatusCode }` propagated from the database layer
-   *   on failure. Note the status is normalized from the DB layer's
-   *   `201` down to `200` for the API surface.
+   * Authorization is delegated to `loadEditableDraft`: the caller must
+   * be the poll's creator and the poll must still be in `"draft"`.
+   *
+   * Pre-processing on `input.voters` (when provided): usernames are
+   * trimmed, empty entries dropped, and duplicates collapsed (last
+   * entry per username wins). The resulting names are resolved to user
+   * ids; if any name does not match a `User` row, the request is
+   * rejected with `400 Unknown voters: …` and no DB write happens.
+   *
+   * No publish-time validation is performed here — invariants like
+   * "title is required" or "voters within ballotLimit" are only checked
+   * when the draft is later published via `publishPoll`. A draft is
+   * allowed to be incomplete.
+   *
+   * The actual write is a single transaction in `DB.updatePoll`: poll
+   * fields, options, and voters all succeed or all roll back together.
+   * Options and voters are full replacements when their corresponding
+   * field is provided (`optionTexts` / `voters`); leaving a field
+   * `undefined` keeps the existing rows untouched.
+   *
+   * @param userId the id of the authenticated caller (from a verified
+   *   JWT).
+   * @param pollId the id of the draft to update.
+   * @param input the fields to change. `poll` carries partial poll
+   *   fields; `voters` and `optionTexts` are optional and trigger full
+   *   replacement of the corresponding rows when present.
+   * @returns `{ httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` on failure — `400` for unknown
+   *   voters, or whatever status `loadEditableDraft` / `DB.updatePoll`
+   *   propagate (`403` / `404` / `409` / `500`).
    */
-  public async updatePoll(
+    public async updatePoll(
     userId: number,
     pollId: number,
     input: {
@@ -550,6 +588,43 @@ export class PollManager {
     return { httpStatusCode: 200 };
   }
 
+  /**
+   * Promotes a draft poll to a published state, applying the final
+   * options and eligible voter roll in the same call. The poll
+   * transitions to `"not started"` so the scheduled tick can move it to
+   * `"started"` once `startsAt` elapses.
+   *
+   * Pipeline (each step short-circuits on failure):
+   * 1. Load the draft and verify the caller is allowed to edit it via
+   *    `loadEditableDraft`.
+   * 2. Trim option texts and drop empty entries.
+   * 3. Trim voter usernames, drop empty entries, and deduplicate by
+   *    username (last entry per name wins).
+   * 4. Resolve usernames to user ids; reject with `400` if any voter
+   *    name is unknown.
+   * 5. Run `validateForPublish` on the cleaned input; reject with `400`
+   *    on the first invariant violation.
+   * 6. Apply the update via `DB.updatePoll` in a single transaction
+   *    (poll fields, options, and voters are replaced atomically).
+   * 7. On success, write a `POLL_PUBLISHED` audit log entry.
+   *
+   * @param userId the id of the authenticated caller. Must come from a
+   *   verified JWT, never from the request body. Used both for
+   *   authorization (via `loadEditableDraft`) and for the audit log.
+   * @param pollId the id of the draft poll to publish.
+   * @param input the final state to publish: poll fields, eligible
+   *   voters with per-voter `votesAllowed`, and option texts.
+   * @returns `{ pollId, httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` on failure — `400` for unknown
+   *   voters or validation failures, or whatever status
+   *   `loadEditableDraft` / `DB.updatePoll` propagate (e.g. `403`,
+   *   `404`, `500`).
+   * 
+   * @remarks
+   * The audit-log write on step 7 is fire-and-forget — it is not
+   * awaited and its failure does not affect the response. The poll is
+   * already published at that point.
+   */
   public async publishPoll(
     userId: number,
     pollId: number,
@@ -637,6 +712,22 @@ export class PollManager {
     return { pollId, httpStatusCode: 200 };
   }
 
+ /**
+   * Loads a poll and verifies that the caller is allowed to edit it.
+   * Used as the authorization gate for `updatePoll`, `publishPoll`, and
+   * `getDraft` so the same rules apply across all edit-related paths
+   * (delete uses its own slightly looser rule).
+   *
+   * Returns a discriminated union: `{ ok: true, poll }` when editing is
+   * permitted; otherwise `{ ok: false, errorMsg, httpStatusCode }` with
+   * the appropriate status — `404` if the poll does not exist, `500` on
+   * a database error, `403` if the caller is not the poll's creator, or
+   * `409` if the poll has left draft state and is no longer editable.
+   *
+   * @param userId the id of the authenticated caller (from a verified
+   *   JWT).
+   * @param pollId the id of the poll to load.
+   */
   private async loadEditableDraft(
     userId: number,
     pollId: number,
@@ -668,6 +759,28 @@ export class PollManager {
     return { ok: true, poll: result.poll };
   }
 
+  /**
+   * Deletes a poll, gated by ownership and lifecycle state. Used both
+   * to discard drafts the creator no longer wants and to retract polls
+   * that have been saved but not yet started — once a poll has moved
+   * past those states (e.g. `"started"`, `"finished"`), deletion is
+   * refused so vote history cannot be erased.
+   *
+   * Authorization checks, in order:
+   * 1. Poll must exist (`404` otherwise; `500` on database error).
+   * 2. Caller must be the poll's creator (`403` otherwise).
+   * 3. Poll must be in `"draft"` or `"saved"` state (`403` otherwise).
+   *
+   * On success, writes a `POLL_DELETED` audit log entry. The audit-log
+   * write is fire-and-forget and does not affect the response.
+   *
+   * @param userId the id of the authenticated caller (from a verified
+   *   JWT). Used for both authorization and the audit log.
+   * @param pollId the id of the poll to delete.
+   * @returns `{ httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` on failure (`403` / `404` / `500`
+   *   per the rules above, or whatever `DB.deletePoll` propagates).
+   */
   public async deletePoll(
     userId: number,
     pollId: number,
@@ -715,33 +828,48 @@ export class PollManager {
     return { httpStatusCode: 200 };
   }
 
+/**
+   * Loads a poll's full editable state — poll fields, options, and the
+   * eligible voter roll — for the create/edit UI. Restricted to the
+   * poll's creator while it is still in `"draft"`; any other state returns 
+   * 409 (the poll has moverd past the editable phase..)
+   *
+   * @param userId the id of the authenticated caller (from a verified
+   *   JWT).
+   * @param pollId the id of the poll to load.
+   * @returns `{ result, httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` on failure (`403` / `404` / `500`).
+   */
   public async getDraft(userId: number, pollId: number): Promise<{
-    result?: {
-      poll: Poll;
-      options: PollOption[];
-      voters: Array<{ username: string; votesAllowed: number }>;
-    };
+    result?: { poll: Poll; options: PollOption[]; voters: Array<{ username:
+  string; votesAllowed: number }> };
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    const { poll, httpStatusCode } = await this.DB.getPollFromDB(pollId);
-    if (!poll) {
-      return {
-        errorMsg: "Poll not found",
-        httpStatusCode: httpStatusCode === 500 ? 500 : 404,
-      };
-    }
-    if (poll.createdBy !== userId) {
-      return { errorMsg: "Forbidden", httpStatusCode: 403 };
-    }
-    if (poll.status !== "draft" && poll.status !== "saved") {
-      return { errorMsg: "Poll is not editable", httpStatusCode: 403 };
+    const draft = await this.loadEditableDraft(userId, pollId);
+    if (!draft.ok) {
+      return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
     const options = await this.DB.getPollOptionsFromDB(pollId);
     const voters = await this.DB.getEligibleVoters(pollId);
-    return { result: { poll, options, voters }, httpStatusCode: 200 };
+    return {
+      result: { poll: draft.poll, options, voters },
+      httpStatusCode: 200,
+    };
   }
 
+/**
+   * Advances poll lifecycle states based on the current time, by
+   * delegating to `DB.tickPollStatuses` (which moves polls from
+   * `"not started"` → `"started"` and `"started"` → `"finished"` based
+   * on `startsAt` / `endsAt`). Intended to be called on a internval and 
+   * whenever someone tries to cast vote, openPoll and getResults and get /api/polls.
+   *
+   * Writes one audit log entry per non-empty transition bucket:
+   * `POLL_AUTO_STARTED` and/or `POLL_AUTO_FINISHED`, each carrying the
+   * count of polls moved in that pass. Buckets with zero transitions
+   * are skipped to keep the audit log free of empty heartbeats.
+   */
   public async tickPollStatuses(): Promise<void> {
     const { started, finished } = await this.DB.tickPollStatuses();
     if (started > 0) {
@@ -752,6 +880,22 @@ export class PollManager {
     }
   }
 
+ /**
+   * Loads a poll's overview view — poll fields, options, and the
+   * eligible voter roll — for read-only display (the status / progress
+   * page, as opposed to the editor served by `getDraft`). Available in
+   * any lifecycle state, not just drafts.
+   *
+   * Visibility rules: the poll's creator always has access; otherwise
+   * the caller must appear in the poll's eligible voter list. Anyone
+   * else gets `403` — there is no public read path through this method.
+   *
+   * @param userId the id of the authenticated caller (from a verified
+   *   JWT).
+   * @param pollId the id of the poll to load.
+   * @returns `{ result, httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` on failure (`403` / `404` / `500`).
+   */
   public async getPollOverview(userId: number, pollId: number): Promise<{
     result?: {
       poll: Poll;

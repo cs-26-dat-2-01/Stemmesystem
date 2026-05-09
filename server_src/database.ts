@@ -804,7 +804,9 @@ export class WebappDatabase {
     const totalEligible = await this.prisma.pollEligibleVoter.count({
       where: { pollId: pollId },
     });
-    const ballotsCast = this.prisma.vote.count();
+    const ballotsCast = await this.prisma.vote.count({
+    	where: {pollId},
+    });
 
     return `${ballotsCast}/${totalEligible}`;
   }
@@ -1192,7 +1194,7 @@ export class WebappDatabase {
       logger.error`Error fetching audit log. Error: ${errMsg}`;
       return {
         users: [],
-        errorMsg: "Error fetching audit log",
+        errorMsg: "Error fetching all users from DB",
         httpStatusCode: 500,
       };
     }
