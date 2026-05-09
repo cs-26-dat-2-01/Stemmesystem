@@ -212,10 +212,14 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
             <td className="ov-col-mystatus">
               {poll.hasVoted
                 ? (
-                  <span className="voted-label">
-                    Du har stemt <FaCheck />
-                  </span>
-                )
+			<button
+			type="button"
+			className="btn-vote"
+			onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
+			>
+			Se resultat <FaCheck />
+			</button>
+		)
                 : poll.poll.status === "started"
                 ? (
                   <button
