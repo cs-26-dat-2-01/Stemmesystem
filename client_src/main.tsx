@@ -11,6 +11,7 @@ import CreatePollPage from "./pages/CreatePollPage.tsx";
 import BallotPage from "./pages/BallotPage.tsx";
 import PollResults from "./pages/PollResult.tsx";
 import AuditLog from "./pages/AuditLog.tsx";
+import PollOverviewPage from "./pages/PollOverviewPage.tsx";
 
 function LoginGuard({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(
@@ -45,6 +46,12 @@ const PollResultsWrapper = () => {
   return <PollResults pollId={parseInt(id ?? "0", 10) || 0} />;
 };
 
+ const PollOverviewPageWrapper = () => {
+    const { id } = useParams();
+    return <PollOverviewPage pollId={parseInt(id ?? "0", 10) || 0} />;
+  };
+
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
@@ -63,6 +70,7 @@ createRoot(document.getElementById("root")!).render(
               path="/poll/:id/results"
               element={<PollResultsWrapper />}
             />
+	    <Route path="/poll/:id/overview" element={<PollOverviewPageWrapper/>} />
           </Routes>
         </WebSocketProvider>
       </LoginGuard>

@@ -205,7 +205,7 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
         {polls.map((poll) => (
           <tr key={poll.poll.id}>
             <td className="ov-col-title">
-              <Link className="ov-link-btn" to={`/poll/${poll.poll.id}`}>
+              <Link className="ov-link-btn" to={`/poll/${poll.poll.id}/overview`}>
                 {poll.poll.title}
               </Link>
             </td>
