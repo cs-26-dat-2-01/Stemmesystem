@@ -851,7 +851,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       return c.json(results, results.httpStatusCode);
     })
   });
-   * Map containting active websockets tied to the user id of the connected client.
+   /* Map containting active websockets tied to the user id of the connected client.
    */
   const clientWebsockets = new Map<number, WSContext>();
 

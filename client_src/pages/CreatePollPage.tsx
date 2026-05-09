@@ -7,7 +7,6 @@ import type {
   pollVisibility,
 } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
-import { useNavigate } from "react-router/internal/react-server-client";
 
 /**
  * React hook that determines whether the viewport width is below a given breakpoint.
@@ -21,6 +20,7 @@ import { useNavigate } from "react-router/internal/react-server-client";
  *   // Render mobile layout
  * }
  */
+ /* jeg kommenterer lige ud da jeg får en "fejl" i deno check, da den ikke bliver brugt pt. 
 function useIsMobile(breakpoint: number) {
   const [isMobile, setIsMobile] = useState(globalThis.innerWidth < breakpoint);
 
