@@ -323,6 +323,7 @@ function CreatePollPage(
           pollData={buildPollData()}
           voters={voters}
           choices={choices}
+	  pollId={pollId}
         />
       )}
 
@@ -336,7 +337,11 @@ function CreatePollPage(
           <button
             type="button"
             className="button-secondary"
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            onClick={async () => { 
+		    await handleSave();
+		    setStep((s) => Math.max(0, s - 1));
+	    }
+	    }
           >
             «
           </button>
@@ -345,7 +350,10 @@ function CreatePollPage(
               key={i}
               type="button"
               className={i === step ? "" : "button-secondary"}
-              onClick={() => setStep(i)}
+              onClick={async () => {
+		      await handleSave();
+		      setStep(i);
+	      }}
               disabled={i === step}
             >
               {s}
@@ -354,13 +362,16 @@ function CreatePollPage(
           <button
             type="button"
             className="button-secondary"
-            onClick={() => setStep((s) => Math.min(3, s + 1))}
+            onClick={ async () => {
+		    await handleSave();
+		    setStep((s) => Math.min(3, s + 1))
+	    }}
           >
             »
           </button>
         </div>
 
-        <button type="button" onClick={handleSave}>
+        <button type="button" onClick={ async () => {await handleSave();}}>
           Gem kladde
         </button>
       </div>
@@ -937,6 +948,7 @@ export function CreatePollStep4({
   choices,
   hideAction = false,
   heading = "Færdiggør afstemning",
+  pollId,
 }: {
   onNext: () => void;
   pollData: Partial<Poll>;
@@ -944,6 +956,7 @@ export function CreatePollStep4({
   choices: string[];
   hideAction?: boolean;
   heading?: string;
+  pollId: number | null;
 }) {
   const ballotLimit = pollData.ballotLimit ?? 0;
   const invalidVoters = voters.filter(
@@ -954,6 +967,7 @@ export function CreatePollStep4({
   );
 
   const isComplete = !!pollData.title?.trim() &&
+    pollId !== null && 
     !!pollData.pollVisibility &&
     !!pollData.ballotPrivacy &&
     !!pollData.startsAt &&
@@ -971,6 +985,7 @@ export function CreatePollStep4({
     if (ballotLimit <= 0) missing.push("max stemmer per deltager");
     if (choices.filter((c) => c.trim() !== "").length === 0)
 	    missing.push("valgmuligheder");
+    if (pollId === null) missing.push("Afstemningen er ikke gemt endnu - klik venligst 'Gem kladde' og prøv igen!"); 
 
   return (
     <div className="create-poll-content">
