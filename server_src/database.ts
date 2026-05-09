@@ -824,6 +824,12 @@ export class WebappDatabase {
     try {
       // Fetch all polls for a user, but only votes they are allowed to see!
       const polls = await this.prisma.poll.findMany({
+	where:{
+		OR: [
+			{voteStatus: { not: "draft" }}, //include all poll where status is not draft
+			{createdBy: userId}, // but include the drafted polls which is createdBy the user. 
+		],
+	},
         include: {
           // Hent ejers brugernavn i stedet for blot userId
           creator: { select: { username: true } },
