@@ -125,13 +125,13 @@ export type ResultsPayload =
     ballotPrivacy: "secret";
     showTopN: number;
     counts: { optionId: number; optionText: string; count: number }[];
-    votes: { uuid: string }[];
+    votes: { uuid: string, currentHash: string }[];
   }
   | {
     ballotPrivacy: "open";
     showTopN: number;
     counts: { optionId: number; optionText: string; count: number }[];
-    votes: { uuid: string; optionId: number; optionText: string }[];
+    votes: { uuid: string; optionId: number; optionText: string, currentHash: string }[];
   };
 
 /**

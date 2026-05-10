@@ -84,6 +84,7 @@ function PollResults({ pollId }: PollResultsProps) {
               <tr>
                 <th>Id</th>
                 <th>Stemme</th>
+                <th>Hash</th>
               </tr>
             </thead>
             <tbody>
@@ -98,6 +99,7 @@ function PollResults({ pollId }: PollResultsProps) {
                       >["votes"][number]).optionText
                       : "Skjult"}
                   </td>
+                  <td>{vote.currentHash}</td>
                 </tr>
               ))}
             </tbody>

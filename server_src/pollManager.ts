@@ -421,7 +421,7 @@ export class PollManager {
           ballotPrivacy: "secret",
           showTopN: poll.showTopN ?? 0,
           counts: countsWithText,
-          votes: votesResult.votes.map((v) => ({ uuid: v.id })),
+          votes: votesResult.votes.map((v) => ({ uuid: v.id, currentHash: v.currentHash})),
         },
         httpStatusCode: 200,
       };
@@ -434,6 +434,7 @@ export class PollManager {
         counts: countsWithText,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
+          currentHash: v.currentHash,
           optionId: v.pollOptionId,
           optionText: optionTextById.get(v.pollOptionId) ?? "(unknown)",
         })),
