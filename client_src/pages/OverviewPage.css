@@ -215,14 +215,14 @@
   white-space: nowrap;
 }
 
-.ov-table tbody tr {
+.ov-table-row {
   border-bottom: 1px solid #e5e7eb;
   transition: background 0.1s;
 }
-.ov-table tbody tr:nth-child(even) {
+.ov-table-row:nth-child(even) {
   background: #f9fafb;
 }
-.ov-table tbody tr:hover {
+.ov-table-row:hover {
   background: #eff6ff;
 }
 
@@ -260,18 +260,21 @@
 
 /* Stem button */
 .btn-vote {
-  display: inline-block;
-  padding: 5px 18px;
+  text-transform: uppercase;
+  outline: 0;
   background: var(--blue-button-color);
-  color: #fff;
-  border-radius: 5px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-decoration: none;
-  transition: background 0.15s;
+  border: 0;
+  padding: 9px 18px;
+  color: var(--primary-background-color);
+  font-size: 0.8rem;
+  font-family: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 .btn-vote:hover {
   background: var(--blue-button-hover);
+  opacity: 0.85;
 }
 
 /* Results button */
@@ -335,7 +338,7 @@
 }
 
 /* ─── Responsive ─────────────────────────────────────────────── */
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .ov-layout {
     grid-template-columns: 1fr;
   }
@@ -350,5 +353,34 @@
   }
   .ov-filter-btn {
     width: auto;
+  }
+  .ov-table-head {
+    display: none;
+  }
+  .ov-table-body {
+    display: flex;
+    overflow-x: scroll;
+    gap: 20px;
+    padding: 15px;
+    padding-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .ov-table td {
+    padding: 0px 14px;
+  }
+  .ov-table-row {
+    max-width: 100%;
+    flex-shrink: 0;
+    border: 2px solid #ccc;
+    scroll-snap-align: start;
+    flex-basis: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .ov-col-item {
+    margin: 0.5rem 0px;
+  }
+  .ov-col-item-title {
+    margin-right: 0.5rem;
   }
 }

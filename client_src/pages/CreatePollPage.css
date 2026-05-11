@@ -199,7 +199,7 @@ input[type="number"] {
 
 /* Buttons */
 
-.create-poll-content button {
+.create-poll-content button, .button-secondary {
   text-transform: uppercase;
   outline: 0;
   background: var(--blue-button-color);
@@ -222,6 +222,9 @@ input[type="number"] {
   opacity: 1;
   font-weight: 700;
   cursor: default;
+}
+.button-secondary:disabled {
+  cursor: not-allowed;
 }
 
 .create-poll-content .button-danger {

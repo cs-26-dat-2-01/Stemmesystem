@@ -45,6 +45,18 @@ function buildFolders(polls: FrontEndPoll[]): FolderMap {
   return map;
 }
 
+function useIsMobile(breakpoint: number) {
+  const [isMobile, setIsMobile] = useState(globalThis.innerWidth < breakpoint);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(globalThis.innerWidth < breakpoint);
+    globalThis.addEventListener("resize", onResize);
+    return () => globalThis.removeEventListener("resize", onResize);
+  }, [breakpoint]);
+
+  return isMobile;
+}
+
 // ─── Sidebar-komponent ────────────────────────────────────────────────────────
 // Sidebaren indeholder:
 //   1. "Opret Afstemning"-knap (link til oprettelsessiden)
@@ -191,12 +203,13 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
     return <p className="ov-empty">Ingen afstemninger fundet.</p>;
   }
   const navigate = useNavigate();
+  const isMobile = useIsMobile(900);
 
   return (
     <table className="ov-table">
-      <thead>
-        <tr>
-          <th>Afstemnings title</th>
+      <thead className="ov-table-head">
+        <tr className="ov-table-row">
+          <th>Afstemnings titel</th>
           <th>Din status</th>
           <th>Status</th>
           <th>Tid tilbage</th>
@@ -205,55 +218,153 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
           <th>Afstemnings ejer</th>
         </tr>
       </thead>
-      <tbody>
-        {polls.map((poll) => (
-          <tr key={poll.poll.id}>
-            <td className="ov-col-title">
-              <Link
-                className="ov-link-btn"
-                to={`/poll/${poll.poll.id}/overview`}
-              >
-                {poll.poll.title}
-              </Link>
-            </td>
-            <td className="ov-col-mystatus">
-              {poll.hasVoted ? (
-                <button
-                  type="button"
-                  className="btn-vote"
-                  onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
+      {isMobile ? (
+        <tbody className="ov-table-body">
+          {polls.map((poll) => (
+            <tr key={poll.poll.id} className="ov-table-row">
+              <td className="ov-col-title">
+                <div className="ov-col-item">
+                  <b className="ov-col-item-title">Afstemnings titel:</b>
+                  <span>
+                    {" "}
+                    <Link
+                      className="ov-link-btn"
+                      to={`/poll/${poll.poll.id}/overview`}
+                    >
+                      {poll.poll.title}
+                    </Link>
+                  </span>
+                </div>
+              </td>
+              <td className="ov-col-mystatus">
+                <div className="ov-col-item">
+                  <b className="ov-col-item-tile">Din status:</b>
+                  <p>
+                    {poll.hasVoted ? (
+                      <button
+                        type="button"
+                        className="btn-vote"
+                        onClick={() =>
+                          navigate(`/poll/${poll.poll.id}/results`)
+                        }
+                      >
+                        Se resultat <FaCheck />
+                      </button>
+                    ) : poll.poll.status === "started" ? (
+                      <button
+                        type="button"
+                        className="btn-vote"
+                        onClick={() => navigate(`/poll/${poll.poll.id}/vote`)}
+                      >
+                        Stem
+                      </button>
+                    ) : poll.poll.status === "draft" ? (
+                      <button
+                        type="button"
+                        className="btn-vote"
+                        onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
+                      >
+                        Rediger kladde
+                      </button>
+                    ) : null}
+                  </p>
+                </div>
+              </td>
+              <td className="ov-col-status">
+                <div className="ov-col-item">
+                  <b className="ov-col-item-title">Status:</b>
+                  <span>{statusLabel(poll)}</span>
+                </div>
+              </td>
+              <td className="ov-col-time">
+                <div className="ov-col-item">
+                  <b className="ov-col-item-title">Tid tilbage:</b>
+                  <span>{poll.timeLeft}</span>
+                </div>
+              </td>
+              <td className="ov-col-visibility">
+                <div className="ov-col-item">
+                  <b className="ov-col-item-title">Offentlig/Privat:</b>
+                  <span>{poll.poll.pollVisibility}</span>
+                </div>
+              </td>
+              <td className="ov-col-anon">
+                <div className="ov-col-item">
+                  <b className="ov-col-item-title">Hemmelig:</b>
+                  <span>
+                    {poll.poll.ballotPrivacy === "secret" ? (
+                      <FaCheck />
+                    ) : (
+                      <FaXmark />
+                    )}
+                  </span>
+                </div>
+              </td>
+              <td className="ov-col-owner">
+                <div className="ov-col-item">
+                  <b className="ov-col-item-title">Afstemnings ejer:</b>
+                  <span>{poll.pollOwnerUsername}</span>
+                </div>
+              </td>{" "}
+              {/*To-do: Change to username.*/}
+            </tr>
+          ))}
+        </tbody>
+      ) : (
+        <tbody className="ov-table-body">
+          {polls.map((poll) => (
+            <tr key={poll.poll.id} className="ov-table-row">
+              <td className="ov-col-title">
+                <Link
+                  className="ov-link-btn"
+                  to={`/poll/${poll.poll.id}/overview`}
                 >
-                  Se resultat <FaCheck />
-                </button>
-              ) : poll.poll.status === "started" ? (
-                <button
-                  type="button"
-                  className="btn-vote"
-                  onClick={() => navigate(`/poll/${poll.poll.id}/vote`)}
-                >
-                  Stem
-                </button>
-              ) : poll.poll.status === "draft" ? (
-                <button
-                  type="button"
-                  className="btn-vote"
-                  onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
-                >
-                  Rediger kladde
-                </button>
-              ) : null}
-            </td>
-            <td className="ov-col-status">{statusLabel(poll)}</td>
-            <td className="ov-col-time">{poll.timeLeft}</td>
-            <td className="ov-col-visibility">{poll.poll.pollVisibility}</td>
-            <td className="ov-col-anon">
-              {poll.poll.ballotPrivacy === "secret" ? <FaCheck /> : <FaXmark />}
-            </td>
-            <td className="ov-col-owner">{poll.pollOwnerUsername}</td>{" "}
-            {/*To-do: Change to username.*/}
-          </tr>
-        ))}
-      </tbody>
+                  {poll.poll.title}
+                </Link>
+              </td>
+              <td className="ov-col-mystatus">
+                {poll.hasVoted ? (
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
+                  >
+                    Se resultat <FaCheck />
+                  </button>
+                ) : poll.poll.status === "started" ? (
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/poll/${poll.poll.id}/vote`)}
+                  >
+                    Stem
+                  </button>
+                ) : poll.poll.status === "draft" ? (
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
+                  >
+                    Rediger kladde
+                  </button>
+                ) : null}
+              </td>
+              <td className="ov-col-status">{statusLabel(poll)}</td>
+              <td className="ov-col-time">{poll.timeLeft}</td>
+              <td className="ov-col-visibility">{poll.poll.pollVisibility}</td>
+              <td className="ov-col-anon">
+                {poll.poll.ballotPrivacy === "secret" ? (
+                  <FaCheck />
+                ) : (
+                  <FaXmark />
+                )}
+              </td>
+              <td className="ov-col-owner">{poll.pollOwnerUsername}</td>{" "}
+              {/*To-do: Change to username.*/}
+            </tr>
+          ))}
+        </tbody>
+      )}
     </table>
   );
 }
