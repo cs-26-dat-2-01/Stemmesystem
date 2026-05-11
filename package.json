@@ -12,6 +12,7 @@
     "test": "deno test --no-prompt --allow-all ./testing_grounds/test.ts"
   },
   "dependencies": {
+    "@cloudflare/blindrsa-ts": "^0.4.5",
     "@prisma/adapter-libsql": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "dotenv": "^17.4.2",
