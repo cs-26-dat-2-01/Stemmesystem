@@ -20,7 +20,8 @@ type FilterType = "all" | "eligible" | "drafts";
 
 function statusLabel(poll: FrontEndPoll): string {
   if (
-    poll.poll.status === "finished" || poll.poll.status === "not started" ||
+    poll.poll.status === "finished" ||
+    poll.poll.status === "not started" ||
     poll.poll.status === "draft"
   ) {
     return poll.poll.status;
@@ -60,15 +61,13 @@ interface SidebarProps {
   onFolderClick: (folder: string | null) => void;
 }
 
-function Sidebar(
-  {
-    activeFilter,
-    onFilterChange,
-    folderMap,
-    activeFolderFilter,
-    onFolderClick,
-  }: SidebarProps,
-) {
+function Sidebar({
+  activeFilter,
+  onFilterChange,
+  folderMap,
+  activeFolderFilter,
+  onFolderClick,
+}: SidebarProps) {
   const navigate = useNavigate();
 
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
@@ -142,40 +141,42 @@ function Sidebar(
         </button>
       </div>
       <nav className="ov-folder-nav">
-        {Object.keys(folderMap).sort().map((name) => {
-          const isOpen = !!openFolders[name];
-          return (
-            <div key={name} className="ov-folder">
-              <button
-                type="button"
-                className="ov-folder-btn"
-                onClick={() => toggleFolder(name)}
-                aria-expanded={isOpen}
-              >
-                <span className="ov-folder-arrow">{isOpen ? "∨" : "›"}</span>
-                {name}
-              </button>
-              {isOpen && (
-                <div className="ov-folder-children">
-                  {folderMap[name].map((poll) => (
-                    <button
-                      type="button"
-                      key={poll.poll.id}
-                      onClick={() => navigate(`/poll/${poll.poll.id}`)}
-                      className={`ov-folder-item ${
-                        activeFolderFilter === name
-                          ? "ov-folder-item--active"
-                          : ""
-                      }`}
-                    >
-                      {poll.poll.title}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {Object.keys(folderMap)
+          .sort()
+          .map((name) => {
+            const isOpen = !!openFolders[name];
+            return (
+              <div key={name} className="ov-folder">
+                <button
+                  type="button"
+                  className="ov-folder-btn"
+                  onClick={() => toggleFolder(name)}
+                  aria-expanded={isOpen}
+                >
+                  <span className="ov-folder-arrow">{isOpen ? "∨" : "›"}</span>
+                  {name}
+                </button>
+                {isOpen && (
+                  <div className="ov-folder-children">
+                    {folderMap[name].map((poll) => (
+                      <button
+                        type="button"
+                        key={poll.poll.id}
+                        onClick={() => navigate(`/poll/${poll.poll.id}`)}
+                        className={`ov-folder-item ${
+                          activeFolderFilter === name
+                            ? "ov-folder-item--active"
+                            : ""
+                        }`}
+                      >
+                        {poll.poll.title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
       </nav>
     </aside>
   );
@@ -216,43 +217,35 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
               </Link>
             </td>
             <td className="ov-col-mystatus">
-              {poll.hasVoted
-                ? (
-                  <button
-                    type="button"
-                    className="btn-vote"
-                    onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
-                  >
-                    Se resultat <FaCheck />
-                  </button>
-                )
-                : poll.poll.status === "started"
-                ? (
-                  <button
-                    type="button"
-                    className="btn-vote"
-                    onClick={() => navigate(`/poll/${poll.poll.id}/vote`)}
-                  >
-                    Stem
-                  </button>
-                )
-                : poll.poll.status === "draft"
-                ? (
-                  <button
-                    type="button"
-                    className="btn-vote"
-                    onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
-                  >
-                    Rediger kladde
-                  </button>
-                )
-                : null}
+              {poll.hasVoted ? (
+                <button
+                  type="button"
+                  className="btn-vote"
+                  onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
+                >
+                  Se resultat <FaCheck />
+                </button>
+              ) : poll.poll.status === "started" ? (
+                <button
+                  type="button"
+                  className="btn-vote"
+                  onClick={() => navigate(`/poll/${poll.poll.id}/vote`)}
+                >
+                  Stem
+                </button>
+              ) : poll.poll.status === "draft" ? (
+                <button
+                  type="button"
+                  className="btn-vote"
+                  onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
+                >
+                  Rediger kladde
+                </button>
+              ) : null}
             </td>
             <td className="ov-col-status">{statusLabel(poll)}</td>
             <td className="ov-col-time">{poll.timeLeft}</td>
-            <td className="ov-col-visibility">
-              {poll.poll.pollVisibility}
-            </td>
+            <td className="ov-col-visibility">{poll.poll.pollVisibility}</td>
             <td className="ov-col-anon">
               {poll.poll.ballotPrivacy === "secret" ? <FaCheck /> : <FaXmark />}
             </td>
@@ -340,20 +333,25 @@ function OverviewPage() {
       if (activeFolderFilter) return (poll.folder ?? "") === activeFolderFilter;
       switch (activeFilter) {
         case "eligible":
-          return !poll.hasVoted && poll.poll.status === "started";
+          return (
+            (!poll.hasVoted && poll.poll.status === "not started") ||
+            poll.poll.status === "started"
+          );
         case "drafts":
-          return poll.poll.status === "not started";
+          return poll.poll.status === "started";
         default:
           return true;
       }
     })
-    .filter((poll) =>
-      (poll.poll.title ?? "").toLowerCase().includes(
-        searchQuery.toLowerCase(),
-      ) ||
-      poll.poll.createdBy.toString().toLowerCase().includes(
-        searchQuery.toLowerCase(),
-      ) // To-do: Change to fetch username for the poll
+    .filter(
+      (poll) =>
+        (poll.poll.title ?? "")
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
+        poll.poll.createdBy
+          .toString()
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase()), // To-do: Change to fetch username for the poll
     );
 
   const displayedPolls = filteredPolls.map((poll) => {
@@ -390,14 +388,14 @@ function OverviewPage() {
               />
             </div>
           </div>
-          {loading
-            ? (
-              <div className="ov-state">
-                <div className="spinner" />
-                <span>Henter afstemninger…</span>
-              </div>
-            )
-            : <PollTable polls={displayedPolls} />}
+          {loading ? (
+            <div className="ov-state">
+              <div className="spinner" />
+              <span>Henter afstemninger…</span>
+            </div>
+          ) : (
+            <PollTable polls={displayedPolls} />
+          )}
         </main>
       </div>
     </>
