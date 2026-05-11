@@ -63,6 +63,10 @@ export interface PollCreateInput {
   showTopN?: number | null;
   ballotLimit?: number | null;
   useBuffer?: number | null;
+  // Per-poll blind-RSA keypair (PEM). See server_src/blindRsa.ts.
+  // Public key is publishable; private key is server-only.
+  blindRsaPublicKey?: string | null;
+  blindRsaPrivateKey?: string | null;
   optionTexts?: string[];
   voterUserIds?: number[];
 }
@@ -948,6 +952,8 @@ export class WebappDatabase {
             showTopN: input.showTopN,
             ballotLimit: input.ballotLimit,
             useBuffer: input.useBuffer,
+            blindRsaPublicKey: input.blindRsaPublicKey,
+            blindRsaPrivateKey: input.blindRsaPrivateKey,
           },
         });
 

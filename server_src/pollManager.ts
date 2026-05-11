@@ -10,6 +10,7 @@ import { VoteInsert, WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { keygen } from "./blindRsa.ts";
 
 /**
  * Validates that a poll has all the fields and invariants required to
@@ -472,6 +473,8 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
+    const keypair = await keygen();
+
     const result = await this.DB.createPoll({
       title: input.poll.title,
       description: input.poll.description,
@@ -484,6 +487,8 @@ export class PollManager {
       showTopN: input.poll.showTopN,
       ballotLimit: input.poll.ballotLimit,
       useBuffer: input.poll.useBuffer,
+      blindRsaPublicKey: keypair.publicKeyPem,
+      blindRsaPrivateKey: keypair.privateKeyPem,
     });
 
     if (result.httpStatusCode !== 201) {
@@ -492,6 +497,13 @@ export class PollManager {
         httpStatusCode: result.httpStatusCode,
       };
     }
+
+    // Audit-log only references the pollId — never the private key material.
+    this.DB.insertAuditLog(
+      "BLIND_RSA_KEY_GENERATED",
+      `pollId:${result.pollId}, bits:2048`,
+    );
+
     return { pollId: result.pollId, httpStatusCode: 200 };
   }
 
