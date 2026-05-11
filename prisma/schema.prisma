@@ -20,77 +20,74 @@ model User {
   username     String @unique
   passwordHash String
 
-  createdPolls         Poll[]
-  eligibleVoterFor     PollEligibleVoter[]
-  voteTokens           VoteToken[]
+  createdPolls     Poll[]
+  eligibleVoterFor PollEligibleVoter[]
 }
 
 model Poll {
-  id              Int     @id @default(autoincrement())
-  title           String?
-  description     String?
-  voteStatus      String  @default("draft")
-  createdBy       Int
-  creator         User    @relation(fields: [createdBy], references: [id])
-  createdAt       DateTime @default(now())
-  startsAt        DateTime?
-  endsAt          DateTime?
-  pollVisibility  String?
-  ballotPrivacy   String?
-  showTopN        Int?
-  ballotLimit     Int?
-  useBuffer       Int?
+  id             Int       @id @default(autoincrement())
+  title          String?
+  description    String?
+  voteStatus     String    @default("draft")
+  createdBy      Int
+  creator        User      @relation(fields: [createdBy], references: [id])
+  createdAt      DateTime  @default(now())
+  startsAt       DateTime?
+  endsAt         DateTime?
+  pollVisibility String?
+  ballotPrivacy  String?
+  showTopN       Int?
+  ballotLimit    Int?
+  useBuffer      Int?
 
-  options          PollOption[]
-  eligibleVoters   PollEligibleVoter[]
-  voteTokens       VoteToken[]
-  votes            Vote[]
-  auditLogs        AuditLog[]
+  // Per-poll RSA-keypair for blind signing (RFC 9474).
+  blindRsaPublicKey  String?
+  blindRsaPrivateKey String?
+  blindRsaKeyBits    Int     @default(2048)
+
+  // Tamper-evidence at poll-close: commitment over finalChainHash + tally + meta get signed by FreeTSA.
+  closeCommitment     String?
+  closeTimestampToken Bytes?
+  closedAt            DateTime?
+
+  options        PollOption[]
+  eligibleVoters PollEligibleVoter[]
+  votes          Vote[]
+  auditLogs      AuditLog[]
 }
 
 model PollEligibleVoter {
   pollId       Int
-  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  poll         Poll @relation(fields: [pollId], references: [id], onDelete: Cascade)
   userId       Int
-  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
   votesAllowed Int
+  signaturesIssued Int @default(0)
 
   @@id([pollId, userId])
 }
 
 model PollOption {
-  id           Int    @id @default(autoincrement())
+  id           Int     @id @default(autoincrement())
   pollId       Int
-  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  poll         Poll    @relation(fields: [pollId], references: [id], onDelete: Cascade)
   optionText   String?
-  displayOrder Int    @default(0)
+  displayOrder Int     @default(0)
 
   votes Vote[]
 }
 
-model VoteToken {
-  id        Int    @id @default(autoincrement())
-  pollId    Int
-  poll      Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
-  userId    Int
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  uuid      String @unique
-  createdAt DateTime @default(now())
-  used      Int    @default(0)
-
-  vote Vote?
-}
-
 model Vote {
-  id            String @id
-  voteToken     VoteToken @relation(fields: [id], references: [uuid])
-  pollId        Int
-  poll          Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
-  pollOptionId  Int
-  option        PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
-  timestamp     DateTime @default(now())
-  previousHash  String
-  currentHash   String @unique
+  id           String     @id
+  pollId       Int
+  poll         Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollOptionId Int
+  option       PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  timestamp    DateTime   @default(now())
+  previousHash String
+  currentHash  String     @unique
+  // Blind-signature after Finalize 
+  signature    String
 }
 
 model AuditLog {
@@ -100,4 +97,4 @@ model AuditLog {
   details   String?
 
   polls Poll[]
-} 
+}
