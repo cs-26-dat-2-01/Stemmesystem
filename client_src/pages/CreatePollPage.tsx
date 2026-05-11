@@ -358,14 +358,18 @@ function CreatePollPage({
 
       {/* Bottom navigation bar */}
       <div className="create-poll-nav">
-        <button type="button" className="button-danger" onClick={handleDelete}>
+        <button
+          type="button"
+          className="button-danger create-poll-button"
+          onClick={handleDelete}
+        >
           Slet afstemning
         </button>
 
         <div className="create-poll-nav-steps">
           <button
             type="button"
-            className="button-secondary"
+            className="button-secondary create-poll-button"
             onClick={async () => {
               await handleSave();
               setStep((s) => Math.max(0, s - 1));
@@ -383,7 +387,11 @@ function CreatePollPage({
               <button
                 key={i}
                 type="button"
-                className={i === step ? "button-secondary" : "button-secondary"}
+                className={
+                  i === step
+                    ? "button-secondary create-poll-button"
+                    : "create-poll-button"
+                }
                 onClick={async () => {
                   await handleSave();
                   setStep(i);
@@ -396,7 +404,7 @@ function CreatePollPage({
           )}
           <button
             type="button"
-            className="button-secondary"
+            className="button-secondary create-poll-button"
             onClick={async () => {
               await handleSave();
               setStep((s) => Math.min(3, s + 1));
@@ -408,7 +416,7 @@ function CreatePollPage({
 
         <button
           type="button"
-          className="create-poll-content button"
+          className="create-poll-button"
           onClick={async () => {
             await handleSave();
           }}

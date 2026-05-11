@@ -199,7 +199,7 @@ input[type="number"] {
 
 /* Buttons */
 
-.create-poll-content button, .button-secondary {
+.create-poll-content button, .create-poll-button {
   text-transform: uppercase;
   outline: 0;
   background: var(--blue-button-color);
@@ -227,21 +227,20 @@ input[type="number"] {
   cursor: not-allowed;
 }
 
-.create-poll-content .button-danger {
+.button-danger {
   background: #e74c3c;
 }
-
-.create-poll-content .button-danger:hover {
+.button-danger:hover {
   background: #c0392b;
   opacity: 1;
 }
 
-.create-poll-content .button-secondary {
+.button-secondary {
   background: #f0f0f0;
   color: #333;
 }
 
-.create-poll-content .button-secondary:hover {
+.button-secondary:hover {
   background: #e0e0e0;
   opacity: 1;
 }
