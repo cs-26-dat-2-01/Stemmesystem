@@ -19,7 +19,10 @@ import { Link, useNavigate } from "react-router/internal/react-server-client";
 type FilterType = "all" | "eligible" | "drafts";
 
 function statusLabel(poll: FrontEndPoll): string {
-  if (poll.poll.status === "finished" || poll.poll.status === "not started") {
+  if (
+    poll.poll.status === "finished" || poll.poll.status === "not started" ||
+    poll.poll.status === "draft"
+  ) {
     return poll.poll.status;
   }
 
@@ -205,16 +208,23 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
         {polls.map((poll) => (
           <tr key={poll.poll.id}>
             <td className="ov-col-title">
-              <Link className="ov-link-btn" to={`/poll/${poll.poll.id}`}>
+              <Link
+                className="ov-link-btn"
+                to={`/poll/${poll.poll.id}/overview`}
+              >
                 {poll.poll.title}
               </Link>
             </td>
             <td className="ov-col-mystatus">
               {poll.hasVoted
                 ? (
-                  <span className="voted-label">
-                    Du har stemt <FaCheck />
-                  </span>
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/poll/${poll.poll.id}/results`)}
+                  >
+                    Se resultat <FaCheck />
+                  </button>
                 )
                 : poll.poll.status === "started"
                 ? (
@@ -224,6 +234,16 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                     onClick={() => navigate(`/poll/${poll.poll.id}/vote`)}
                   >
                     Stem
+                  </button>
+                )
+                : poll.poll.status === "draft"
+                ? (
+                  <button
+                    type="button"
+                    className="btn-vote"
+                    onClick={() => navigate(`/createpoll/${poll.poll.id}`)}
+                  >
+                    Rediger kladde
                   </button>
                 )
                 : null}

@@ -825,7 +825,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
-/**
+  /**
    * GET `/api/users` — returns the id and username of every user in the
    * database. Used to populate user pickers (e.g. when assigning
    * eligible voters to a poll). Requires a valid JWT, but is otherwise
@@ -849,9 +849,9 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return await hasValidJWT(c, async () => {
       const results = await DB.getAllUsersFromDB();
       return c.json(results, results.httpStatusCode);
-    })
+    	});
   });
-   * Map containting active websockets tied to the user id of the connected client.
+  /* Map containting active websockets tied to the user id of the connected client.
    */
   const clientWebsockets = new Map<number, WSContext>();
 
