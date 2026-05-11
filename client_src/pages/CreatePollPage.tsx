@@ -20,7 +20,6 @@ import NavBar from "../components/NavBar.tsx";
  *   // Render mobile layout
  * }
  */
-/* jeg kommenterer lige ud da jeg får en "fejl" i deno check, da den ikke bliver brugt pt.
 function useIsMobile(breakpoint: number) {
   const [isMobile, setIsMobile] = useState(globalThis.innerWidth < breakpoint);
 
@@ -63,6 +62,10 @@ function CreatePollPage(
   const [showTopN, setShowTopN] = useState(0);
   const [topNOnly, setTopNOnly] = useState(false);
   const [ballotLimit, setBallotLimit] = useState(1);
+
+    // toggle mobile viewport at 900px width.
+    const isMobile = useIsMobile(900);
+
 
   // we use useEffect since we dont wanna render the data many times only on mount.
   useEffect(() => {
@@ -371,7 +374,15 @@ function CreatePollPage(
           >
             «
           </button>
-          {steps.map((s, i) => (
+	  {isMobile
+		  ? (
+			  <span className="step-indicator">
+			  {step +1}/{steps.length}
+			  <div className="step-label">{steps[step]}</div>
+			</span>
+		  )
+		  :(
+          steps.map((s, i) => (
             <button
               key={i}
               type="button"
@@ -383,8 +394,8 @@ function CreatePollPage(
               disabled={i === step}
             >
               {s}
-            </button>
-          ))}
+            </button> 
+          )))}
           <button
             type="button"
             className="button-secondary"
