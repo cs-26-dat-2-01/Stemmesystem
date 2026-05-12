@@ -4,8 +4,8 @@ import "./AdminPage.css";
 import { Link } from "react-router/internal/react-server-client";
 
 //SVG icons
-import { FaCheck, FaXmark, FaTrashCan } from "react-icons/fa6";
-import { FaUsers, FaLongArrowAltLeft } from "react-icons/fa";
+import { FaCheck, FaTrashCan, FaXmark } from "react-icons/fa6";
+import { FaLongArrowAltLeft, FaUsers } from "react-icons/fa";
 import { IoMdAdd } from "react-icons/io";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ function StatusMsg({
 }) {
   return (
     <div className={`admin-status admin-status--${type}`}>
-      {type === "success" ? `${(<FaCheck />)}` : `${(<FaXmark />)}`} {msg}
+      {type === "success" ? `${<FaCheck />}` : `${<FaXmark />}`} {msg}
     </div>
   );
 }
@@ -50,7 +50,7 @@ function UserList() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/admin/users", {
+        const res = await fetch("/api/users", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
@@ -112,10 +112,12 @@ function AddUsers() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
-  const [status, setStatus] = useState<{
-    msg: string;
-    type: "success" | "error";
-  } | null>(null);
+  const [status, setStatus] = useState<
+    {
+      msg: string;
+      type: "success" | "error";
+    } | null
+  >(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmission() {
@@ -139,7 +141,7 @@ function AddUsers() {
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch("/admin/users", {
+      const res = await fetch("/api/admin/add-user", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -226,10 +228,12 @@ function AddUsers() {
 function SletBruger() {
   const [username, setUsername] = useState("");
   const [submission, setSubmission] = useState(false);
-  const [status, setStatus] = useState<{
-    msg: string;
-    type: "success" | "error";
-  } | null>(null);
+  const [status, setStatus] = useState<
+    {
+      msg: string;
+      type: "success" | "error";
+    } | null
+  >(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSlet() {
