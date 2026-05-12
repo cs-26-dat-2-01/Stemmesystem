@@ -78,7 +78,7 @@ export interface VoteReceipt {
   optionId: number;
 }
 
-//Base64 utilities (identical to server ones!). 
+//Base64 utilities (identical to server ones!).
 
 // Since we mostly works with bytes when actually doing crypto, but cant
 // send raw bytes over JSON or store them in localStorage, we need encode
@@ -116,7 +116,6 @@ function pemDecode(label: string, pem: string): Uint8Array {
   if (!match) throw new Error(`PEM missing block: ${label}`);
   return base64Decode(match[1].replace(/\s+/g, ""));
 }
-
 
 /* We use WebCrypto's importKey to turn PEM/DER bytes into a `CryptoKey`.
  * This is the type that `@cloudflare/blindrsa-ts` expects. The CryptoKey
@@ -174,7 +173,7 @@ export function prepare(msg: Uint8Array): Uint8Array {
  * poll's public key. The blinded message `z` reveals nothing about `m`,
  * so the server can sign it without learning what was signed.
  *
- * We will use the inverse of r, so we can use it finalize and get the signed msg. 
+ * We will use the inverse of r, so we can use it finalize and get the signed msg.
  *
  * @param publicKeyPem    the poll's public key (from `/api/poll/:id/open`).
  * @param preparedMessage output of {@link prepare}.

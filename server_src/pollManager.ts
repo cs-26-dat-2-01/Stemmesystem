@@ -9,6 +9,7 @@ import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { blindSign, keygen, verify } from "./blindRsa.ts";
+import { use } from "react";
 
 /**
  * Validates that a poll has all the fields and invariants required to
@@ -205,15 +206,27 @@ export class PollManager {
       return { success: false, errorMsg: "Invalid uuid", httpStatusCode: 400 };
     }
     if (typeof signatureB64 !== "string" || signatureB64.length === 0) {
-      return { success: false, errorMsg: "Invalid signature", httpStatusCode: 400 };
+      return {
+        success: false,
+        errorMsg: "Invalid signature",
+        httpStatusCode: 400,
+      };
     }
     if (!Number.isInteger(optionId)) {
-      return { success: false, errorMsg: "Invalid optionId", httpStatusCode: 400 };
+      return {
+        success: false,
+        errorMsg: "Invalid optionId",
+        httpStatusCode: 400,
+      };
     }
 
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (pollResult.httpStatusCode !== 200 || !pollResult.poll) {
-      return { success: false, errorMsg: "Poll not found", httpStatusCode: 404 };
+      return {
+        success: false,
+        errorMsg: "Poll not found",
+        httpStatusCode: 404,
+      };
     }
     if (pollResult.poll.status !== "started") {
       return {
@@ -238,7 +251,9 @@ export class PollManager {
     try {
       const binary = atob(uuidB64);
       uuidBytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) uuidBytes[i] = binary.charCodeAt(i);
+      for (let i = 0; i < binary.length; i++) {
+        uuidBytes[i] = binary.charCodeAt(i);
+      }
     } catch {
       return {
         success: false,
@@ -347,8 +362,13 @@ export class PollManager {
   }> {
     this.tickPollStatuses();
 
-    if (typeof blindedMessageB64 !== "string" || blindedMessageB64.length === 0) {
-      return { errorMsg: "Missing or invalid 'blinded' field", httpStatusCode: 400 };
+    if (
+      typeof blindedMessageB64 !== "string" || blindedMessageB64.length === 0
+    ) {
+      return {
+        errorMsg: "Missing or invalid 'blinded' field",
+        httpStatusCode: 400,
+      };
     }
 
     const result = await this.DB.issueBlindSignature(
@@ -526,12 +546,14 @@ export class PollManager {
       };
     }
 
-    const [options, votesResult, counts, blindRsaPublicKey] = await Promise.all([
-      this.DB.getPollOptionsFromDB(pollId),
-      this.DB.listVotesForPoll(pollId),
-      this.DB.getPollResultCounts(pollId),
-      this.DB.getPollPublicKey(pollId),
-    ]);
+    const [options, votesResult, counts, blindRsaPublicKey] = await Promise.all(
+      [
+        this.DB.getPollOptionsFromDB(pollId),
+        this.DB.listVotesForPoll(pollId),
+        this.DB.getPollResultCounts(pollId),
+        this.DB.getPollPublicKey(pollId),
+      ],
+    );
 
     if (votesResult.errorMsg) {
       return {
@@ -548,12 +570,29 @@ export class PollManager {
 
     const optionTextById = new Map(options.map((o) => [o.id, o.optionText]));
     const countByOptionId = new Map(counts.map((c) => [c.optionId, c.count]));
+    const useTopN = !!poll.showTopN && poll.showTopN > 0;
 
-    const countsWithText = options.map((o) => ({
+    const fullCounts = options.map((o) => ({
       optionId: o.id,
       optionText: o.optionText ?? "",
-      count: countByOptionId.get(o.id) ?? 0, // .get returns undefined if no votes so we default it to 0.
+      count: countByOptionId.get(o.id) ?? 0,
     }));
+
+    const countsWithText: {
+      optionId: number;
+      optionText: string;
+      count: number | null;
+    }[] = useTopN
+      // If top N mode we want to sort by count desc, take N and hide counts entirely.
+      ? [...fullCounts].sort((a, b) => b.count - a.count)
+        .slice(0, poll.showTopN!)
+        .map((c) => ({
+          optionId: c.optionId,
+          optionText: c.optionText,
+          count: null,
+        }))
+      // full-results mode: every option with its real count, in option order
+      : fullCounts;
 
     if (poll.ballotPrivacy === "secret") {
       return {

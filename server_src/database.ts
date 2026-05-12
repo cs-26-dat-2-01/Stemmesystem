@@ -836,7 +836,11 @@ export class WebappDatabase {
           // userId, så vi viser i stedet "har brugt sin issuance-kvote").
           eligibleVoters: {
             where: { userId },
-            select: { userId: true, votesAllowed: true, signaturesIssued: true },
+            select: {
+              userId: true,
+              votesAllowed: true,
+              signaturesIssued: true,
+            },
           },
         },
         orderBy: { createdAt: "desc" },
@@ -1069,19 +1073,28 @@ export class WebappDatabase {
       const code = err instanceof Error ? err.message : "UNKNOWN";
       switch (code) {
         case "NOT_ELIGIBLE":
-          return { errorMsg: "User not eligible for this poll", httpStatusCode: 403 };
+          return {
+            errorMsg: "User not eligible for this poll",
+            httpStatusCode: 403,
+          };
         case "QUOTA_EXHAUSTED":
           return { errorMsg: "Signature quota exhausted", httpStatusCode: 403 };
         case "POLL_NOT_FOUND":
           return { errorMsg: "Poll not found", httpStatusCode: 404 };
         case "POLL_NOT_OPEN":
-          return { errorMsg: "Poll is not open for voting", httpStatusCode: 403 };
+          return {
+            errorMsg: "Poll is not open for voting",
+            httpStatusCode: 403,
+          };
         case "NO_SIGNING_KEY":
           return { errorMsg: "Poll has no signing key", httpStatusCode: 500 };
         default:
           logger
             .error`Error issuing blind signature for poll ID: ${pollId}, user ID: ${userId}. Error: ${code}`;
-          return { errorMsg: "Error issuing blind signature", httpStatusCode: 500 };
+          return {
+            errorMsg: "Error issuing blind signature",
+            httpStatusCode: 500,
+          };
       }
     }
   }

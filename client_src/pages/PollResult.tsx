@@ -27,10 +27,10 @@ interface VerifyResult {
   uuidB64: string;
   optionId: number;
   castAt: string;
-  found: boolean;       // vote with this uuid is present in the tally
-  hashOk: boolean;      // computed sha256 matches the stored currentHash
+  found: boolean; // vote with this uuid is present in the tally
+  hashOk: boolean; // computed sha256 matches the stored currentHash
   signatureOk: boolean; // signature is valid under the poll's public key
-  detail?: string;      // human-readable error when something failed
+  detail?: string; // human-readable error when something failed
 }
 
 interface PollResultsProps {
@@ -117,7 +117,7 @@ function PollResults({ pollId }: PollResultsProps) {
    *   3. Verify the row's RSA-PSS signature under the poll's public key,
    *      using the prepared-message bytes recovered from the base64 uuid.
    *
-   * Everything runs client-side — server is not contacted during verify.
+   * Everything runs client-side! server is not contacted during verify.
    */
   async function runSelfVerify() {
     if (!data) return;
@@ -176,12 +176,41 @@ function PollResults({ pollId }: PollResultsProps) {
     setVerifying(false);
   }
 
-  // Sort the data according to votes and show only the top
-  const sortedTop = [...data.counts]
-    .sort((a, b) => b.count - a.count)
-    .slice(0, data.showTopN);
+  // Helper function to determine if shoptopN is shown as sidebar or results.
+  function TopNSidebar({ data }: { data: ResultsPayload }) {
+    return (
+      <>
+        <div className="rs-top-title">Top {data.showTopN} resultater</div>
+        {data.counts.map((item, i) => (
+          <div key={item.optionId} className="rs-top-item">
+            <div className="rs-rank">{i + 1}. {item.optionText}</div>
+          </div>
+        ))}
+      </>
+    );
+  }
 
-  const max = Math.max(...data.counts.map((c) => c.count), 1);
+  function FullResultsSidebar({ data }: { data: ResultsPayload }) {
+    // Compute max once — counts are guaranteed non-null in full-results mode
+    const max = Math.max(...data.counts.map((c) => c.count ?? 0), 1);
+    return (
+      <>
+        <div className="rs-top-title">Resultater</div>
+        {data.counts.map((item) => (
+          <div key={item.optionId} className="rs-top-item">
+            <div>{item.optionText}</div>
+            <div className="rs-bar-wrapper">
+              <div
+                className="rs-bar-fill"
+                style={{ width: `${((item.count ?? 0) / max) * 100}%` }}
+              />
+            </div>
+            <div className="rs-meta">{item.count} stemmer</div>
+          </div>
+        ))}
+      </>
+    );
+  }
 
   return (
     <>
@@ -224,8 +253,8 @@ function PollResults({ pollId }: PollResultsProps) {
               <p>
                 Du har {myReceipts.length} kvittering
                 {myReceipts.length === 1 ? "" : "er"}{" "}
-                gemt lokalt for denne afstemning. Klik for at tjekke at de
-                er korrekt registreret og at hash-kæden er intakt.
+                gemt lokalt for denne afstemning. Klik for at tjekke at de er
+                korrekt registreret og at hash-kæden er intakt.
               </p>
               <button
                 type="button"
@@ -242,8 +271,9 @@ function PollResults({ pollId }: PollResultsProps) {
                     const allOk = r.found && r.hashOk && r.signatureOk;
                     return (
                       <li key={i} className={allOk ? "ok" : "fail"}>
-                        <strong>{allOk ? "✓" : "✗"}</strong>{" "}
-                        Stemme {i + 1}: {allOk ? "Verificeret" : r.detail}
+                        <strong>{allOk ? "✓" : "✗"}</strong> Stemme {i + 1}:
+                        {" "}
+                        {allOk ? "Verificeret" : r.detail}
                         <div className="rs-verify-meta">
                           UUID: {r.uuidB64.slice(0, 16)}…
                         </div>
@@ -259,28 +289,9 @@ function PollResults({ pollId }: PollResultsProps) {
         {/* Right sidebar that shows topN votes */}
         <div className="rs-sidebar">
           <div className="rs-top-box">
-            <div className="rs-top-title">
-              Top {data.showTopN} resultater
-            </div>
-
-            {sortedTop.map((item, i) => (
-              <div key={i} className="rs-top-item">
-                <div>{item.optionText}</div>
-
-                <div className="rs-bar-wrapper">
-                  <div
-                    className="rs-bar-fill"
-                    style={{
-                      width: `${(item.count / max) * 100}%`,
-                    }}
-                  />
-                </div>
-
-                <div className="rs-meta">
-                  {item.count} stemmer
-                </div>
-              </div>
-            ))}
+            {data.showTopN > 0
+              ? <TopNSidebar data={data} />
+              : <FullResultsSidebar data={data} />}
           </div>
         </div>
       </div>

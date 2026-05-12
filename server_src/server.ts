@@ -905,7 +905,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return await hasValidJWT(c, async () => {
       const results = await DB.getAllUsersFromDB();
       return c.json(results, results.httpStatusCode);
-    	});
+    });
   });
   /* Map containting active websockets tied to the user id of the connected client.
    */

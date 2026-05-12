@@ -49,7 +49,6 @@ const SUITE = RSABSSA.SHA384.PSS.Randomized();
 /** RSA public exponent — 65537 (0x010001). Standard and not negotiable. */
 const PUBLIC_EXPONENT = Uint8Array.from([0x01, 0x00, 0x01]);
 
-
 /**
  * A keypair exported as PEM strings. Suitable for direct storage in
  * `Poll.blindRsaPublicKey` / `Poll.blindRsaPrivateKey`.
@@ -62,11 +61,9 @@ export interface BlindRsaKeyPairPem {
   privateKeyPem: string;
 }
 
-
-
 // Since we mosly works with bytes when actual doing work, however we cant
 // save the raw bytes to the database so we need a way to encode and decode
-// bytes to string. 
+// bytes to string.
 /** Encode raw bytes as standard base64 (no line wrapping). */
 function base64Encode(bytes: Uint8Array): string {
   let binary = "";
@@ -92,7 +89,9 @@ function base64Decode(b64: string): Uint8Array {
 function pemEncode(label: string, der: Uint8Array): string {
   const b64 = base64Encode(der);
   const lines = b64.match(/.{1,64}/g) ?? [];
-  return `-----BEGIN ${label}-----\n${lines.join("\n")}\n-----END ${label}-----\n`;
+  return `-----BEGIN ${label}-----\n${
+    lines.join("\n")
+  }\n-----END ${label}-----\n`;
 }
 
 /**
@@ -113,7 +112,7 @@ function pemDecode(label: string, pem: string): Uint8Array {
 /* We use WebCrypto's importkey to turn PEM/DER bytes into a 'Cryptokey'
  * This is the type that '@cloudflare/blindrsa-ts' expects. They Cryptokey
  * also binds algorithm (RSA-PSS) + hash (SHA-384) + allowed operations, so the
- * library cant accidentally misuse the key. 
+ * library cant accidentally misuse the key.
 
 /**
  * Import an SPKI-PEM public key as a WebCrypto `CryptoKey` usable for
@@ -148,7 +147,7 @@ async function importPrivateKey(privateKeyPem: string): Promise<CryptoKey> {
   );
 }
 
-// Which below is the "public" API, used by the server. 
+// Which below is the "public" API, used by the server.
 //
 /**
  * Generate a fresh RSA keypair for blind-signing a single poll.
@@ -216,7 +215,6 @@ export async function blindSign(
  * signature, key import error, wrong length, bad signature — so callers
  * can treat it as a pure boolean predicate. Distinguishing "invalid input"
  * from "valid input, bad signature" is not useful here: both mean "reject".
- *
  *
  * @param publicKeyPem the poll's SPKI-PEM public key (from DB or `/open`).
  * @param message the prepared message bytes that were signed.
