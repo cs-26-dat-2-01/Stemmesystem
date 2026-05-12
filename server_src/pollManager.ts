@@ -1,8 +1,10 @@
 import {
+  ballotPrivacy,
   OpenpollResult,
   Poll,
   PollOption,
   ResultsPayload,
+  voteHashMessage,
 } from "../client_src/WebLib.ts";
 import { WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
@@ -122,13 +124,21 @@ export class PollManager {
    * would invalidate all previously stored hashes.
    */
   private createVoteHash(
-    previoushHash: string,
+    previousHash: string,
     UUID: string,
     optionId: number,
     pollId: number,
+    ballotPrivacy: ballotPrivacy | null,
+    showTopN: number | null,
   ): string {
-    const hashMsg =
-      `PreviousHash:${previoushHash}|UUID:${UUID}|pollOptionId:${optionId}|pollId:${pollId}`;
+    const hashMsg = voteHashMessage({
+      previousHash: previousHash,
+      uuid: UUID,
+      optionId: optionId,
+      pollId: pollId,
+      ballotPrivacy: ballotPrivacy,
+      showTopN: showTopN,
+    });
     return createHash("sha256").update(hashMsg, "utf8").digest("hex");
   }
 
@@ -296,6 +306,8 @@ export class PollManager {
       uuidB64,
       optionId,
       pollId,
+      pollResult.poll.ballotPrivacy,
+      pollResult.poll.showTopN,
     );
 
     const insertResult = await this.DB.insertVote(pollId, {

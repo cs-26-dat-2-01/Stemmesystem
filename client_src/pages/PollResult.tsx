@@ -3,6 +3,7 @@ import "./PollResults.css";
 import NavBar from "../components/NavBar.tsx";
 import type { ResultsPayload } from "../WebLib.ts";
 import { verify } from "../blindRsa.ts";
+import { voteHashMessage } from "../WebLib.ts";
 
 type ViewState =
   | "loading"
@@ -140,8 +141,16 @@ function PollResults({ pollId }: PollResultsProps) {
       }
 
       // Recompute the chain hash. Format must match server's createVoteHash.
-      const hashMsg =
-        `PreviousHash:${row.previousHash}|UUID:${row.uuid}|pollOptionId:${receipt.optionId}|pollId:${pollId}`;
+      const hashMsg = voteHashMessage(
+        {
+          previousHash: row.previousHash,
+          uuid: row.uuid,
+          optionId: receipt.optionId,
+          pollId: pollId,
+          ballotPrivacy: data.ballotPrivacy,
+          showTopN: data.showTopN,
+        },
+      );
       const expectedHash = await sha256Hex(hashMsg);
       const hashOk = expectedHash === row.currentHash;
 

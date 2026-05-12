@@ -215,3 +215,30 @@ export function calculateTimeRemaining(
   }
   return timeLeft;
 }
+
+/**
+ * Builds the message string that goes into the vote hash. Same logic
+ * must run on the server (when inserting a vote) and on the client
+ * (during self-verify) — keep this in one place so they cannot drift.
+ *
+ * "Ultra-secret" mode: when the poll is BOTH `secret` AND has `showTopN`
+ * active, optionId is dropped from the hash so the brute-force tally
+ * attack (low-entropy optionId → recover counts) is no longer possible.
+ * The trade-off is that we can no longer detect DB-admin tampering with
+ * `optionId` on individual rows; only "UUID is in this position in the
+ * chain" stays verifiable.
+ */
+export function voteHashMessage(opts: {
+  previousHash: string;
+  uuid: string;
+  optionId: number;
+  pollId: number;
+  ballotPrivacy: ballotPrivacy | null;
+  showTopN: number | null;
+}): string {
+  const ultraSecret = opts.ballotPrivacy === "secret" &&
+    !!opts.showTopN && opts.showTopN > 0;
+  return ultraSecret
+    ? `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|pollId:${opts.pollId}`
+    : `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|pollOptionId:${opts.optionId}|pollId:${opts.pollId}`;
+}
