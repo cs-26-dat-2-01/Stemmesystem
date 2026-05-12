@@ -2,15 +2,13 @@ import {
   OpenpollResult,
   Poll,
   PollOption,
-  pollStatus,
   ResultsPayload,
-  VoteInput,
 } from "../client_src/WebLib.ts";
-import { VoteInsert, WebappDatabase } from "./database.ts";
+import { WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { keygen } from "./blindRsa.ts";
+import { blindSign, keygen, verify } from "./blindRsa.ts";
 
 /**
  * Validates that a poll has all the fields and invariants required to
@@ -160,97 +158,220 @@ export class PollManager {
    *
    * @returns `{success:true}`on full insert; `{success:false, errorMsg}`if any logic rule fails or the DB rejects the batch.
    */
+  /**
+   * Casts an anonymous vote. Called from `POST /api/poll/:pollId/vote`.
+   *
+   * @remarks
+   * No `userId` is taken or expected — the cast endpoint is unauthenticated
+   * by design. Authorization comes from the blind signature: only a user
+   * who completed the issuance phase under `/blindsign` can produce a
+   * valid signature on the UUID. The server verifies the signature
+   * against the poll's public key and inserts the vote.
+   *
+   * Each `(uuid, signature)` pair is single-use: the UNIQUE constraint on
+   * `Vote.id` rejects replay at the DB layer with a `409`.
+   *
+   * Security/privacy invariants:
+   * - Caller-side: no JWT, no cookie, no userId — the route handler MUST
+   *   NOT pass any user identity into this method, even if it has one
+   *   from a stray cookie.
+   * - Audit-log records only `uuid` (the public UUID), never any user
+   *   identifier or IP. A DB-admin reading the log can see "this UUID
+   *   was cast" but nothing tying it to a person.
+   *
+   * @param pollId      the poll being voted on.
+   * @param uuidB64     base64 of the prepared message (`= Vote.id`).
+   * @param signatureB64 base64 of the finalized RSA-PSS signature on uuid.
+   * @param optionId    the option being voted for. Must belong to this poll.
+   * @returns `{success: true}` on insert;
+   *   `{success: false, errorMsg, httpStatusCode}` on failure:
+   *   `400` malformed input / invalid signature / bad option;
+   *   `403` poll not open;
+   *   `409` UUID already cast (replay).
+   */
   public async castVote(
     pollId: number,
-    userId: number,
-    votes: VoteInput[],
-  ): Promise<{ success: boolean; errorMsg?: string }> {
+    uuidB64: string,
+    signatureB64: string,
+    optionId: number,
+  ): Promise<{
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
     this.tickPollStatuses();
-    if (votes.length === 0) {
-      return { success: false, errorMsg: "No valid input" };
+
+    if (typeof uuidB64 !== "string" || uuidB64.length === 0) {
+      return { success: false, errorMsg: "Invalid uuid", httpStatusCode: 400 };
+    }
+    if (typeof signatureB64 !== "string" || signatureB64.length === 0) {
+      return { success: false, errorMsg: "Invalid signature", httpStatusCode: 400 };
+    }
+    if (!Number.isInteger(optionId)) {
+      return { success: false, errorMsg: "Invalid optionId", httpStatusCode: 400 };
     }
 
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (pollResult.httpStatusCode !== 200 || !pollResult.poll) {
-      return { success: false, errorMsg: "Poll not found." };
+      return { success: false, errorMsg: "Poll not found", httpStatusCode: 404 };
     }
-    if (pollResult.poll?.status !== "started") {
-      return { success: false, errorMsg: "Voting is not open for this poll." };
-    }
-
-    const eligible = await this.DB.isUserEligible(pollId, userId);
-    if (eligible === false) {
-      return { success: false, errorMsg: "User not eliglbe" };
-    }
-    const votesAllowed = await this.DB.getVotesAllowed(pollId, userId);
-    const alreadyCast = await this.DB.countCastVotes(pollId, userId);
-    if (votes.length + alreadyCast > votesAllowed) {
-      return { success: false, errorMsg: "Too many votes casted already" };
+    if (pollResult.poll.status !== "started") {
+      return {
+        success: false,
+        errorMsg: "Voting is not open for this poll",
+        httpStatusCode: 403,
+      };
     }
 
-    const isUUIDSeenBefore = new Set<string>();
+    const publicKeyPem = await this.DB.getPollPublicKey(pollId);
+    if (!publicKeyPem) {
+      return {
+        success: false,
+        errorMsg: "Poll has no signing key",
+        httpStatusCode: 500,
+      };
+    }
+
+    // Decode the base64 uuid back to the prepared-message bytes that the
+    // signature is verified against. Bad base64 → invalid signature.
+    let uuidBytes: Uint8Array;
+    try {
+      const binary = atob(uuidB64);
+      uuidBytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) uuidBytes[i] = binary.charCodeAt(i);
+    } catch {
+      return {
+        success: false,
+        errorMsg: "Invalid uuid encoding",
+        httpStatusCode: 400,
+      };
+    }
+
+    const sigOk = await verify(publicKeyPem, uuidBytes, signatureB64);
+    if (!sigOk) {
+      return {
+        success: false,
+        errorMsg: "Invalid signature",
+        httpStatusCode: 400,
+      };
+    }
+
     const validOptionIds = new Set(
       (await this.DB.getPollOptionsFromDB(pollId)).map((o) => o.id),
     );
-    for (const v of votes) {
-      if (typeof v.UUID !== "string" || v.UUID.length === 0) {
-        return { success: false, errorMsg: "Invalid UUID in votes." };
-      }
-      if (isUUIDSeenBefore.has(v.UUID)) {
-        return { success: false, errorMsg: "Duplicate UUID in batch" };
-      }
-      if (!validOptionIds.has(v.optionId)) {
-        return {
-          success: false,
-          errorMsg: `Option ${v.optionId} does not belong to poll ${pollId}.`,
-        };
-      }
-      isUUIDSeenBefore.add(v.UUID);
+    if (!validOptionIds.has(optionId)) {
+      return {
+        success: false,
+        errorMsg: `Option ${optionId} does not belong to poll ${pollId}`,
+        httpStatusCode: 400,
+      };
     }
 
     const latesthashFromDB = await this.DB.getLatestHash(pollId);
     if (latesthashFromDB.httpStatusCode !== 200) {
-      return { success: false, errorMsg: "Could not retrieve latest hash" };
+      return {
+        success: false,
+        errorMsg: "Could not retrieve latest hash",
+        httpStatusCode: 500,
+      };
     }
-    let previousHash = latesthashFromDB.hash ?? "0";
-
-    const votesToInsert: VoteInsert[] = [];
-    for (const vote of votes) {
-      const currentHash = this.createVoteHash(
-        previousHash,
-        vote.UUID,
-        vote.optionId,
-        pollId,
-      );
-      votesToInsert.push({
-        optionId: vote.optionId,
-        UUID: vote.UUID,
-        previousHash,
-        currentHash,
-      });
-      previousHash = currentHash;
-    }
-
-    const insertResult = await this.DB.insertVoteBatch(
+    const previousHash = latesthashFromDB.hash ?? "0";
+    const currentHash = this.createVoteHash(
+      previousHash,
+      uuidB64,
+      optionId,
       pollId,
-      userId,
-      votesToInsert,
     );
+
+    const insertResult = await this.DB.insertVote(pollId, {
+      optionId,
+      uuid: uuidB64,
+      signature: signatureB64,
+      previousHash,
+      currentHash,
+    });
 
     if (!insertResult.success) {
       return {
         success: false,
-        errorMsg: insertResult.errorMsg ?? "Error while inserting votes",
+        errorMsg: insertResult.errorMsg ?? "Error while inserting vote",
+        httpStatusCode: insertResult.httpStatusCode,
       };
     }
 
-    this.DB.insertAuditLog(
-      "VOTES_CAST",
-      `pollId:${pollId}, userId:${userId}, voteCount:${votes.length}`,
+    // Audit-log records only the UUID (already public on the cast endpoint),
+    // never any user identifier. This is a load-bearing invariant of the
+    // privacy model — do not add userId here.
+    this.DB.insertAuditLog("VOTE_CAST", `pollId:${pollId}, uuid:${uuidB64}`);
+
+    return { success: true, httpStatusCode: 200 };
+  }
+
+  /**
+   * Issues a blind signature on a client-supplied blinded message
+   * (RFC 9474 §4.3). Called from `POST /api/poll/:pollId/blindsign`.
+   *
+   * @remarks
+   * This is the only point where `userId` and any vote-related data
+   * touch each other server-side — and even here the server sees only
+   * the *blinded* message, not the underlying UUID. The audit-log entry
+   * deliberately records only `(pollId, userId)` and never the blinded
+   * bytes, so a DB-admin can see "user U claimed a signature for poll P"
+   * but nothing tying U to any concrete vote.
+   *
+   * Quota check, counter increment, and the actual signing all happen
+   * inside a single Prisma transaction (see `DB.issueBlindSignature`):
+   * if the crypto step throws — e.g. the client uploaded malformed
+   * bytes — the `signaturesIssued` counter is rolled back so the user
+   * does not lose a quota slot to a malformed request.
+   *
+   * Security: `userId` MUST come from a verified JWT payload, never
+   * from the request body. Status checks (`voteStatus === "started"`)
+   * also happen inside the transaction to close the race between
+   * "poll opens" and "user requests signature".
+   *
+   * @param pollId            the poll being voted on.
+   * @param userId            the requesting user (must originate from JWT).
+   * @param blindedMessageB64 base64 of the blinded message from the client.
+   * @returns `{ blindSignatureB64, httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` on failure.
+   */
+  public async issueBlindSignature(
+    pollId: number,
+    userId: number,
+    blindedMessageB64: string,
+  ): Promise<{
+    blindSignatureB64?: string;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    this.tickPollStatuses();
+
+    if (typeof blindedMessageB64 !== "string" || blindedMessageB64.length === 0) {
+      return { errorMsg: "Missing or invalid 'blinded' field", httpStatusCode: 400 };
+    }
+
+    const result = await this.DB.issueBlindSignature(
+      pollId,
+      userId,
+      (privateKeyPem) => blindSign(privateKeyPem, blindedMessageB64),
     );
 
-    return { success: true };
+    if (result.errorMsg || !result.blindSignatureB64) {
+      return result;
+    }
+
+    this.DB.insertAuditLog(
+      "BLIND_SIG_ISSUED",
+      `pollId:${pollId}, userId:${userId}`,
+    );
+
+    return {
+      blindSignatureB64: result.blindSignatureB64,
+      httpStatusCode: 200,
+    };
   }
+
   /**
    * Returns the data needed to render the ballot page for a specific user and poll.
    * No vote records are created or modified.
@@ -321,12 +442,22 @@ export class PollManager {
       return { errorMsg: "VotesAllowed is 0" };
     }
 
-    const alreadyCast = await this.DB.countCastVotes(pollId, userId);
+    // "Already cast" is now derived from signaturesIssued — after the
+    // blind-RSA redesign, the server cannot observe which Vote rows belong
+    // to which user, so we count issuance instead. With Late Issuance on
+    // the client, the two are equivalent.
+    const alreadyCast = await this.DB.countSignaturesIssued(pollId, userId);
     const votesRemaining = votesAllowed - alreadyCast;
 
     if (votesRemaining < 0) {
       logger.warn`Negative votesRemaining for poll ${pollId}, user ${userId}`;
       return { errorMsg: "Votes remaining is negative" };
+    }
+
+    const blindRsaPublicKey = await this.DB.getPollPublicKey(pollId);
+    if (!blindRsaPublicKey) {
+      logger.error`Poll ${pollId} has no blindRsaPublicKey`;
+      return { errorMsg: "Poll has no signing key" };
     }
 
     this.DB.insertAuditLog(
@@ -340,6 +471,7 @@ export class PollManager {
         options,
         votesAllowed,
         votesRemaining,
+        blindRsaPublicKey,
       },
     };
   }

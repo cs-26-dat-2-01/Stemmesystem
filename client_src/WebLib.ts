@@ -113,11 +113,17 @@ export interface OpenpollResult {
   options: PollOption[];
   votesAllowed: number;
   votesRemaining: number;
+  // PEM-encoded blind-RSA public key for this poll. Used client-side to
+  // blind the message and finalize the signature.
+  blindRsaPublicKey: string;
 }
 
 export interface VoteInput {
   optionId: number;
-  UUID: string;
+  // Base64 of the prepared message (Randomized suite output). Becomes Vote.id.
+  uuid: string;
+  // Base64 of the finalized RSA-PSS signature on `uuid`.
+  signature: string;
 }
 
 export type ResultsPayload =

@@ -384,6 +384,88 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    * `200` means it was succesfull, `400` there was an error, and the string is an error message.
    */
   router.post("/api/poll/:pollId/vote", async (c) => {
+    // INTENTIONAL: no `hasValidJWT` wrapper. The cast endpoint is anonymous
+    // by design — authorization comes from the blind signature, not the
+    // session. If you ever feel tempted to add auth here, see the threat
+    // model in the implementation plan: it collapses the entire privacy
+    // guarantee.
+    const pollIdFromURL = c.req.param("pollId");
+    const pollId = Number(pollIdFromURL);
+    if (!Number.isInteger(pollId)) {
+      return c.body("Invalid pollId", 400);
+    }
+    let body: { uuid?: unknown; signature?: unknown; optionId?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.body("Invalid JSON body", 400);
+    }
+    if (
+      typeof body.uuid !== "string" ||
+      typeof body.signature !== "string" ||
+      !Number.isInteger(body.optionId)
+    ) {
+      return c.body("Invalid vote body", 400);
+    }
+    const castedVote = await pollManager.castVote(
+      pollId,
+      body.uuid,
+      body.signature,
+      body.optionId as number,
+    );
+    if (castedVote.success === false) {
+      return c.body(
+        castedVote.errorMsg ?? "Vote failed",
+        castedVote.httpStatusCode,
+      );
+    }
+
+    // Notify connected clients to refetch tallies. The lookup uses
+    // eligibleVoters, not anything about the caster, so it does not leak
+    // who cast the vote.
+    const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
+    if (
+      eligibleVotersResult.httpStatusCode !== 200 ||
+      !eligibleVotersResult.voters
+    ) {
+      logger
+        .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
+    }
+    for (const voter of eligibleVotersResult.voters ?? []) {
+      const ws = clientWebsockets.get(voter.userId);
+      if (ws) {
+        ws.send(JSON.stringify({
+          type: callbackTypes.refetchVoteCount,
+          pollId,
+        }));
+      }
+    }
+
+    return c.body("Vote cast", 200);
+  });
+
+  /**
+   * Issue a blind signature on a client-supplied blinded message
+   * (RFC 9474 §4.3). This is the issuance half of the secret-vote
+   * protocol — the server checks the user's quota under JWT auth, signs
+   * the blinded bytes, increments the per-(poll,user) counter, and
+   * returns the blind signature. The server never sees the unblinded
+   * UUID.
+   *
+   * @param c - Hono context. Expects:
+   * - URL parameter `:pollId` (integer)
+   * - Cookie `JWT` (signed token whose payload supplies `userId`).
+   * - JSON body `{ blinded: string }` — base64 of the blinded message.
+   *
+   * @returns
+   * `200` with JSON `{ blindSig: string }` on success.
+   * `400` if `:pollId` or body is malformed.
+   * `403` if the user is not eligible, the poll is not open, or the
+   * signature quota is exhausted.
+   * `404` if the poll does not exist.
+   * `500` on DB / signing error.
+   */
+  router.post("/api/poll/:pollId/blindsign", async (c) => {
     return await hasValidJWT(c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
@@ -396,48 +478,22 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       } catch {
         return c.body("Invalid JSON body", 400);
       }
-      if (!Array.isArray(body.votes)) {
-        return c.body("Missing or invalid votes array", 400);
+      if (typeof body.blinded !== "string" || body.blinded.length === 0) {
+        return c.body("Missing or invalid 'blinded' field", 400);
       }
-      const hasValidVotes = body.votes.every((vote: unknown) => {
-        if (typeof vote !== "object" || vote == null) return false;
-        const v = vote as { optionId?: unknown; UUID?: unknown };
-        return Number.isInteger(v.optionId) && typeof v.UUID === "string";
-      });
-
-      if (!hasValidVotes) {
-        return c.body("Invalid vote shape", 400);
+      const userId = payload.userId as number;
+      const result = await pollManager.issueBlindSignature(
+        pollId,
+        userId,
+        body.blinded,
+      );
+      if (result.errorMsg || !result.blindSignatureB64) {
+        return c.body(
+          result.errorMsg ?? "Blind signature failed",
+          result.httpStatusCode,
+        );
       }
-      const userid = payload.userId as number;
-      const castedVote = await pollManager.castVote(pollId, userid, body.votes);
-      if (castedVote.success === false) {
-        return c.body(castedVote.errorMsg ?? "Vote failed", 400);
-      }
-
-      // Calulate the effect of casting the vote for front end clients and send update signal via websockets for effected clients.
-      const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
-      if (
-        eligibleVotersResult.httpStatusCode !== 200 ||
-        !eligibleVotersResult.voters
-      ) {
-        logger
-          .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
-      }
-      logger.trace`eligibleVotersResult.voters: ${eligibleVotersResult.voters}`;
-      for (const voter of eligibleVotersResult.voters) {
-        const ws = clientWebsockets.get(voter.userId);
-        logger.trace`ws: ${ws}`;
-        if (ws) {
-          logger
-            .trace`Sending websocket message to userId: ${voter.userId} about new vote cast for pollId: ${pollId}`;
-          ws.send(JSON.stringify({
-            type: callbackTypes.refetchVoteCount,
-            pollId,
-          }));
-        }
-      }
-
-      return c.body("Vote cast", 200);
+      return c.json({ blindSig: result.blindSignatureB64 });
     });
   });
 

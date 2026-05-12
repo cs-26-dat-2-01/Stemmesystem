@@ -46,7 +46,11 @@ export interface AuditLogEntry {
 
 export interface VoteInsert {
   optionId: number;
-  UUID: string;
+  // Base64 of the prepared message — stored as Vote.id. The UNIQUE constraint
+  // on this column is what enforces single-use of each signature.
+  uuid: string;
+  // Base64 of the finalized RSA-PSS signature on `uuid`.
+  signature: string;
   previousHash: string;
   currentHash: string;
 }
@@ -379,97 +383,77 @@ export class WebappDatabase {
   }
 
   /**
-   * Inserts a batch of votes into the database as a single transaction.
-   * The batch is rejected entirely (no partial acceptance) if the user has no voting power for the poll,
-   * or if the number of votes in the batch combined with the user's already cast votes exceeds the user's allowed votes for the poll.
+   * Inserts a single anonymous vote. Does not take `userId` — the cast
+   * endpoint is unauthenticated by design, and the only quota enforcement
+   * happens earlier at `/blindsign` via `signaturesIssued`.
    *
-   * @param pollId the ID of the poll the votes are being cast for.
-   * @param userId the ID of the user casting the votes.
-   * @param votes an array of VoteInsert objects representing the votes to be inserted, each containing a UUID, the ID of the chosen poll option, the previous hash, and the current hash.
-   * @returns An object indicating the success of the operation, an optional error message if the operation failed, and an HTTP status code representing the result of the operation. Returns 200 on success, 403 if the user has no voting power, 400 if the user's quota is exceeded, and 500 for any other error.
+   * The UNIQUE constraint on `Vote.id` (the UUID column) is what prevents
+   * double-spending of a signature: re-using a UUID throws a Prisma
+   * P2002 error, which we surface as `409`.
+   *
+   * @param pollId the poll this vote belongs to.
+   * @param vote   the vote payload (UUID, signature, option, hash chain).
+   * @returns `{ success: true, httpStatusCode: 200 }` on insert;
+   *   `{ success: false, errorMsg, httpStatusCode }` on failure —
+   *   `409` if the UUID has already been cast, `500` otherwise.
    */
-  public async insertVoteBatch(
+  public async insertVote(
     pollId: number,
-    userId: number,
-    votes: VoteInsert[],
+    vote: VoteInsert,
   ): Promise<{
     success: boolean;
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
     try {
-      await this.prisma.$transaction(async (tx) => {
-        const eligibleVoter = await tx.pollEligibleVoter.findUnique({
-          where: {
-            pollId_userId: {
-              pollId,
-              userId,
-            },
-          },
-          select: { votesAllowed: true },
-        });
-
-        const votesAllowed = eligibleVoter?.votesAllowed ?? 0;
-        const alreadyCast = await tx.voteToken.count({
-          where: { pollId, userId },
-        });
-
-        if (votesAllowed <= 0) {
-          throw new Error("NO_VOTING_POWER");
-        }
-
-        // Does not have partial acceptance. If user tries to cast more votes than allowed, the entire batch is rejected?
-        if (votes.length + alreadyCast > votesAllowed) {
-          throw new Error("QUOTA_EXCEEDED");
-        }
-
-        for (const v of votes) {
-          await tx.voteToken.create({
-            data: {
-              pollId,
-              userId,
-              uuid: v.UUID,
-            },
-          });
-
-          await tx.vote.create({
-            data: {
-              id: v.UUID,
-              pollId,
-              pollOptionId: v.optionId,
-              previousHash: v.previousHash,
-              currentHash: v.currentHash,
-            },
-          });
-        }
+      await this.prisma.vote.create({
+        data: {
+          id: vote.uuid,
+          pollId,
+          pollOptionId: vote.optionId,
+          signature: vote.signature,
+          previousHash: vote.previousHash,
+          currentHash: vote.currentHash,
+        },
       });
-
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
-      if (errMsg === "NO_VOTING_POWER") {
+      // P2002 = unique constraint violation. Either the UUID was already
+      // cast (replay), or the currentHash collided (astronomically unlikely
+      // for sha256). Both should be reported as 409 to the client.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("P2002") || msg.includes("Unique constraint")) {
         return {
           success: false,
-          errorMsg: "User has no voting power for this poll.",
-          httpStatusCode: 403,
+          errorMsg: "Vote already cast",
+          httpStatusCode: 409,
         };
       }
-
-      if (errMsg === "QUOTA_EXCEEDED") {
-        return {
-          success: false,
-          errorMsg: "Quota exceeded.",
-          httpStatusCode: 400,
-        };
-      }
-
-      logger
-        .error`InsertVoteBatch failed for pollId ${pollId}. Error: ${errMsg}`;
+      logger.error`insertVote failed for pollId ${pollId}. Error: ${msg}`;
       return {
         success: false,
         errorMsg: "Error while inserting vote",
         httpStatusCode: 500,
       };
+    }
+  }
+
+  /**
+   * Returns the PEM-encoded blind-RSA public key for a poll, or null if
+   * the poll does not exist or has no key. Used by the cast endpoint to
+   * verify signatures, and by `/open` to ship the key to the client.
+   */
+  public async getPollPublicKey(pollId: number): Promise<string | null> {
+    try {
+      const result = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: { blindRsaPublicKey: true },
+      });
+      return result?.blindRsaPublicKey ?? null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error fetching public key for pollId ${pollId}: ${msg}`;
+      return null;
     }
   }
 
@@ -773,26 +757,33 @@ export class WebappDatabase {
   }
 
   /**
-   * Returns the number of votes a given user has already cast in a given poll, by counting the user's entries in the `voteToken` table.
-   * Used together with `getVotesAllowed` to determine how many votes the user has remaining before reaching their quota.
+   * Returns the number of blind signatures already issued to this user for
+   * this poll. Replaces the old `countCastVotes` — after the blind-RSA
+   * redesign there is no userId on `Vote` rows, so "how many has this user
+   * cast" is no longer a meaningful server-side question. The closest
+   * approximation is "how many signatures has this user claimed?", which
+   * is tracked atomically in `PollEligibleVoter.signaturesIssued`.
    *
-   * @param pollId the ID of the poll to count cast votes for.
-   * @param userId the ID of the user whose cast votes are being counted.
-   * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
+   * Useful for "votes remaining" display logic and as the quota proxy.
+   *
+   * @param pollId the ID of the poll.
+   * @param userId the ID of the user.
+   * @returns count of signatures issued, or 0 on error/missing eligibility.
    */
-  public async countCastVotes(
+  public async countSignaturesIssued(
     pollId: number,
     userId: number,
   ): Promise<number> {
     try {
-      const count = await this.prisma.voteToken.count({
-        where: { pollId, userId },
+      const row = await this.prisma.pollEligibleVoter.findUnique({
+        where: { pollId_userId: { pollId, userId } },
+        select: { signaturesIssued: true },
       });
-      return count;
+      return row?.signaturesIssued ?? 0;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
-        .error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+        .error`Error counting signaturesIssued for pollId ${pollId}, userId ${userId}: ${errMsg}`;
       return 0;
     }
   }
@@ -837,22 +828,23 @@ export class WebappDatabase {
         include: {
           // Hent ejers brugernavn i stedet for blot userId
           creator: { select: { username: true } },
-          // Brug til at tælle unikke stemmeafgivere
-          voteTokens: { select: { userId: true } },
-          // Tjek om den indloggede bruger er stemmeberettiget
+          // Hent den indloggede brugers eligibility + signaturesIssued — bruges
+          // både til isUserEligibleVoter og som proxy for "hasVoted" (efter
+          // VoteToken-fjernelsen kan vi ikke længere koble Vote-rækker til
+          // userId, så vi viser i stedet "har brugt sin issuance-kvote").
           eligibleVoters: {
             where: { userId },
-            select: { userId: true },
+            select: { userId: true, votesAllowed: true, signaturesIssued: true },
           },
         },
         orderBy: { createdAt: "desc" },
       });
 
       return await Promise.all(polls.map(async (poll) => {
-        // Tjek om den indloggede bruger har stemt
-        const userVoteCount = await this.prisma.voteToken.count({
-          where: { pollId: poll.id, userId },
-        });
+        const myEligibility = poll.eligibleVoters[0];
+        const hasUsedAllSignatures = myEligibility
+          ? myEligibility.signaturesIssued >= myEligibility.votesAllowed
+          : false;
 
         const result: FrontEndPoll = {
           poll: {
@@ -870,8 +862,8 @@ export class WebappDatabase {
             ballotLimit: poll.ballotLimit,
             useBuffer: poll.useBuffer,
           },
-          isUserEligibleVoter: poll.eligibleVoters.length > 0,
-          hasVoted: userVoteCount > 0,
+          isUserEligibleVoter: myEligibility !== undefined,
+          hasVoted: hasUsedAllSignatures,
           pollProgress: await this.getVoteProgress(poll.id),
           timeLeft: "not initialized",
           pollOwnerUsername: poll.creator.username,
@@ -1010,6 +1002,85 @@ export class WebappDatabase {
       const errMsg = err instanceof Error ? err.message : "unknown error";
       logger.error`Error while deleting poll. Error: ${errMsg}`;
       return { errorMsg: "Error while deleting poll", httpStatusCode: 500 };
+    }
+  }
+
+  /**
+   * Atomically issues a blind signature for a user on a poll.
+   *
+   * Wraps quota check, counter increment, and the crypto signing in a
+   * single Prisma transaction so that none of them can be observed
+   * partially: if any step throws, the `signaturesIssued` increment is
+   * rolled back and the user keeps their quota.
+   *
+   * The crypto step is passed in as a callback because the database layer
+   * does not own `blindRsa.ts`. The callback receives the poll's private
+   * key (PEM) and returns the base64 blind signature.
+   *
+   * @param pollId the poll to issue under.
+   * @param userId the eligible voter making the request.
+   * @param sign   callback that performs the actual blind signing.
+   * @returns `{ blindSignatureB64, httpStatusCode: 200 }` on success;
+   *   `{ errorMsg, httpStatusCode }` on failure — `403` if the user is
+   *   not eligible / quota exhausted / poll not open, `404` if the poll
+   *   does not exist, `500` if the poll has no signing key or the DB
+   *   layer errors out.
+   */
+  public async issueBlindSignature(
+    pollId: number,
+    userId: number,
+    sign: (privateKeyPem: string) => Promise<string>,
+  ): Promise<{
+    blindSignatureB64?: string;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      const blindSignatureB64 = await this.prisma.$transaction(async (tx) => {
+        const eligible = await tx.pollEligibleVoter.findUnique({
+          where: { pollId_userId: { pollId, userId } },
+          select: { votesAllowed: true, signaturesIssued: true },
+        });
+        if (!eligible) throw new Error("NOT_ELIGIBLE");
+        if (eligible.signaturesIssued >= eligible.votesAllowed) {
+          throw new Error("QUOTA_EXHAUSTED");
+        }
+
+        const poll = await tx.poll.findUnique({
+          where: { id: pollId },
+          select: { voteStatus: true, blindRsaPrivateKey: true },
+        });
+        if (!poll) throw new Error("POLL_NOT_FOUND");
+        if (poll.voteStatus !== "started") throw new Error("POLL_NOT_OPEN");
+        if (!poll.blindRsaPrivateKey) throw new Error("NO_SIGNING_KEY");
+
+        await tx.pollEligibleVoter.update({
+          where: { pollId_userId: { pollId, userId } },
+          data: { signaturesIssued: { increment: 1 } },
+        });
+
+        return await sign(poll.blindRsaPrivateKey);
+      });
+
+      return { blindSignatureB64, httpStatusCode: 200 };
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "UNKNOWN";
+      switch (code) {
+        case "NOT_ELIGIBLE":
+          return { errorMsg: "User not eligible for this poll", httpStatusCode: 403 };
+        case "QUOTA_EXHAUSTED":
+          return { errorMsg: "Signature quota exhausted", httpStatusCode: 403 };
+        case "POLL_NOT_FOUND":
+          return { errorMsg: "Poll not found", httpStatusCode: 404 };
+        case "POLL_NOT_OPEN":
+          return { errorMsg: "Poll is not open for voting", httpStatusCode: 403 };
+        case "NO_SIGNING_KEY":
+          return { errorMsg: "Poll has no signing key", httpStatusCode: 500 };
+        default:
+          logger
+            .error`Error issuing blind signature for poll ID: ${pollId}, user ID: ${userId}. Error: ${code}`;
+          return { errorMsg: "Error issuing blind signature", httpStatusCode: 500 };
+      }
     }
   }
 
