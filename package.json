@@ -8,10 +8,14 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "prod": "tsc -b && vite build && deno run --no-prompt --allow-env=ADMIN_USER_PASSWORD,JWT_SERVER_SECRET,PREBUILDS_ONLY,ELECTRON_RUN_AS_NODE,npm_config_arch,npm_config_platform,LIBC,ARM_VERSION,ARGON2_PREBUILD --allow-net --allow-read=.env,./dist,./server_src/users.db,./node_modules/,/etc/alpine-release --allow-ffi=./node_modules/.deno/argon2@0.44.0/ --allow-write=./server_src/users.db --watch ./server_src/server.ts",
+    "prod": "tsc -b && vite build && deno run --no-prompt --allow-env --allow-net --allow-read=.env,./dist,./server_src/users.db,./node_modules/,/etc/alpine-release --allow-ffi --allow-write --watch ./server_src/main.ts",
     "start": "deno task start & npm run dev"
   },
   "dependencies": {
+    "@prisma/adapter-libsql": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "dotenv": "^17.4.2",
+    "prisma": "^7.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-icons": "^5.6.0"

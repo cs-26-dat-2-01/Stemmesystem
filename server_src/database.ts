@@ -772,4 +772,17 @@ export class WebappDatabase {
       return [];
     }
   }
+
+  public async getAllUsers(): Promise<{ id: number; username: string }[]> {
+    try {
+      const users = await this.prisma.user.findMany({
+        select: { id: true, username: true },
+        orderBy: { id: "asc" },
+      });
+      return users;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      return [];
+    }
+  }
 }
