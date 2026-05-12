@@ -181,11 +181,21 @@ function PollResults({ pollId }: PollResultsProps) {
     return (
       <>
         <div className="rs-top-title">Top {data.showTopN} resultater</div>
-        {data.counts.map((item, i) => (
-          <div key={item.optionId} className="rs-top-item">
-            <div className="rs-rank">{i + 1}. {item.optionText}</div>
-          </div>
-        ))}
+        {data.counts.map((item, i, arr) => {
+          const tiedWithPrev = i > 0 && arr[i - 1].rank === item.rank;
+          const tiedWithNext = i < arr.length - 1 &&
+            arr[i + 1].rank === item.rank;
+          const isTied = tiedWithPrev || tiedWithNext;
+          const marker = isTied ? "=" : ".";
+          return (
+            <div key={item.optionId} className="rs-top-item">
+              <div className="rs-rank">
+                {item.rank}
+                {marker} {item.optionText}
+              </div>
+            </div>
+          );
+        })}
       </>
     );
   }

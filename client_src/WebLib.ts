@@ -133,7 +133,12 @@ export type ResultsPayload =
   | {
     ballotPrivacy: "secret";
     showTopN: number;
-    counts: { optionId: number; optionText: string; count?: number | null }[];
+    counts: {
+      optionId: number;
+      optionText: string;
+      count?: number | null;
+      rank?: number;
+    }[];
     votes: {
       uuid: string;
       previousHash: string;
@@ -146,7 +151,12 @@ export type ResultsPayload =
   | {
     ballotPrivacy: "open";
     showTopN: number;
-    counts: { optionId: number; optionText: string; count: number | null }[];
+    counts: {
+      optionId: number;
+      optionText: string;
+      count: number | null;
+      rank?: number;
+    }[];
     votes: {
       uuid: string;
       optionId: number;

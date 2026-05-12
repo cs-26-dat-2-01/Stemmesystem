@@ -578,21 +578,40 @@ export class PollManager {
       count: countByOptionId.get(o.id) ?? 0,
     }));
 
-    const countsWithText: {
+    let countsWithText: {
       optionId: number;
       optionText: string;
       count: number | null;
-    }[] = useTopN
-      // If top N mode we want to sort by count desc, take N and hide counts entirely.
-      ? [...fullCounts].sort((a, b) => b.count - a.count)
-        .slice(0, poll.showTopN!)
-        .map((c) => ({
-          optionId: c.optionId,
-          optionText: c.optionText,
-          count: null,
-        }))
-      // full-results mode: every option with its real count, in option order
-      : fullCounts;
+    }[];
+
+    if (useTopN) {
+      // we need to check to see if there is tie between the topN and topN+1, if there are we want to include them.
+      const sorted = [...fullCounts].sort((a, b) => b.count - a.count);
+
+      // We will use standard competition ranking (this will also show us if there are ties!.
+      let currentRank = 0;
+      let lastCount = Infinity;
+      const ranked = sorted.map((c, i) => {
+        if (c.count !== lastCount) {
+          currentRank = i + 1;
+          lastCount = c.count;
+        }
+        return { ...c, rank: currentRank };
+      });
+
+      // We will inklude all that are tied with showTopN place
+      const threshold = ranked[poll.showTopN! - 1]?.count ?? 0;
+      const inTop = ranked.filter((r) => r.count >= threshold);
+
+      countsWithText = inTop.map((c) => ({
+        optionId: c.optionId,
+        optionText: c.optionText,
+        count: null,
+        rank: c.rank,
+      }));
+    } else { // full-results gets  everything (not rank!)
+      countsWithText = fullCounts;
+    }
 
     if (poll.ballotPrivacy === "secret") {
       return {
