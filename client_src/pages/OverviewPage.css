@@ -272,6 +272,9 @@
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 .btn-vote:hover {
   background: var(--blue-button-hover);
