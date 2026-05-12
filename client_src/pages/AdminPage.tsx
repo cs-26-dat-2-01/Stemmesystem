@@ -50,7 +50,7 @@ function UserList() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/users", {
+        const res = await fetch("/api/users/null", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
