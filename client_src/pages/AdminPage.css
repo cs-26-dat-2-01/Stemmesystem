@@ -265,6 +265,11 @@
   border-radius: 6px;
   font-size: 0.85rem;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .admin-status--success {
@@ -330,9 +335,5 @@
 
   .admin-nav-btn {
     width: auto;
-  }
-
-  .admin-main {
-    padding: 20px 16px;
   }
 }
