@@ -16,6 +16,7 @@ function NavBar() {
     if (res.status == 200) {
       //Refresh site after clearing cookies
       globalThis.location.reload();
+      globalThis.location.href = "/";
     } else {
       console.log("logout failed with code: " + res.status);
     }
