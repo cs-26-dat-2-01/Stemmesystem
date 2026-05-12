@@ -99,20 +99,23 @@ export class WebappDatabase {
   }
 
   private async ensureAdminUser(adminPassword: string): Promise<void> {
-    await this.prisma.user.upsert({
-      where: { username: "admin" },
-      update: {}, // Do not update if admin user already exists
-      create: {
-        username: "admin",
-        passwordHash: adminPassword,
-      },
-    }).then(() => {
-      logger.info("Admin user created or already exists in database.");
-    }).catch((err: { message: string }) => {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.fatal`Error while creating admin user in database: ${errMsg}`;
-      throw new Error("Error while creating admin user in database.");
-    });
+    await this.prisma.user
+      .upsert({
+        where: { username: "admin" },
+        update: {}, // Do not update if admin user already exists
+        create: {
+          username: "admin",
+          passwordHash: adminPassword,
+        },
+      })
+      .then(() => {
+        logger.info("Admin user created or already exists in database.");
+      })
+      .catch((err: { message: string }) => {
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        logger.fatal`Error while creating admin user in database: ${errMsg}`;
+        throw new Error("Error while creating admin user in database.");
+      });
   }
   private async logDatabaseState(): Promise<void> {
     try {
@@ -147,13 +150,11 @@ export class WebappDatabase {
     await dbInstance.logDatabaseState();
 
     // Get admin from database
-    const { user, httpStatusCode, errorMsg } = await dbInstance.getUserFromDB(
-      "admin",
-    );
+    const { user, httpStatusCode, errorMsg } =
+      await dbInstance.getUserFromDB("admin");
 
     if (!user) {
-      logger
-        .fatal`Admin user not found in database after initialization. Status code: ${httpStatusCode}, error message: ${errorMsg}`;
+      logger.fatal`Admin user not found in database after initialization. Status code: ${httpStatusCode}, error message: ${errorMsg}`;
       throw new Error("Admin user not found in database after initialization.");
     }
 
@@ -244,16 +245,14 @@ export class WebappDatabase {
         const errorCode = (createErr as Prisma.PrismaClientKnownRequestError)
           ?.code;
         if (errorCode === "P2002") {
-          logger
-            .info`User with username: ${username} already exists (concurrent create).`;
+          logger.info`User with username: ${username} already exists (concurrent create).`;
           return 200;
         }
         throw createErr;
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
+      logger.error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
       return 500;
     }
   }
@@ -274,8 +273,7 @@ export class WebappDatabase {
         logger.info`User with username: ${username} not found while deleting.`;
         return;
       }
-      logger
-        .error`Error deleting user with username: ${username}. Error: ${errMsg}`;
+      logger.error`Error deleting user with username: ${username}. Error: ${errMsg}`;
     }
   }
 
@@ -368,8 +366,7 @@ export class WebappDatabase {
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger
-        .error`Error fetching poll options via Prisma for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching poll options via Prisma for poll ID: ${pollId}. Error: ${errMsg}`;
       return [];
     }
   }
@@ -459,8 +456,7 @@ export class WebappDatabase {
         };
       }
 
-      logger
-        .error`InsertVoteBatch failed for pollId ${pollId}. Error: ${errMsg}`;
+      logger.error`InsertVoteBatch failed for pollId ${pollId}. Error: ${errMsg}`;
       return {
         success: false,
         errorMsg: "Error while inserting vote",
@@ -476,9 +472,7 @@ export class WebappDatabase {
    * @param pollId the ID of the poll for which the latest hash should be fetched.
    * @returns An object containing the latest hash (or `null` if no votes have been cast yet — the "genesis" case), an HTTP status code, and an optional error message if the operation failed. Returns 200 on success (including when no votes exist) and 500 if an error occurs during fetching.
    */
-  public async getLatestHash(
-    pollId: number,
-  ): Promise<{
+  public async getLatestHash(pollId: number): Promise<{
     hash: string | null;
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
@@ -487,10 +481,7 @@ export class WebappDatabase {
       const sqlResult = await this.prisma.vote.findFirst({
         where: { pollId },
         select: { currentHash: true },
-        orderBy: [
-          { timestamp: "desc" },
-          { id: "desc" },
-        ],
+        orderBy: [{ timestamp: "desc" }, { id: "desc" }],
       });
 
       if (!sqlResult) {
@@ -501,8 +492,7 @@ export class WebappDatabase {
       return { hash: sqlResult.currentHash, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         hash: null,
         errorMsg: "Error fetching latest hash.",
@@ -537,8 +527,7 @@ export class WebappDatabase {
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while inserting audit log with action: ${action}, Error: ${errMsg}`;
+      logger.error`Error while inserting audit log with action: ${action}, Error: ${errMsg}`;
       return {
         success: false,
         errorMsg: "Error while inserting audit log",
@@ -566,10 +555,7 @@ export class WebappDatabase {
           timestamp: true,
           details: true,
         },
-        orderBy: [
-          { timestamp: "desc" },
-          { id: "desc" },
-        ],
+        orderBy: [{ timestamp: "desc" }, { id: "desc" }],
       });
       return {
         logs: logs.map((log) => ({
@@ -650,8 +636,7 @@ export class WebappDatabase {
       return { votes, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         votes: [],
         errorMsg: "Error listing votes",
@@ -684,8 +669,7 @@ export class WebappDatabase {
       }));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching poll result counts for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching poll result counts for poll ID: ${pollId}. Error: ${errMsg}`;
       return [];
     }
   }
@@ -716,8 +700,7 @@ export class WebappDatabase {
       return sqlResult !== null;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Uknown error";
-      logger
-        .error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger.error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return false; // Fail-safe: on error refuse to access to the poll.
     }
   }
@@ -762,8 +745,7 @@ export class WebappDatabase {
       return sqlResult.votesAllowed;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger.error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return 0;
     }
   }
@@ -776,10 +758,7 @@ export class WebappDatabase {
    * @param userId the ID of the user whose cast votes are being counted.
    * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
    */
-  public async countCastVotes(
-    pollId: number,
-    userId: number,
-  ): Promise<number> {
+  public async countCastVotes(pollId: number, userId: number): Promise<number> {
     try {
       const count = await this.prisma.voteToken.count({
         where: { pollId, userId },
@@ -787,8 +766,7 @@ export class WebappDatabase {
       return count;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger.error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return 0;
     }
   }
@@ -798,17 +776,18 @@ export class WebappDatabase {
    *
    * @param pollId - The id of the poll to get progress report on.
    */
-  public async getVoteProgress(
-    pollId: number,
-  ): Promise<string> {
-    const totalEligible = await this.prisma.pollEligibleVoter.count({
-      where: { pollId: pollId },
+  public async getVoteProgress(pollId: number): Promise<string> {
+    const eligibleVotes = await this.prisma.pollEligibleVoter.aggregate({
+      where: { pollId },
+      _sum: { votesAllowed: true },
     });
+    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing
+    const totalEligibleVotes = eligibleVotes._sum.votesAllowed ?? 0;
     const ballotsCast = await this.prisma.vote.count({
       where: { pollId },
     });
 
-    return `${ballotsCast}/${totalEligible}`;
+    return `${ballotsCast}/${totalEligibleVotes}`;
   }
 
   /**
@@ -844,36 +823,38 @@ export class WebappDatabase {
         orderBy: { createdAt: "desc" },
       });
 
-      return await Promise.all(polls.map(async (poll) => {
-        // Tjek om den indloggede bruger har stemt
-        const userVoteCount = await this.prisma.voteToken.count({
-          where: { pollId: poll.id, userId },
-        });
+      return await Promise.all(
+        polls.map(async (poll) => {
+          // Tjek om den indloggede bruger har stemt
+          const userVoteCount = await this.prisma.voteToken.count({
+            where: { pollId: poll.id, userId },
+          });
 
-        const result: FrontEndPoll = {
-          poll: {
-            id: poll.id,
-            title: poll.title,
-            description: poll.description,
-            status: poll.voteStatus as pollStatus,
-            createdBy: poll.createdBy,
-            createdAt: poll.createdAt.toString(),
-            startsAt: poll.startsAt ? poll.startsAt.toString() : undefined,
-            endsAt: poll.endsAt ? poll.endsAt.toString() : undefined,
-            pollVisibility: poll.pollVisibility as pollVisibility | null,
-            ballotPrivacy: poll.ballotPrivacy as ballotPrivacy | null,
-            showTopN: poll.showTopN,
-            ballotLimit: poll.ballotLimit,
-            useBuffer: poll.useBuffer,
-          },
-          isUserEligibleVoter: poll.eligibleVoters.length > 0,
-          hasVoted: userVoteCount > 0,
-          pollProgress: await this.getVoteProgress(poll.id),
-          timeLeft: "not initialized",
-          pollOwnerUsername: poll.creator.username,
-        };
-        return result;
-      }));
+          const result: FrontEndPoll = {
+            poll: {
+              id: poll.id,
+              title: poll.title,
+              description: poll.description,
+              status: poll.voteStatus as pollStatus,
+              createdBy: poll.createdBy,
+              createdAt: poll.createdAt.toString(),
+              startsAt: poll.startsAt ? poll.startsAt.toString() : undefined,
+              endsAt: poll.endsAt ? poll.endsAt.toString() : undefined,
+              pollVisibility: poll.pollVisibility as pollVisibility | null,
+              ballotPrivacy: poll.ballotPrivacy as ballotPrivacy | null,
+              showTopN: poll.showTopN,
+              ballotLimit: poll.ballotLimit,
+              useBuffer: poll.useBuffer,
+            },
+            isUserEligibleVoter: poll.eligibleVoters.length > 0,
+            hasVoted: userVoteCount > 0,
+            pollProgress: await this.getVoteProgress(poll.id),
+            timeLeft: "not initialized",
+            pollOwnerUsername: poll.creator.username,
+          };
+          return result;
+        }),
+      );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger.error`Error fetching all polls for userId ${userId}: ${errMsg}`;
@@ -891,9 +872,7 @@ export class WebappDatabase {
    *   that did not match a User row, so callers can reject the request
    *   with a precise error instead of silently dropping voters.
    */
-  public async getUsersByUsernames(
-    usernames: string[],
-  ): Promise<{
+  public async getUsersByUsernames(usernames: string[]): Promise<{
     users: Array<{ id: number; username: string }>;
     notFound: string[];
   }> {
@@ -995,9 +974,9 @@ export class WebappDatabase {
     pollId: number,
   ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
     try {
-      const DeletePoll = await this.prisma.poll.delete(
-        { where: { id: pollId } },
-      );
+      const DeletePoll = await this.prisma.poll.delete({
+        where: { id: pollId },
+      });
 
       return { httpStatusCode: 200 };
     } catch (err) {
@@ -1136,9 +1115,10 @@ export class WebappDatabase {
    *
    * @returns number of rows changed (for logging/debuggin):
    */
-  public async tickPollStatuses(): Promise<
-    { started: number; finished: number }
-  > {
+  public async tickPollStatuses(): Promise<{
+    started: number;
+    finished: number;
+  }> {
     const now = new Date();
     try {
       const started = await this.prisma.poll.updateMany({
@@ -1226,8 +1206,7 @@ export class WebappDatabase {
       return { voters, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         voters: [],
         errorMsg: "Error fetching eligible voters",
