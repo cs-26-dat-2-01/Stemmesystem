@@ -41,7 +41,7 @@ function UserList() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("http://localhost:8000/admin/users", {
+        const res = await fetch("/admin/users", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
@@ -239,7 +239,7 @@ function SletBruger() {
     setStatus(null);
     try {
       const res = await fetch(
-        `http://localhost:8000/admin/users/${encodeURIComponent(username)}`,
+        `/admin/users/${encodeURIComponent(username)}`,
         {
           method: "DELETE",
           credentials: "include",
