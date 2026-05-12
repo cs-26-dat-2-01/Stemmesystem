@@ -143,7 +143,7 @@ export async function addUser(
   username: string,
   password: string,
 ): Promise<ContentfulStatusCode> {
-  const result = assertClientVersion(c);
-  if (result.status !== 200) return result.status;
+  // const result = assertClientVersion(c);
+  // if (result.status !== 200) return result.status;
   return await dbInstance.addUserToDB(username, password);
 }
