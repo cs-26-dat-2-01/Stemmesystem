@@ -125,7 +125,7 @@ function AddUsers() {
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch("http://localhost:8000/admin/users", {
+      const res = await fetch("/admin/users", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
