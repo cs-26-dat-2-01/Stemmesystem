@@ -83,6 +83,9 @@ export interface Vote {
   timestamp: string;
   previousHash: string;
   currentHash: string;
+  // Base64 RSA-PSS signature on the prepared message (= `id`). Public so
+  // anyone can verify each vote was authorized by the poll's signing key.
+  signature: string;
 }
 
 /**
@@ -131,13 +134,28 @@ export type ResultsPayload =
     ballotPrivacy: "secret";
     showTopN: number;
     counts: { optionId: number; optionText: string; count: number }[];
-    votes: { uuid: string, currentHash: string }[];
+    votes: {
+      uuid: string;
+      previousHash: string;
+      currentHash: string;
+      signature: string;
+    }[];
+    // PEM public key needed for client-side self-verification.
+    blindRsaPublicKey: string;
   }
   | {
     ballotPrivacy: "open";
     showTopN: number;
     counts: { optionId: number; optionText: string; count: number }[];
-    votes: { uuid: string; optionId: number; optionText: string, currentHash: string }[];
+    votes: {
+      uuid: string;
+      optionId: number;
+      optionText: string;
+      previousHash: string;
+      currentHash: string;
+      signature: string;
+    }[];
+    blindRsaPublicKey: string;
   };
 
 /**

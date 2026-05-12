@@ -622,6 +622,7 @@ export class WebappDatabase {
           timestamp: true,
           previousHash: true,
           currentHash: true,
+          signature: true,
         },
         orderBy: [{ timestamp: "asc" }, { id: "asc" }],
       });
@@ -633,6 +634,7 @@ export class WebappDatabase {
         timestamp: row.timestamp.toString(), // This date type is the cause of the need for a map to assert types of SQL result.
         previousHash: row.previousHash,
         currentHash: row.currentHash,
+        signature: row.signature,
       }));
 
       return { votes, httpStatusCode: 200 };

@@ -526,16 +526,23 @@ export class PollManager {
       };
     }
 
-    const [options, votesResult, counts] = await Promise.all([
+    const [options, votesResult, counts, blindRsaPublicKey] = await Promise.all([
       this.DB.getPollOptionsFromDB(pollId),
       this.DB.listVotesForPoll(pollId),
       this.DB.getPollResultCounts(pollId),
+      this.DB.getPollPublicKey(pollId),
     ]);
 
     if (votesResult.errorMsg) {
       return {
         errorMsg: votesResult.errorMsg,
         httpStatusCode: votesResult.httpStatusCode,
+      };
+    }
+    if (!blindRsaPublicKey) {
+      return {
+        errorMsg: "Poll has no signing key",
+        httpStatusCode: 500,
       };
     }
 
@@ -554,7 +561,17 @@ export class PollManager {
           ballotPrivacy: "secret",
           showTopN: poll.showTopN ?? 0,
           counts: countsWithText,
-          votes: votesResult.votes.map((v) => ({ uuid: v.id, currentHash: v.currentHash})),
+          // previousHash + currentHash enable hash-chain verification.
+          // signature lets anyone verify (under the public key) that each
+          // vote was authorized — universal verifiability without
+          // de-anonymizing voters.
+          votes: votesResult.votes.map((v) => ({
+            uuid: v.id,
+            previousHash: v.previousHash,
+            currentHash: v.currentHash,
+            signature: v.signature,
+          })),
+          blindRsaPublicKey,
         },
         httpStatusCode: 200,
       };
@@ -567,10 +584,13 @@ export class PollManager {
         counts: countsWithText,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
-          currentHash: v.currentHash,
           optionId: v.pollOptionId,
           optionText: optionTextById.get(v.pollOptionId) ?? "(unknown)",
+          previousHash: v.previousHash,
+          currentHash: v.currentHash,
+          signature: v.signature,
         })),
+        blindRsaPublicKey,
       },
       httpStatusCode: 200,
     };
