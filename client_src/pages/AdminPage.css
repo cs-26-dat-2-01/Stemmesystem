@@ -34,7 +34,7 @@
 }
 
 .admin-nav-btn {
-  display: block;
+  display: inline-flex;
   width: 100%;
   padding: 10px 12px;
   border: none;
@@ -45,6 +45,8 @@
   cursor: pointer;
   text-align: left;
   transition: background 0.15s, color 0.15s;
+  align-items: center;
+  gap: 10px;
 }
 
 .admin-nav-btn:hover {
@@ -55,10 +57,11 @@
   background: #89b4fa22;
   color: #89b4fa;
   font-weight: 600;
+  justify-content: center;
 }
 
 .admin-back-link {
-  display: block;
+  display: inline-flex;
   margin-top: auto;
   padding: 10px 12px;
   color: #6c7086;
@@ -66,6 +69,8 @@
   text-decoration: none;
   border-radius: 6px;
   transition: color 0.15s, background 0.15s;
+  align-items: center;
+  gap: 10px;
 }
 
 .admin-back-link:hover {

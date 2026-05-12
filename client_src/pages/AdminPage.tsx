@@ -3,6 +3,11 @@ import NavBar from "../components/NavBar.tsx";
 import "./AdminPage.css";
 import { Link } from "react-router/internal/react-server-client";
 
+//SVG icons
+import { FaCheck, FaXmark, FaTrashCan } from "react-icons/fa6";
+import { FaUsers, FaLongArrowAltLeft } from "react-icons/fa";
+import { IoMdAdd } from "react-icons/io";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // Representes the user we get from GET /admin/users
@@ -17,12 +22,16 @@ type AdminView = "users" | "add-user" | "delete-user";
 // ─── Hjælpekomponent: StatusBesked ───────────────────────────────────────────
 // Viser en grøn succesbesked eller rød fejlbesked afhængigt af type.
 // Bruges efter at have tilføjet eller slettet en bruger.
-function StatusMsg(
-  { msg: msg, type }: { msg: string; type: "success" | "error" },
-) {
+function StatusMsg({
+  msg: msg,
+  type,
+}: {
+  msg: string;
+  type: "success" | "error";
+}) {
   return (
     <div className={`admin-status admin-status--${type}`}>
-      {type === "success" ? "✓" : "✗"} {msg}
+      {type === "success" ? `${(<FaCheck />)}` : `${(<FaXmark />)}`} {msg}
     </div>
   );
 }
@@ -64,7 +73,11 @@ function UserList() {
     );
   }
   if (error) {
-    return <div className="admin-status admin-status--error">✗ {error}</div>;
+    return (
+      <div className="admin-status admin-status--error">
+        <FaXmark /> {error}
+      </div>
+    );
   }
 
   return (
@@ -99,9 +112,10 @@ function AddUsers() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
-  const [status, setStatus] = useState<
-    { msg: string; type: "success" | "error" } | null
-  >(null);
+  const [status, setStatus] = useState<{
+    msg: string;
+    type: "success" | "error";
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmission() {
@@ -212,9 +226,10 @@ function AddUsers() {
 function SletBruger() {
   const [username, setUsername] = useState("");
   const [submission, setSubmission] = useState(false);
-  const [status, setStatus] = useState<
-    { msg: string; type: "success" | "error" } | null
-  >(null);
+  const [status, setStatus] = useState<{
+    msg: string;
+    type: "success" | "error";
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSlet() {
@@ -334,7 +349,7 @@ function AdminPage() {
               }`}
               onClick={() => setActivePane("users")}
             >
-              👥 Brugerliste
+              <FaUsers /> Brugerliste
             </button>
             <button
               type="button"
@@ -343,7 +358,7 @@ function AdminPage() {
               }`}
               onClick={() => setActivePane("add-user")}
             >
-              ➕ Tilføj bruger
+              <IoMdAdd /> Tilføj bruger
             </button>
             <button
               type="button"
@@ -352,13 +367,13 @@ function AdminPage() {
               }`}
               onClick={() => setActivePane("delete-user")}
             >
-              🗑 Slet bruger
+              <FaTrashCan /> Slet bruger
             </button>
           </nav>
 
           {/* Link tilbage til oversigten */}
           <Link to="/" className="admin-back-link">
-            ← Tilbage til oversigt
+            <FaLongArrowAltLeft /> Tilbage til oversigt
           </Link>
         </aside>
 
