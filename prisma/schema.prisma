@@ -53,6 +53,7 @@ model Poll {
   options        PollOption[]
   eligibleVoters PollEligibleVoter[]
   votes          Vote[]
+  pendingVotes   PendingVote[]
   auditLogs      AuditLog[]
 }
 
@@ -75,6 +76,17 @@ model PollOption {
   displayOrder Int     @default(0)
 
   votes Vote[]
+  pendingVotes PendingVote[]
+}
+
+model PendingVote {
+  id           String @id
+  pollId       Int
+  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollOptionId Int
+  option       PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  uuid         String @unique
+  signature    String @unique
 }
 
 model Vote {
@@ -84,10 +96,13 @@ model Vote {
   pollOptionId Int
   option       PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
   timestamp    DateTime   @default(now())
+  chainPosition Int
   previousHash String
   currentHash  String     @unique
   // Blind-signature after Finalize 
   signature    String
+
+  @@unique([pollId, chainPosition])
 }
 
 model AuditLog {

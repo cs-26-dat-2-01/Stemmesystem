@@ -20,4 +20,4 @@ const tickHandle = setInterval(() => {
 
 ac.signal.addEventListener("abort", () => clearInterval(tickHandle));
 
-startServer(DB, ac);
+startServer(DB, ac, pollManager);

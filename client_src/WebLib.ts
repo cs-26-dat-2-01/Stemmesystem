@@ -58,7 +58,8 @@ export type pollStatus =
   | "saved" // Edits saved but poll haven't been published.
   | "not started" // Poll have been published and will start at the given start time.
   | "started" // Poll is started and eligible voters can cast their ballot.
-  | "finished"; // Poll is finished and users with correct access rights can see the poll results.
+  | "finished" // Poll is finished and users with correct access rights can see the poll results.
+  | "invalidated"; // Poll had integrity loss and must be re-run.
 
 export interface PollOption {
   id: pollOptionId;
@@ -80,7 +81,9 @@ export interface Vote {
   id: string;
   pollId: pollId;
   pollOptionId: pollOptionId;
+  // Publication/drain time, not the original cast time.
   timestamp: string;
+  chainPosition: number;
   previousHash: string;
   currentHash: string;
   // Base64 RSA-PSS signature on the prepared message (= `id`). Public so

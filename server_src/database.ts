@@ -55,6 +55,12 @@ export interface VoteInsert {
   currentHash: string;
 }
 
+export interface PendingVoteInsert {
+  optionId: number;
+  uuid: string;
+  signature: string;
+}
+
 export interface PollCreateInput {
   title?: string | null;
   description?: string | null;
@@ -382,45 +388,58 @@ export class WebappDatabase {
     }
   }
 
-  /**
-   * Inserts a single anonymous vote. Does not take `userId` — the cast
-   * endpoint is unauthenticated by design, and the only quota enforcement
-   * happens earlier at `/blindsign` via `signaturesIssued`.
-   *
-   * The UNIQUE constraint on `Vote.id` (the UUID column) is what prevents
-   * double-spending of a signature: re-using a UUID throws a Prisma
-   * P2002 error, which we surface as `409`.
-   *
-   * @param pollId the poll this vote belongs to.
-   * @param vote   the vote payload (UUID, signature, option, hash chain).
-   * @returns `{ success: true, httpStatusCode: 200 }` on insert;
-   *   `{ success: false, errorMsg, httpStatusCode }` on failure —
-   *   `409` if the UUID has already been cast, `500` otherwise.
-   */
-  public async insertVote(
+  public async voteExistsInAnyVoteStore(uuid: string): Promise<{
+    exists: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      const [vote, pendingVote] = await Promise.all([
+        this.prisma.vote.findUnique({
+          where: { id: uuid },
+          select: { id: true },
+        }),
+        this.prisma.pendingVote.findUnique({
+          where: { uuid },
+          select: { uuid: true },
+        }),
+      ]);
+      return {
+        exists: vote !== null || pendingVote !== null,
+        httpStatusCode: 200,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error`voteExistsInAnyVoteStore failed for uuid ${uuid}. Error: ${msg}`;
+      return {
+        exists: false,
+        errorMsg: "Error while checking vote uniqueness",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  public async insertPendingVoteBatch(
     pollId: number,
-    vote: VoteInsert,
+    votes: PendingVoteInsert[],
   ): Promise<{
     success: boolean;
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
+    if (votes.length === 0) return { success: true, httpStatusCode: 200 };
     try {
-      await this.prisma.vote.create({
-        data: {
-          id: vote.uuid,
+      await this.prisma.pendingVote.createMany({
+        data: votes.map((vote) => ({
+          id: crypto.randomUUID(),
           pollId,
           pollOptionId: vote.optionId,
+          uuid: vote.uuid,
           signature: vote.signature,
-          previousHash: vote.previousHash,
-          currentHash: vote.currentHash,
-        },
+        })),
       });
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
-      // P2002 = unique constraint violation. Either the UUID was already
-      // cast (replay), or the currentHash collided (astronomically unlikely
-      // for sha256). Both should be reported as 409 to the client.
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("P2002") || msg.includes("Unique constraint")) {
         return {
@@ -429,10 +448,92 @@ export class WebappDatabase {
           httpStatusCode: 409,
         };
       }
-      logger.error`insertVote failed for pollId ${pollId}. Error: ${msg}`;
+      logger.error`insertPendingVoteBatch failed for pollId ${pollId}. Error: ${msg}`;
       return {
         success: false,
-        errorMsg: "Error while inserting vote",
+        errorMsg: "Error while inserting pending vote batch",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  public async listPendingVotesForPoll(
+    pollId: number,
+  ): Promise<{
+    votes: PendingVoteInsert[];
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
+      const rows = await this.prisma.pendingVote.findMany({
+        where: { pollId },
+        select: {
+          pollOptionId: true,
+          uuid: true,
+          signature: true,
+        },
+      });
+      return {
+        votes: rows.map((row) => ({
+          optionId: row.pollOptionId,
+          uuid: row.uuid,
+          signature: row.signature,
+        })),
+        httpStatusCode: 200,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error`listPendingVotesForPoll failed for pollId ${pollId}. Error: ${msg}`;
+      return {
+        votes: [],
+        errorMsg: "Error while listing pending votes",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  public async drainPendingVotesToFinalVotes(
+    pollId: number,
+    votes: VoteInsert[],
+  ): Promise<{
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const latest = await tx.vote.findFirst({
+          where: { pollId },
+          select: { chainPosition: true },
+          orderBy: { chainPosition: "desc" },
+        });
+        const startPosition = (latest?.chainPosition ?? 0) + 1;
+        if (votes.length > 0) {
+          await tx.vote.createMany({
+            data: votes.map((vote, index) => ({
+              id: vote.uuid,
+              pollId,
+              pollOptionId: vote.optionId,
+              chainPosition: startPosition + index,
+              signature: vote.signature,
+              previousHash: vote.previousHash,
+              currentHash: vote.currentHash,
+            })),
+          });
+        }
+        await tx.pendingVote.deleteMany({ where: { pollId } });
+        await tx.poll.update({
+          where: { id: pollId },
+          data: { voteStatus: "finished", closedAt: new Date() },
+        });
+      });
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error`drainPendingVotesToFinalVotes failed for pollId ${pollId}. Error: ${msg}`;
+      return {
+        success: false,
+        errorMsg: "Error while draining pending votes",
         httpStatusCode: 500,
       };
     }
@@ -459,7 +560,7 @@ export class WebappDatabase {
 
   /**
    * Fetches the most recent vote hash for a given poll, used as the previous hash when inserting the next vote in the chain.
-   * Votes are ordered by timestamp descending and then by id descending to break ties between votes cast in the same instant.
+   * Votes are ordered by their public hash-chain position.
    *
    * @param pollId the ID of the poll for which the latest hash should be fetched.
    * @returns An object containing the latest hash (or `null` if no votes have been cast yet — the "genesis" case), an HTTP status code, and an optional error message if the operation failed. Returns 200 on success (including when no votes exist) and 500 if an error occurs during fetching.
@@ -475,10 +576,7 @@ export class WebappDatabase {
       const sqlResult = await this.prisma.vote.findFirst({
         where: { pollId },
         select: { currentHash: true },
-        orderBy: [
-          { timestamp: "desc" },
-          { id: "desc" },
-        ],
+        orderBy: { chainPosition: "desc" },
       });
 
       if (!sqlResult) {
@@ -581,7 +679,7 @@ export class WebappDatabase {
   }
 
   /**
-   * Lists all votes for a given poll, ordered chronologically (timestamp ascending, with id ascending as a tiebreaker).
+   * Lists all votes for a given poll, ordered by public hash-chain position.
    * The ascending order makes it possible to verify the hash chain from start to finish: each vote's `previousHash` must match the `currentHash` of the preceding vote.
    * Votes are only returned if the poll's `voteStatus` is `"finished"`; otherwise the votes are considered private until voting closes.
    *
@@ -620,18 +718,20 @@ export class WebappDatabase {
           pollId: true,
           pollOptionId: true,
           timestamp: true,
+          chainPosition: true,
           previousHash: true,
           currentHash: true,
           signature: true,
         },
-        orderBy: [{ timestamp: "asc" }, { id: "asc" }],
+        orderBy: { chainPosition: "asc" },
       });
 
       const votes: Vote[] = sqlResults.map((row) => ({
         id: row.id,
         pollId: row.pollId,
         pollOptionId: row.pollOptionId,
-        timestamp: row.timestamp.toString(), // This date type is the cause of the need for a map to assert types of SQL result.
+        timestamp: row.timestamp.toString(),
+        chainPosition: row.chainPosition,
         previousHash: row.previousHash,
         currentHash: row.currentHash,
         signature: row.signature,
@@ -804,8 +904,11 @@ export class WebappDatabase {
     const ballotsCast = await this.prisma.vote.count({
       where: { pollId },
     });
+    const ballotsPending = await this.prisma.pendingVote.count({
+      where: { pollId },
+    });
 
-    return `${ballotsCast}/${totalEligible}`;
+    return `${ballotsCast + ballotsPending}/${totalEligible}`;
   }
 
   /**
@@ -1212,14 +1315,9 @@ export class WebappDatabase {
   }
 
   /**
-   * Moves polls that has hit their time limit:
-   * 	1. Polls in 'not started' whose 'startsAt' is now in the past
-   * 	   are moved to 'started'.
-   * 	2. Polls in 'started' whose 'endsAt' is now in the past are
-   * 	   moved to 'finished'.
-   *
-   * Both passes share the same 'now' timestamp so if a poll has already
-   * passed it startsAt and endsAt will progress to 'finished' in a single call.
+   * Moves polls in 'not started' whose 'startsAt' is now in the past to
+   * 'started'. Finishing polls is handled by PollManager so buffered and
+   * pending votes can be drained before `voteStatus` becomes "finished".
    *
    * Errors are caught and logged: the method never throws: on failure
    * the returned counts are started: 0 finished: 0, which is indistringuishable
@@ -1240,18 +1338,28 @@ export class WebappDatabase {
         },
         data: { voteStatus: "started" },
       });
-      const finished = await this.prisma.poll.updateMany({
-        where: {
-          voteStatus: "started",
-          endsAt: { lte: now },
-        },
-        data: { voteStatus: "finished" },
-      });
-      return { started: started.count, finished: finished.count };
+      return { started: started.count, finished: 0 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error`tickPollStatuses failed: ${errMsg}`;
       return { started: 0, finished: 0 };
+    }
+  }
+
+  public async getPollIdsReadyToFinish(): Promise<number[]> {
+    try {
+      const rows = await this.prisma.poll.findMany({
+        where: {
+          voteStatus: "started",
+          endsAt: { lte: new Date() },
+        },
+        select: { id: true },
+      });
+      return rows.map((row) => row.id);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error`getPollIdsReadyToFinish failed: ${errMsg}`;
+      return [];
     }
   }
 

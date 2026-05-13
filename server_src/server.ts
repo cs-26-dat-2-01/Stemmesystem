@@ -16,10 +16,13 @@ import { JWTPayload } from "@panva/jose";
  *
  * @param A instance of a WebappDatabase.
  */
-export function startServer(DB: WebappDatabase, ac: AbortController) {
+export function startServer(
+  DB: WebappDatabase,
+  ac: AbortController,
+  pollManager = new PollManager(DB),
+) {
   const { signal } = ac;
   const router = new Hono();
-  const pollManager = new PollManager(DB);
 
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {

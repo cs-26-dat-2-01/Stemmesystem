@@ -11,7 +11,8 @@ import { logger } from "./main_lib.ts";
 import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { blindSign, keygen, verify } from "./blindRsa.ts";
-import { use } from "react";
+import { secureShuffle, VoteBuffer } from "./voteBuffer.ts";
+import type { PendingVoteInsert, VoteInsert } from "./database.ts";
 
 /**
  * Validates that a poll has all the fields and invariants required to
@@ -103,9 +104,11 @@ function validateForPublish(
  */
 export class PollManager {
   private DB: WebappDatabase;
+  private voteBuffer: VoteBuffer;
 
   constructor(db: WebappDatabase) {
     this.DB = db;
+    this.voteBuffer = new VoteBuffer(db);
   }
 
   /**
@@ -210,7 +213,7 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    this.tickPollStatuses();
+    await this.tickPollStatuses();
 
     if (typeof uuidB64 !== "string" || uuidB64.length === 0) {
       return { success: false, errorMsg: "Invalid uuid", httpStatusCode: 400 };
@@ -292,30 +295,10 @@ export class PollManager {
       };
     }
 
-    const latesthashFromDB = await this.DB.getLatestHash(pollId);
-    if (latesthashFromDB.httpStatusCode !== 200) {
-      return {
-        success: false,
-        errorMsg: "Could not retrieve latest hash",
-        httpStatusCode: 500,
-      };
-    }
-    const previousHash = latesthashFromDB.hash ?? "0";
-    const currentHash = this.createVoteHash(
-      previousHash,
-      uuidB64,
-      optionId,
-      pollId,
-      pollResult.poll.ballotPrivacy,
-      pollResult.poll.showTopN,
-    );
-
-    const insertResult = await this.DB.insertVote(pollId, {
+    const insertResult = await this.voteBuffer.add(pollId, {
       optionId,
       uuid: uuidB64,
       signature: signatureB64,
-      previousHash,
-      currentHash,
     });
 
     if (!insertResult.success) {
@@ -325,11 +308,6 @@ export class PollManager {
         httpStatusCode: insertResult.httpStatusCode,
       };
     }
-
-    // Audit-log records only the UUID (already public on the cast endpoint),
-    // never any user identifier. This is a load-bearing invariant of the
-    // privacy model — do not add userId here.
-    this.DB.insertAuditLog("VOTE_CAST", `pollId:${pollId}, uuid:${uuidB64}`);
 
     return { success: true, httpStatusCode: 200 };
   }
@@ -372,7 +350,7 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    this.tickPollStatuses();
+    await this.tickPollStatuses();
 
     if (
       typeof blindedMessageB64 !== "string" || blindedMessageB64.length === 0
@@ -395,7 +373,7 @@ export class PollManager {
 
     this.DB.insertAuditLog(
       "BLIND_SIG_ISSUED",
-      `pollId:${pollId}, userId:${userId}`,
+      `pollId:${pollId}`,
     );
 
     return {
@@ -439,7 +417,7 @@ export class PollManager {
     pollId: number,
     userId: number,
   ): Promise<{ result?: OpenpollResult; errorMsg?: string }> {
-    this.tickPollStatuses();
+    await this.tickPollStatuses();
     const isUserEligible = await this.DB.isUserEligible(pollId, userId);
     if (!isUserEligible) {
       logger.warn(`User ${userId} is not eligible for poll ${pollId}.`);
@@ -540,7 +518,7 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    this.tickPollStatuses();
+    await this.tickPollStatuses();
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (!pollResult.poll) {
       return {
@@ -1110,6 +1088,77 @@ export class PollManager {
     };
   }
 
+  private async finishPollWithVoteDrain(pollId: number): Promise<boolean> {
+    const pollResult = await this.DB.getPollFromDB(pollId);
+    if (!pollResult.poll) {
+      logger.error`Cannot finish poll ${pollId}: poll not found`;
+      return false;
+    }
+
+    const pendingResult = await this.DB.listPendingVotesForPoll(pollId);
+    if (pendingResult.httpStatusCode !== 200) {
+      logger.error`Cannot finish poll ${pollId}: ${pendingResult.errorMsg}`;
+      return false;
+    }
+
+    const bufferedVotes = this.voteBuffer.takeBufferedVotes(pollId);
+    const allVotes: PendingVoteInsert[] = [
+      ...pendingResult.votes,
+      ...bufferedVotes,
+    ];
+    const shuffled = secureShuffle(allVotes);
+
+    const latesthashFromDB = await this.DB.getLatestHash(pollId);
+    if (latesthashFromDB.httpStatusCode !== 200) {
+      logger.error`Cannot finish poll ${pollId}: could not retrieve latest hash`;
+      return false;
+    }
+
+    let previousHash = latesthashFromDB.hash ?? "0";
+    const finalVotes: VoteInsert[] = shuffled.map((vote) => {
+      const currentHash = this.createVoteHash(
+        previousHash,
+        vote.uuid,
+        vote.optionId,
+        pollId,
+        pollResult.poll!.ballotPrivacy,
+        pollResult.poll!.showTopN,
+      );
+      const finalVote = {
+        optionId: vote.optionId,
+        uuid: vote.uuid,
+        signature: vote.signature,
+        previousHash,
+        currentHash,
+      };
+      previousHash = currentHash;
+      return finalVote;
+    });
+
+    const drainResult = await this.DB.drainPendingVotesToFinalVotes(
+      pollId,
+      finalVotes,
+    );
+    if (!drainResult.success) {
+      logger.error`Cannot finish poll ${pollId}: ${drainResult.errorMsg}`;
+      const restoreResult = await this.DB.insertPendingVoteBatch(
+        pollId,
+        bufferedVotes,
+      );
+      if (!restoreResult.success) {
+        logger
+          .error`Could not restore RAM-buffered votes for poll ${pollId}: ${restoreResult.errorMsg}`;
+      }
+      return false;
+    }
+
+    this.DB.insertAuditLog(
+      "VOTES_DRAINED",
+      `pollId:${pollId}, count:${finalVotes.length}`,
+    );
+    return true;
+  }
+
   /**
    * Advances poll lifecycle states based on the current time, by
    * delegating to `DB.tickPollStatuses` (which moves polls from
@@ -1127,8 +1176,14 @@ export class PollManager {
     if (started > 0) {
       this.DB.insertAuditLog("POLL_AUTO_STARTED", `count:${started}`);
     }
-    if (finished > 0) {
-      this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finished}`);
+
+    const pollsReadyToFinish = await this.DB.getPollIdsReadyToFinish();
+    const finishResults = await Promise.all(
+      pollsReadyToFinish.map((pollId) => this.finishPollWithVoteDrain(pollId)),
+    );
+    const finishedCount = finishResults.filter(Boolean).length + finished;
+    if (finishedCount > 0) {
+      this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finishedCount}`);
     }
   }
 
