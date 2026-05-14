@@ -138,6 +138,7 @@ export type ResultsPayload =
     showTopN: number;
     closeCommitment: string | null;
     closedAt: string | null;
+    hasCloseTimestampQuery: boolean;
     hasCloseTimestampToken: boolean;
     counts: {
       optionId: number;
@@ -159,6 +160,7 @@ export type ResultsPayload =
     showTopN: number;
     closeCommitment: string | null;
     closedAt: string | null;
+    hasCloseTimestampQuery: boolean;
     hasCloseTimestampToken: boolean;
     counts: {
       optionId: number;

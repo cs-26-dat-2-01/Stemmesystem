@@ -691,6 +691,7 @@ export class PollManager {
           showTopN: poll.showTopN ?? 0,
           closeCommitment: closeArtifacts.closeCommitment,
           closedAt: closeArtifacts.closedAt,
+          hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
           hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
           counts: countsWithText,
           // previousHash + currentHash enable hash-chain verification.
@@ -715,6 +716,7 @@ export class PollManager {
           showTopN: poll.showTopN ?? 0,
           closeCommitment: closeArtifacts.closeCommitment,
           closedAt: closeArtifacts.closedAt,
+          hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
           hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
           counts: countsWithText,
         votes: votesResult.votes.map((v) => ({
@@ -1280,9 +1282,12 @@ export class PollManager {
       closedAt,
     );
 
+    let closeTimestampQuery: Uint8Array;
     let closeTimestampToken: Uint8Array;
     try {
-      closeTimestampToken = await timestampCommitment(closeCommitment);
+      const timestampArtifacts = await timestampCommitment(closeCommitment);
+      closeTimestampQuery = timestampArtifacts.timestampQuery;
+      closeTimestampToken = timestampArtifacts.timestampToken;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error`Cannot timestamp poll ${pollId}: ${msg}`;
@@ -1301,6 +1306,7 @@ export class PollManager {
       pollId,
       finalVotes,
       closeCommitment,
+      closeTimestampQuery,
       closeTimestampToken,
       closedAt,
     );

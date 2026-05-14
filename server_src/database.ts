@@ -499,6 +499,7 @@ export class WebappDatabase {
     pollId: number,
     votes: VoteInsert[],
     closeCommitment: string,
+    closeTimestampQuery: Uint8Array<ArrayBufferLike>,
     closeTimestampToken: Uint8Array<ArrayBufferLike>,
     closedAt: Date,
   ): Promise<{
@@ -536,6 +537,7 @@ export class WebappDatabase {
           data: {
             voteStatus: "finished",
             closeCommitment,
+            closeTimestampQuery: new Uint8Array(closeTimestampQuery),
             closeTimestampToken: new Uint8Array(closeTimestampToken),
             closedAt,
           },
@@ -575,6 +577,7 @@ export class WebappDatabase {
 
   public async getPollCloseArtifacts(pollId: number): Promise<{
     closeCommitment: string | null;
+    closeTimestampQuery: Uint8Array<ArrayBuffer> | null;
     closeTimestampToken: Uint8Array<ArrayBuffer> | null;
     closedAt: string | null;
     httpStatusCode: ContentfulStatusCode;
@@ -585,6 +588,7 @@ export class WebappDatabase {
         where: { id: pollId },
         select: {
           closeCommitment: true,
+          closeTimestampQuery: true,
           closeTimestampToken: true,
           closedAt: true,
         },
@@ -592,6 +596,7 @@ export class WebappDatabase {
       if (!poll) {
         return {
           closeCommitment: null,
+          closeTimestampQuery: null,
           closeTimestampToken: null,
           closedAt: null,
           errorMsg: "Poll not found",
@@ -600,6 +605,9 @@ export class WebappDatabase {
       }
       return {
         closeCommitment: poll.closeCommitment,
+        closeTimestampQuery: poll.closeTimestampQuery
+          ? new Uint8Array(poll.closeTimestampQuery)
+          : null,
         closeTimestampToken: poll.closeTimestampToken
           ? new Uint8Array(poll.closeTimestampToken)
           : null,
@@ -611,9 +619,82 @@ export class WebappDatabase {
       logger.error`Error fetching close artifacts for pollId ${pollId}: ${msg}`;
       return {
         closeCommitment: null,
+        closeTimestampQuery: null,
         closeTimestampToken: null,
         closedAt: null,
         errorMsg: "Error fetching poll close artifacts",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  public async getPollTimestampQuery(pollId: number): Promise<{
+    timestampQuery: Uint8Array<ArrayBuffer> | null;
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
+      const poll = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: { closeTimestampQuery: true },
+      });
+
+      if (!poll) {
+        return {
+          timestampQuery: null,
+          errorMsg: "Poll not found",
+          httpStatusCode: 404,
+        };
+      }
+
+      return {
+        timestampQuery: poll.closeTimestampQuery
+          ? new Uint8Array(poll.closeTimestampQuery)
+          : null,
+        httpStatusCode: 200,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error`Error fetching timestamp query for pollId ${pollId}: ${msg}`;
+      return {
+        timestampQuery: null,
+        errorMsg: "Error fetching timestamp query",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  public async getPollTimestampToken(pollId: number): Promise<{
+    timestampToken: Uint8Array<ArrayBuffer> | null;
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
+      const poll = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: { closeTimestampToken: true },
+      });
+
+      if (!poll) {
+        return {
+          timestampToken: null,
+          errorMsg: "Poll not found",
+          httpStatusCode: 404,
+        };
+      }
+
+      return {
+        timestampToken: poll.closeTimestampToken
+          ? new Uint8Array(poll.closeTimestampToken)
+          : null,
+        httpStatusCode: 200,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error`Error fetching timestamp token for pollId ${pollId}: ${msg}`;
+      return {
+        timestampToken: null,
+        errorMsg: "Error fetching timestamp token",
         httpStatusCode: 500,
       };
     }

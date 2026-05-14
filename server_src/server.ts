@@ -556,6 +556,54 @@ export function startServer(
     });
   });
 
+  router.get("/api/poll/:pollId/timestamp-token", async (c) => {
+    return await hasValidJWT(c, async () => {
+      const pollId = Number(c.req.param("pollId"));
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+
+      const result = await DB.getPollTimestampToken(pollId);
+      if (!result.timestampToken) {
+        return c.body(
+          result.errorMsg ?? "Timestamp token not found",
+          result.httpStatusCode,
+        );
+      }
+
+      return c.body(result.timestampToken, {
+        headers: {
+          "Content-Type": "application/timestamp-reply",
+          "Content-Disposition": `attachment; filename="poll-${pollId}.tsr"`,
+        },
+      });
+    });
+  });
+
+  router.get("/api/poll/:pollId/timestamp-query", async (c) => {
+    return await hasValidJWT(c, async () => {
+      const pollId = Number(c.req.param("pollId"));
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+
+      const result = await DB.getPollTimestampQuery(pollId);
+      if (!result.timestampQuery) {
+        return c.body(
+          result.errorMsg ?? "Timestamp query not found",
+          result.httpStatusCode,
+        );
+      }
+
+      return c.body(result.timestampQuery, {
+        headers: {
+          "Content-Type": "application/timestamp-query",
+          "Content-Disposition": `attachment; filename="poll-${pollId}.tsq"`,
+        },
+      });
+    });
+  });
+
   router.get("/poll/:pollId/results", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");

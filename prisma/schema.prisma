@@ -47,6 +47,7 @@ model Poll {
 
   // Tamper-evidence at poll-close: commitment over finalChainHash + tally + meta get signed by FreeTSA.
   closeCommitment     String?
+  closeTimestampQuery Bytes?
   closeTimestampToken Bytes?
   closedAt            DateTime?
 

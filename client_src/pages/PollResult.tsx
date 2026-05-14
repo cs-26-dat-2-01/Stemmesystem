@@ -298,6 +298,28 @@ function PollResults({ pollId }: PollResultsProps) {
                 ? "Verifying timestamp..."
                 : "Verify timestamp"}
             </button>
+            <button
+              type="button"
+              className="rs-verify-btn"
+              onClick={() => {
+                globalThis.location.href =
+                  `/api/poll/${pollId}/timestamp-token`;
+              }}
+              disabled={!data.hasCloseTimestampToken}
+            >
+              Download response (.tsr)
+	           </button>
+            <button
+              type="button"
+              className="rs-verify-btn"
+              onClick={() => {
+                globalThis.location.href =
+                  `/api/poll/${pollId}/timestamp-query`;
+              }}
+              disabled={!data.hasCloseTimestampQuery}
+            >
+              Download request (.tsq)
+            </button>
             {timestampVerifyState !== "idle" && (
               <div
                 className={`rs-close-status ${

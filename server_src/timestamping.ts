@@ -16,7 +16,10 @@ export async function ensureTsaCertificates(): Promise<void> {
 
 export async function timestampCommitment(
   closeCommitment: string,
-): Promise<Uint8Array> {
+): Promise<{
+  timestampQuery: Uint8Array;
+  timestampToken: Uint8Array;
+}> {
   const tsaUrl = env.FREETSA_URL?.trim() || DEFAULT_TSA_URL;
   const tempDir = await Deno.makeTempDir({ prefix: "unf-tsa-" });
   const dataPath = `${tempDir}/close-commitment.txt`;
@@ -58,7 +61,10 @@ export async function timestampCommitment(
       throw new Error(`FreeTSA returned HTTP ${response.status}`);
     }
 
-    return new Uint8Array(await response.arrayBuffer());
+    return {
+      timestampQuery: new Uint8Array(requestBytes),
+      timestampToken: new Uint8Array(await response.arrayBuffer()),
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error`timestampCommitment failed: ${msg}`;
