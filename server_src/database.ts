@@ -495,9 +495,12 @@ export class WebappDatabase {
     }
   }
 
-  public async drainPendingVotesToFinalVotes(
+  public async finalizePollClose(
     pollId: number,
     votes: VoteInsert[],
+    closeCommitment: string,
+    closeTimestampToken: Uint8Array<ArrayBufferLike>,
+    closedAt: Date,
   ): Promise<{
     success: boolean;
     errorMsg?: string;
@@ -511,6 +514,7 @@ export class WebappDatabase {
           orderBy: { chainPosition: "desc" },
         });
         const startPosition = (latest?.chainPosition ?? 0) + 1;
+
         if (votes.length > 0) {
           await tx.vote.createMany({
             data: votes.map((vote, index) => ({
@@ -524,20 +528,27 @@ export class WebappDatabase {
             })),
           });
         }
+
         await tx.pendingVote.deleteMany({ where: { pollId } });
+
         await tx.poll.update({
           where: { id: pollId },
-          data: { voteStatus: "finished", closedAt: new Date() },
+          data: {
+            voteStatus: "finished",
+            closeCommitment,
+            closeTimestampToken: new Uint8Array(closeTimestampToken),
+            closedAt,
+          },
         });
       });
+
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger
-        .error`drainPendingVotesToFinalVotes failed for pollId ${pollId}. Error: ${msg}`;
+      logger.error`finalizePollClose failed for pollId ${pollId}. Error: ${msg}`;
       return {
         success: false,
-        errorMsg: "Error while draining pending votes",
+        errorMsg: "Error while finalizing poll close",
         httpStatusCode: 500,
       };
     }

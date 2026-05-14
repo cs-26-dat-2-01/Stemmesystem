@@ -13,6 +13,7 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { blindSign, keygen, verify } from "./blindRsa.ts";
 import { secureShuffle, VoteBuffer } from "./voteBuffer.ts";
 import type { PendingVoteInsert, VoteInsert } from "./database.ts";
+import { timestampCommitment } from "./timestamping.ts";
 /**
  * Validates that a poll has all the fields and invariants required to
  * leave draft state and be published. Used as the gate in
@@ -142,6 +143,49 @@ export class PollManager {
       showTopN: showTopN,
     });
     return createHash("sha256").update(hashMsg, "utf8").digest("hex");
+  }
+
+  private buildCloseCommitment(
+    poll: Poll,
+    finalVotes: VoteInsert[],
+    closedAt: Date,
+  ): string {
+    const finalChainHash = finalVotes.at(-1)?.currentHash ?? "0";
+
+    const countByOptionId = new Map<number, number>();
+    for (const vote of finalVotes) {
+      countByOptionId.set(
+        vote.optionId,
+        (countByOptionId.get(vote.optionId) ?? 0) + 1,
+      );
+    }
+
+    const sortedCounts = JSON.stringify(
+      [...countByOptionId.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([optionId, count]) => ({ optionId, count })),
+    );
+
+    const pollMetadata = JSON.stringify({
+      pollId: poll.id,
+      ballotPrivacy: poll.ballotPrivacy,
+      pollVisibility: poll.pollVisibility,
+      showTopN: poll.showTopN,
+      ballotLimit: poll.ballotLimit,
+      startsAt: poll.startsAt ?? null,
+      endsAt: poll.endsAt ?? null,
+    });
+
+    const countsHash = this.sha256Hex(sortedCounts);
+    const metadataHash = this.sha256Hex(pollMetadata);
+
+    return this.sha256Hex(
+      `${finalChainHash}${countsHash}${metadataHash}${closedAt.toISOString()}`,
+    );
+  }
+
+  private sha256Hex(message: string): string {
+    return createHash("sha256").update(message, "utf8").digest("hex");
   }
 
   /**
@@ -1144,12 +1188,39 @@ export class PollManager {
       return finalVote;
     });
 
-    const drainResult = await this.DB.drainPendingVotesToFinalVotes(
+    const closedAt = new Date();
+    const closeCommitment = this.buildCloseCommitment(
+      pollResult.poll,
+      finalVotes,
+      closedAt,
+    );
+
+    let closeTimestampToken: Uint8Array;
+    try {
+      closeTimestampToken = await timestampCommitment(closeCommitment);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error`Cannot timestamp poll ${pollId}: ${msg}`;
+      const restoreResult = await this.DB.insertPendingVoteBatch(
+        pollId,
+        bufferedVotes,
+      );
+      if (!restoreResult.success) {
+        logger
+          .error`Could not restore RAM-buffered votes for poll ${pollId}: ${restoreResult.errorMsg}`;
+      }
+      return false;
+    }
+
+    const finalizeResult = await this.DB.finalizePollClose(
       pollId,
       finalVotes,
+      closeCommitment,
+      closeTimestampToken,
+      closedAt,
     );
-    if (!drainResult.success) {
-      logger.error`Cannot finish poll ${pollId}: ${drainResult.errorMsg}`;
+    if (!finalizeResult.success) {
+      logger.error`Cannot finish poll ${pollId}: ${finalizeResult.errorMsg}`;
       const restoreResult = await this.DB.insertPendingVoteBatch(
         pollId,
         bufferedVotes,
@@ -1162,7 +1233,7 @@ export class PollManager {
     }
 
     this.DB.insertAuditLog(
-      "VOTES_DRAINED",
+      "POLL_CLOSED_AND_TIMESTAMPED",
       `pollId:${pollId}, count:${finalVotes.length}`,
     );
     return true;
