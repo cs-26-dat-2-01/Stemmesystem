@@ -11,6 +11,7 @@ const DB: WebappDatabase = await WebappDatabase.initDatabase();
 const ac = new AbortController();
 
 const pollManager = new PollManager(DB);
+await pollManager.runStartupIntegrityCheck();
 const TICK_MS = 30_000; // 30s can be adjusted
 const tickHandle = setInterval(() => {
   pollManager.tickPollStatuses().catch((err) => {

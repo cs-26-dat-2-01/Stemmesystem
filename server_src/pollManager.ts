@@ -188,6 +188,25 @@ export class PollManager {
     return createHash("sha256").update(message, "utf8").digest("hex");
   }
 
+  private async verifyPollIntegrity(pollId: number): Promise<boolean> {
+    const issuedVotes = await this.DB.countIssuedSignatures(pollId);
+    const persistedVotes = await this.DB.countPersistedVotes(pollId);
+    const bufferedVotes = this.voteBuffer.countBuffered(pollId);
+
+    if (issuedVotes !== persistedVotes + bufferedVotes) {
+      const reason =
+        `expected:${issuedVotes}, persisted:${persistedVotes}, buffered:${bufferedVotes}`;
+
+      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+      if (!invalidated.success) {
+        logger.error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+      }
+      return false;
+    }
+
+    return true;
+  }
+
   /**
    * Validates and atomically persits a batch of votes for a single user,
    * extending the poll's tamper-evident hash-chain.
@@ -1147,6 +1166,12 @@ export class PollManager {
       return false;
     }
 
+    const integrityOk = await this.verifyPollIntegrity(pollId);
+    if (!integrityOk) {
+      logger.error`Cannot finish poll ${pollId}: integrity check failed`;
+      return false;
+    }
+
     const pendingResult = await this.DB.listPendingVotesForPoll(pollId);
     if (pendingResult.httpStatusCode !== 200) {
       logger.error`Cannot finish poll ${pollId}: ${pendingResult.errorMsg}`;
@@ -1264,6 +1289,17 @@ export class PollManager {
     const finishedCount = finishResults.filter(Boolean).length + finished;
     if (finishedCount > 0) {
       this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finishedCount}`);
+    }
+  }
+
+  public async runStartupIntegrityCheck(): Promise<void> {
+    const startedPollIds = await this.DB.listStartedPollIds();
+
+    for (const pollId of startedPollIds) {
+      const integrityOk = await this.verifyPollIntegrity(pollId);
+      if (!integrityOk) {
+        logger.error`Startup integrity check failed for poll ${pollId}`;
+      }
     }
   }
 

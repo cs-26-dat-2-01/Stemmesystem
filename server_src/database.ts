@@ -934,6 +934,67 @@ export class WebappDatabase {
     }
   }
 
+  public async countIssuedSignatures(pollId: number): Promise<number> {
+    try {
+      const result = await this.prisma.pollEligibleVoter.aggregate({
+        where: { pollId },
+        _sum: { signaturesIssued: true },
+      });
+      return result._sum.signaturesIssued ?? 0;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error counting issued signatures for pollId ${pollId}: ${errMsg}`;
+      return 0;
+    }
+  }
+
+  public async countPersistedVotes(pollId: number): Promise<number> {
+    try {
+      const [finalVotes, pendingVotes] = await Promise.all([
+        this.prisma.vote.count({ where: { pollId } }),
+        this.prisma.pendingVote.count({ where: { pollId } }),
+      ]);
+      return finalVotes + pendingVotes;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error counting persisted votes for pollId ${pollId}: ${errMsg}`;
+      return 0;
+    }
+  }
+
+  public async markPollInvalidated(
+    pollId: number,
+    reason: string,
+  ): Promise<{
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      await this.prisma.poll.update({
+        where: { id: pollId },
+        data: {
+          voteStatus: "invalidated",
+        },
+      });
+
+      await this.insertAuditLog(
+        "POLL_INVALIDATED_VOTE_LOSS",
+        `pollId:${pollId}, reason:${reason}`,
+      );
+
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error invalidating poll ${pollId}: ${errMsg}`;
+      return {
+        success: false,
+        errorMsg: "Error invalidating poll",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
   /**
    * Calculate the vote progress based on entries in eligble voters.
    *
@@ -1403,6 +1464,20 @@ export class WebappDatabase {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error`getPollIdsReadyToFinish failed: ${errMsg}`;
+      return [];
+    }
+  }
+
+  public async listStartedPollIds(): Promise<number[]> {
+    try {
+      const polls = await this.prisma.poll.findMany({
+        where: { voteStatus: "started" },
+        select: { id: true },
+      });
+      return polls.map((poll) => poll.id);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error listing started polls: ${errMsg}`;
       return [];
     }
   }
