@@ -410,7 +410,8 @@ export class WebappDatabase {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error`voteExistsInAnyVoteStore failed for uuid ${uuid}. Error: ${msg}`;
+      logger
+        .error`voteExistsInAnyVoteStore failed for uuid ${uuid}. Error: ${msg}`;
       return {
         exists: false,
         errorMsg: "Error while checking vote uniqueness",
@@ -448,7 +449,8 @@ export class WebappDatabase {
           httpStatusCode: 409,
         };
       }
-      logger.error`insertPendingVoteBatch failed for pollId ${pollId}. Error: ${msg}`;
+      logger
+        .error`insertPendingVoteBatch failed for pollId ${pollId}. Error: ${msg}`;
       return {
         success: false,
         errorMsg: "Error while inserting pending vote batch",
@@ -483,7 +485,8 @@ export class WebappDatabase {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error`listPendingVotesForPoll failed for pollId ${pollId}. Error: ${msg}`;
+      logger
+        .error`listPendingVotesForPoll failed for pollId ${pollId}. Error: ${msg}`;
       return {
         votes: [],
         errorMsg: "Error while listing pending votes",
@@ -530,7 +533,8 @@ export class WebappDatabase {
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error`drainPendingVotesToFinalVotes failed for pollId ${pollId}. Error: ${msg}`;
+      logger
+        .error`drainPendingVotesToFinalVotes failed for pollId ${pollId}. Error: ${msg}`;
       return {
         success: false,
         errorMsg: "Error while draining pending votes",
@@ -886,6 +890,35 @@ export class WebappDatabase {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error counting signaturesIssued for pollId ${pollId}, userId ${userId}: ${errMsg}`;
+      return 0;
+    }
+  }
+
+  public async countTotalVotesAllowed(pollId: number): Promise<number> {
+    try {
+      const result = await this.prisma.pollEligibleVoter.aggregate(
+        { where: { pollId }, _sum: { votesAllowed: true } },
+      );
+      return result._sum.votesAllowed ?? 0;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error counting totalVotesAllowed for pollId ${pollId}: ${errMsg}`;
+      return 0;
+    }
+  }
+
+  public async countReceivedVotes(pollId: number): Promise<number> {
+    try {
+      const rows = await this.prisma.pendingVote.aggregate({
+        where: { pollId },
+        _count: { _all: true },
+      });
+      return rows._count._all;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error counting received votes in pending for pollId ${pollId}: ${errMsg}`;
       return 0;
     }
   }

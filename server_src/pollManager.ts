@@ -13,7 +13,6 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { blindSign, keygen, verify } from "./blindRsa.ts";
 import { secureShuffle, VoteBuffer } from "./voteBuffer.ts";
 import type { PendingVoteInsert, VoteInsert } from "./database.ts";
-
 /**
  * Validates that a poll has all the fields and invariants required to
  * leave draft state and be published. Used as the gate in
@@ -307,6 +306,15 @@ export class PollManager {
         errorMsg: insertResult.errorMsg ?? "Error while inserting vote",
         httpStatusCode: insertResult.httpStatusCode,
       };
+    }
+
+    const bufferedVotes = this.voteBuffer.countBuffered(pollId);
+    const pendingVotes = await this.DB.countReceivedVotes(pollId);
+    const receivedTotal = bufferedVotes + pendingVotes;
+    const totalAllowed = await this.DB.countTotalVotesAllowed(pollId);
+
+    if (receivedTotal === totalAllowed) {
+      this.finishPollWithVoteDrain(pollId);
     }
 
     return { success: true, httpStatusCode: 200 };
@@ -1110,7 +1118,8 @@ export class PollManager {
 
     const latesthashFromDB = await this.DB.getLatestHash(pollId);
     if (latesthashFromDB.httpStatusCode !== 200) {
-      logger.error`Cannot finish poll ${pollId}: could not retrieve latest hash`;
+      logger
+        .error`Cannot finish poll ${pollId}: could not retrieve latest hash`;
       return false;
     }
 
