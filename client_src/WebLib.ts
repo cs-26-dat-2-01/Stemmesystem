@@ -136,6 +136,9 @@ export type ResultsPayload =
   | {
     ballotPrivacy: "secret";
     showTopN: number;
+    closeCommitment: string | null;
+    closedAt: string | null;
+    hasCloseTimestampToken: boolean;
     counts: {
       optionId: number;
       optionText: string;
@@ -154,6 +157,9 @@ export type ResultsPayload =
   | {
     ballotPrivacy: "open";
     showTopN: number;
+    closeCommitment: string | null;
+    closedAt: string | null;
+    hasCloseTimestampToken: boolean;
     counts: {
       optionId: number;
       optionText: string;

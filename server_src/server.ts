@@ -538,6 +538,24 @@ export function startServer(
     });
   });
 
+  router.post("/api/poll/:pollId/verify-timestamp", async (c) => {
+    return await hasValidJWT(c, async () => {
+      const pollIdFromURL = c.req.param("pollId");
+      const pollId = Number(pollIdFromURL);
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      const result = await pollManager.verifyResultsTimestamp(pollId);
+      if (result.verified === undefined) {
+        return c.body(
+          result.errorMsg ?? "Failed to verify timestamp",
+          result.httpStatusCode,
+        );
+      }
+      return c.json({ verified: result.verified }, 200);
+    });
+  });
+
   router.get("/poll/:pollId/results", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");

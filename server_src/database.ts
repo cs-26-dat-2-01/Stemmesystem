@@ -573,6 +573,52 @@ export class WebappDatabase {
     }
   }
 
+  public async getPollCloseArtifacts(pollId: number): Promise<{
+    closeCommitment: string | null;
+    closeTimestampToken: Uint8Array<ArrayBuffer> | null;
+    closedAt: string | null;
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
+      const poll = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: {
+          closeCommitment: true,
+          closeTimestampToken: true,
+          closedAt: true,
+        },
+      });
+      if (!poll) {
+        return {
+          closeCommitment: null,
+          closeTimestampToken: null,
+          closedAt: null,
+          errorMsg: "Poll not found",
+          httpStatusCode: 404,
+        };
+      }
+      return {
+        closeCommitment: poll.closeCommitment,
+        closeTimestampToken: poll.closeTimestampToken
+          ? new Uint8Array(poll.closeTimestampToken)
+          : null,
+        closedAt: poll.closedAt ? poll.closedAt.toString() : null,
+        httpStatusCode: 200,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error`Error fetching close artifacts for pollId ${pollId}: ${msg}`;
+      return {
+        closeCommitment: null,
+        closeTimestampToken: null,
+        closedAt: null,
+        errorMsg: "Error fetching poll close artifacts",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
   /**
    * Fetches the most recent vote hash for a given poll, used as the previous hash when inserting the next vote in the chain.
    * Votes are ordered by their public hash-chain position.

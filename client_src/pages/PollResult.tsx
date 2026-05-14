@@ -47,6 +47,10 @@ function PollResults({ pollId }: PollResultsProps) {
     null,
   );
   const [verifying, setVerifying] = useState(false);
+  const [timestampVerifyState, setTimestampVerifyState] = useState<
+    "idle" | "verifying" | "ok" | "fail"
+  >("idle");
+  const [timestampVerifyMessage, setTimestampVerifyMessage] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -185,6 +189,33 @@ function PollResults({ pollId }: PollResultsProps) {
     setVerifying(false);
   }
 
+  async function runTimestampVerify() {
+    setTimestampVerifyState("verifying");
+    setTimestampVerifyMessage("");
+    try {
+      const res = await fetch(`/api/poll/${pollId}/verify-timestamp`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setTimestampVerifyState("fail");
+        setTimestampVerifyMessage(text || "Timestamp verification failed");
+        return;
+      }
+      const body: { verified: boolean } = await res.json();
+      if (body.verified) {
+        setTimestampVerifyState("ok");
+        setTimestampVerifyMessage("Timestamp verified");
+      } else {
+        setTimestampVerifyState("fail");
+        setTimestampVerifyMessage("Timestamp could not be verified");
+      }
+    } catch {
+      setTimestampVerifyState("fail");
+      setTimestampVerifyMessage("Timestamp verification failed");
+    }
+  }
+
   // Helper function to determine if shoptopN is shown as sidebar or results.
   function TopNSidebar({ data }: { data: ResultsPayload }) {
     return (
@@ -239,6 +270,44 @@ function PollResults({ pollId }: PollResultsProps) {
         {/* List of votes */}
         <div className="rs-main">
           <h2 className="rs-title">Resultat af afstemning</h2>
+
+          <div className="rs-close-box">
+            <div className="rs-close-row">
+              <span className="rs-close-label">Closed at</span>
+              <span>{data.closedAt ?? "Not recorded"}</span>
+            </div>
+            <div className="rs-close-row">
+              <span className="rs-close-label">Close commitment</span>
+              <code className="rs-close-commitment">
+                {data.closeCommitment ?? "Not available"}
+              </code>
+            </div>
+            <div className="rs-close-row">
+              <span className="rs-close-label">Timestamp token</span>
+              <span>{data.hasCloseTimestampToken ? "Present" : "Missing"}</span>
+            </div>
+            <button
+              type="button"
+              className="rs-verify-btn"
+              onClick={runTimestampVerify}
+              disabled={!data.hasCloseTimestampToken ||
+                !data.closeCommitment ||
+                timestampVerifyState === "verifying"}
+            >
+              {timestampVerifyState === "verifying"
+                ? "Verifying timestamp..."
+                : "Verify timestamp"}
+            </button>
+            {timestampVerifyState !== "idle" && (
+              <div
+                className={`rs-close-status ${
+                  timestampVerifyState === "ok" ? "ok" : "fail"
+                }`}
+              >
+                {timestampVerifyMessage}
+              </div>
+            )}
+          </div>
 
           <table className="rs-table">
             <thead>

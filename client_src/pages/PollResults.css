@@ -11,6 +11,52 @@
   padding: 16px;
 }
 
+.rs-close-box {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.rs-close-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+.rs-close-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.rs-close-commitment {
+  display: block;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+  color: #1f2937;
+}
+
+.rs-close-status {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.rs-close-status.ok {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.rs-close-status.fail {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 /* Table style */
 .rs-table {
   width: 100%;

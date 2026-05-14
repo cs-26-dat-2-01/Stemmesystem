@@ -13,7 +13,10 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { blindSign, keygen, verify } from "./blindRsa.ts";
 import { secureShuffle, VoteBuffer } from "./voteBuffer.ts";
 import type { PendingVoteInsert, VoteInsert } from "./database.ts";
-import { timestampCommitment } from "./timestamping.ts";
+import {
+  timestampCommitment,
+  verifyTimestampCommitment,
+} from "./timestamping.ts";
 /**
  * Validates that a poll has all the fields and invariants required to
  * leave draft state and be published. Used as the gate in
@@ -607,12 +610,13 @@ export class PollManager {
       };
     }
 
-    const [options, votesResult, counts, blindRsaPublicKey] = await Promise.all(
+    const [options, votesResult, counts, blindRsaPublicKey, closeArtifacts] = await Promise.all(
       [
         this.DB.getPollOptionsFromDB(pollId),
         this.DB.listVotesForPoll(pollId),
         this.DB.getPollResultCounts(pollId),
         this.DB.getPollPublicKey(pollId),
+        this.DB.getPollCloseArtifacts(pollId),
       ],
     );
 
@@ -626,6 +630,12 @@ export class PollManager {
       return {
         errorMsg: "Poll has no signing key",
         httpStatusCode: 500,
+      };
+    }
+    if (closeArtifacts.httpStatusCode !== 200) {
+      return {
+        errorMsg: closeArtifacts.errorMsg ?? "Could not fetch close artifacts",
+        httpStatusCode: closeArtifacts.httpStatusCode,
       };
     }
 
@@ -679,6 +689,9 @@ export class PollManager {
         result: {
           ballotPrivacy: "secret",
           showTopN: poll.showTopN ?? 0,
+          closeCommitment: closeArtifacts.closeCommitment,
+          closedAt: closeArtifacts.closedAt,
+          hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
           counts: countsWithText,
           // previousHash + currentHash enable hash-chain verification.
           // signature lets anyone verify (under the public key) that each
@@ -697,10 +710,13 @@ export class PollManager {
     }
 
     return {
-      result: {
-        ballotPrivacy: "open",
-        showTopN: poll.showTopN ?? 0,
-        counts: countsWithText,
+        result: {
+          ballotPrivacy: "open",
+          showTopN: poll.showTopN ?? 0,
+          closeCommitment: closeArtifacts.closeCommitment,
+          closedAt: closeArtifacts.closedAt,
+          hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
+          counts: countsWithText,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
           optionId: v.pollOptionId,
@@ -713,6 +729,50 @@ export class PollManager {
       },
       httpStatusCode: 200,
     };
+  }
+
+  public async verifyResultsTimestamp(
+    pollId: number,
+  ): Promise<{
+    verified?: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    await this.tickPollStatuses();
+
+    const pollResult = await this.DB.getPollFromDB(pollId);
+    if (!pollResult.poll) {
+      return {
+        errorMsg: pollResult.errorMsg ?? "Poll not found",
+        httpStatusCode: pollResult.httpStatusCode,
+      };
+    }
+    if (pollResult.poll.status !== "finished") {
+      return {
+        errorMsg: "Poll is not finished",
+        httpStatusCode: 403,
+      };
+    }
+
+    const closeArtifacts = await this.DB.getPollCloseArtifacts(pollId);
+    if (closeArtifacts.httpStatusCode !== 200) {
+      return {
+        errorMsg: closeArtifacts.errorMsg ?? "Could not fetch close artifacts",
+        httpStatusCode: closeArtifacts.httpStatusCode,
+      };
+    }
+    if (!closeArtifacts.closeCommitment || !closeArtifacts.closeTimestampToken) {
+      return {
+        errorMsg: "Poll has no timestamp data",
+        httpStatusCode: 404,
+      };
+    }
+
+    const verified = await verifyTimestampCommitment(
+      closeArtifacts.closeCommitment,
+      closeArtifacts.closeTimestampToken,
+    );
+    return { verified, httpStatusCode: 200 };
   }
 
   /**
