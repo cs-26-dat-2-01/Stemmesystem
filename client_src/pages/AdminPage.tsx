@@ -4,8 +4,8 @@ import "./AdminPage.css";
 import { Link } from "react-router/internal/react-server-client";
 
 //SVG icons
-import { FaCheck, FaXmark, FaTrashCan } from "react-icons/fa6";
-import { FaUsers, FaLongArrowAltLeft } from "react-icons/fa";
+import { FaCheck, FaTrashCan, FaXmark } from "react-icons/fa6";
+import { FaLongArrowAltLeft, FaUsers } from "react-icons/fa";
 import { IoMdAdd } from "react-icons/io";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ function StatusMsg({
 }) {
   return (
     <div className={`admin-status admin-status--${type}`}>
-      {type === "success" ? `${(<FaCheck />)}` : `${(<FaXmark />)}`} {msg}
+      {type === "success" ? <FaCheck /> : <FaXmark />} {msg}
     </div>
   );
 }
@@ -50,12 +50,13 @@ function UserList() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/admin/users", {
+        const res = await fetch("/api/users", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
-        const data: User[] = await res.json();
-        setUsers(data);
+        const result = await res.json();
+        const users: User[] = result.users;
+        setUsers(users);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Ukendt fejl");
       } finally {
@@ -112,10 +113,12 @@ function AddUsers() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
-  const [status, setStatus] = useState<{
-    msg: string;
-    type: "success" | "error";
-  } | null>(null);
+  const [status, setStatus] = useState<
+    {
+      msg: string;
+      type: "success" | "error";
+    } | null
+  >(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmission() {
@@ -139,7 +142,7 @@ function AddUsers() {
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch("/admin/users", {
+      const res = await fetch("/api/admin/add-user", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -213,7 +216,7 @@ function AddUsers() {
           onClick={handleSubmission}
           disabled={loading}
         >
-          {loading ? "Opretter…" : "Opret bruger"}
+          {loading ? "Opretter..." : "Opret bruger"}
         </button>
       </div>
     </div>
@@ -226,10 +229,12 @@ function AddUsers() {
 function SletBruger() {
   const [username, setUsername] = useState("");
   const [submission, setSubmission] = useState(false);
-  const [status, setStatus] = useState<{
-    msg: string;
-    type: "success" | "error";
-  } | null>(null);
+  const [status, setStatus] = useState<
+    {
+      msg: string;
+      type: "success" | "error";
+    } | null
+  >(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSlet() {
@@ -254,10 +259,12 @@ function SletBruger() {
     setStatus(null);
     try {
       const res = await fetch(
-        `/admin/users/${encodeURIComponent(username)}`,
+        `/api/admin/delete-user`,
         {
           method: "DELETE",
           credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username }),
         },
       );
 
@@ -321,7 +328,7 @@ function SletBruger() {
           onClick={handleSlet}
           disabled={loading || !submission}
         >
-          {loading ? "Sletter…" : "Slet bruger"}
+          {loading ? "Sletter..." : "Slet bruger"}
         </button>
       </div>
     </div>
