@@ -228,7 +228,7 @@ export class WebappDatabase {
       });
       if (exists) {
         logger.info`User with username: ${username} already exists.`;
-        return 200; // user already present
+        return 409; // user already present
       }
 
       // https://github.com/ranisalt/node-argon2
@@ -263,7 +263,9 @@ export class WebappDatabase {
    *
    * @param username of the user going to be deleted from the database
    */
-  public async deleteUserFromDB(username: string) {
+  public async deleteUserFromDB(
+    username: string,
+  ): Promise<{ msg: string; statusCode: ContentfulStatusCode }> {
     try {
       await this.prisma.user.delete({ where: { username } });
       logger.info`Deleted user from database with username: ${username}`;
@@ -272,11 +274,12 @@ export class WebappDatabase {
       // If the user does not exist Prisma throws a `P2025` error; log as info.
       if ((err as Prisma.PrismaClientKnownRequestError)?.code === "P2025") {
         logger.info`User with username: ${username} not found while deleting.`;
-        return;
+        return { msg: "user not found", statusCode: 404 };
       }
       logger
         .error`Error deleting user with username: ${username}. Error: ${errMsg}`;
     }
+    return { msg: "ok", statusCode: 200 };
   }
 
   /**
@@ -1182,6 +1185,9 @@ export class WebappDatabase {
     try {
       const users = await this.prisma.user.findMany({
         select: { id: true, username: true },
+        orderBy: {
+          id: "asc",
+        },
       });
 
       if (users.length === 0) {

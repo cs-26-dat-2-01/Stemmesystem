@@ -7,7 +7,7 @@ import { logger, MIME_TYPES } from "./main_lib.ts";
 import { WebappDatabase } from "./database.ts";
 import { callbackTypes, User } from "../client_src/WebLib.ts";
 import { createJWT, hasValidJWT, TOKEN_EXPIRE_TIME } from "./jwt.ts";
-import { addUser, assertClientVersion } from "./api.ts";
+import { addUser, assertClientVersion, deleteUser } from "./api.ts";
 import { PollManager } from "./pollManager.ts";
 import { JWTPayload } from "@panva/jose";
 
@@ -165,8 +165,22 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       }
       const req = await c.req.json();
 
-      const result = await addUser(DB, c, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
+      const result = await addUser(DB, req.username, req.password); // To-do: add input validation. (We are however admin here so it ain't that bad :])
       return c.body("", result);
+    });
+  });
+
+  router.delete("/api/admin/delete-user", async (c) => {
+    return await hasValidJWT(c, async (verifiedPayload: JWTPayload) => {
+      if (verifiedPayload.username !== "admin") {
+        // To-do: Create better authentication for this.
+        logger.trace`Failed authenication atempt on admin API route.`;
+        return c.body("403 Unauthorized", 403);
+      }
+      const req = await c.req.json();
+
+      const result = await deleteUser(DB, req.username);
+      return c.body(result.msg, result.statusCode);
     });
   });
 
@@ -849,7 +863,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     return await hasValidJWT(c, async () => {
       const results = await DB.getAllUsersFromDB();
       return c.json(results, results.httpStatusCode);
-    	});
+    });
   });
   /* Map containting active websockets tied to the user id of the connected client.
    */

@@ -139,11 +139,19 @@ export function assertClientVersion(
 
 export async function addUser(
   dbInstance: WebappDatabase,
-  c: Context<BlankEnv, string, BlankInput>,
   username: string,
   password: string,
 ): Promise<ContentfulStatusCode> {
   // const result = assertClientVersion(c);
   // if (result.status !== 200) return result.status;
   return await dbInstance.addUserToDB(username, password);
+}
+
+export async function deleteUser(
+  dbInstance: WebappDatabase,
+  username: string,
+): Promise<{ msg: string; statusCode: ContentfulStatusCode }> {
+  // const result = assertClientVersion(c);
+  // if (result.status !== 200) return result.status;
+  return await dbInstance.deleteUserFromDB(username);
 }

@@ -31,7 +31,7 @@ function StatusMsg({
 }) {
   return (
     <div className={`admin-status admin-status--${type}`}>
-      {type === "success" ? `${<FaCheck />}` : `${<FaXmark />}`} {msg}
+      {type === "success" ? <FaCheck /> : <FaXmark />} {msg}
     </div>
   );
 }
@@ -50,12 +50,13 @@ function UserList() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/users/null", {
+        const res = await fetch("/api/users", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
-        const data: User[] = await res.json();
-        setUsers(data);
+        const result = await res.json();
+        const users: User[] = result.users;
+        setUsers(users);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Ukendt fejl");
       } finally {
@@ -215,7 +216,7 @@ function AddUsers() {
           onClick={handleSubmission}
           disabled={loading}
         >
-          {loading ? "Opretter…" : "Opret bruger"}
+          {loading ? "Opretter..." : "Opret bruger"}
         </button>
       </div>
     </div>
@@ -258,10 +259,12 @@ function SletBruger() {
     setStatus(null);
     try {
       const res = await fetch(
-        `/admin/users/${encodeURIComponent(username)}`,
+        `/api/admin/delete-user`,
         {
           method: "DELETE",
           credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username }),
         },
       );
 
@@ -325,7 +328,7 @@ function SletBruger() {
           onClick={handleSlet}
           disabled={loading || !submission}
         >
-          {loading ? "Sletter…" : "Slet bruger"}
+          {loading ? "Sletter..." : "Slet bruger"}
         </button>
       </div>
     </div>
