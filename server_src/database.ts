@@ -279,7 +279,7 @@ export class WebappDatabase {
       logger
         .error`Error deleting user with username: ${username}. Error: ${errMsg}`;
     }
-    return { msg: "ok", statusCode: 200 };
+    return { msg: "user successfully deleted", statusCode: 200 };
   }
 
   /**
