@@ -186,7 +186,7 @@ function CreatePollPage({
    */
   function buildPollData(): Partial<Poll> {
     const startsAtValue = startNow
-      ? new Date().toISOString()
+      ? new Date(Date.now() + (useBuffer === 1 ? 5*60*1000 :0)).toISOString()
       : startDate && startsAt
       ? `${startDate}T${startsAt}`
       : undefined;
