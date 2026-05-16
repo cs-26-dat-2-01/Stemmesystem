@@ -113,20 +113,23 @@ export class WebappDatabase {
   }
 
   private async ensureAdminUser(adminPassword: string): Promise<void> {
-    await this.prisma.user.upsert({
-      where: { username: "admin" },
-      update: {}, // Do not update if admin user already exists
-      create: {
-        username: "admin",
-        passwordHash: adminPassword,
-      },
-    }).then(() => {
-      logger.info("Admin user created or already exists in database.");
-    }).catch((err: { message: string }) => {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.fatal`Error while creating admin user in database: ${errMsg}`;
-      throw new Error("Error while creating admin user in database.");
-    });
+    await this.prisma.user
+      .upsert({
+        where: { username: "admin" },
+        update: {}, // Do not update if admin user already exists
+        create: {
+          username: "admin",
+          passwordHash: adminPassword,
+        },
+      })
+      .then(() => {
+        logger.info("Admin user created or already exists in database.");
+      })
+      .catch((err: { message: string }) => {
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        logger.fatal`Error while creating admin user in database: ${errMsg}`;
+        throw new Error("Error while creating admin user in database.");
+      });
   }
   private async logDatabaseState(): Promise<void> {
     try {
@@ -161,13 +164,11 @@ export class WebappDatabase {
     await dbInstance.logDatabaseState();
 
     // Get admin from database
-    const { user, httpStatusCode, errorMsg } = await dbInstance.getUserFromDB(
-      "admin",
-    );
+    const { user, httpStatusCode, errorMsg } =
+      await dbInstance.getUserFromDB("admin");
 
     if (!user) {
-      logger
-        .fatal`Admin user not found in database after initialization. Status code: ${httpStatusCode}, error message: ${errorMsg}`;
+      logger.fatal`Admin user not found in database after initialization. Status code: ${httpStatusCode}, error message: ${errorMsg}`;
       throw new Error("Admin user not found in database after initialization.");
     }
 
@@ -242,7 +243,7 @@ export class WebappDatabase {
       });
       if (exists) {
         logger.info`User with username: ${username} already exists.`;
-        return 200; // user already present
+        return 409; // user already present
       }
 
       // https://github.com/ranisalt/node-argon2
@@ -258,16 +259,14 @@ export class WebappDatabase {
         const errorCode = (createErr as Prisma.PrismaClientKnownRequestError)
           ?.code;
         if (errorCode === "P2002") {
-          logger
-            .info`User with username: ${username} already exists (concurrent create).`;
+          logger.info`User with username: ${username} already exists (concurrent create).`;
           return 200;
         }
         throw createErr;
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
+      logger.error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
       return 500;
     }
   }
@@ -277,7 +276,9 @@ export class WebappDatabase {
    *
    * @param username of the user going to be deleted from the database
    */
-  public async deleteUserFromDB(username: string) {
+  public async deleteUserFromDB(
+    username: string,
+  ): Promise<{ msg: string; statusCode: ContentfulStatusCode }> {
     try {
       await this.prisma.user.delete({ where: { username } });
       logger.info`Deleted user from database with username: ${username}`;
@@ -286,11 +287,11 @@ export class WebappDatabase {
       // If the user does not exist Prisma throws a `P2025` error; log as info.
       if ((err as Prisma.PrismaClientKnownRequestError)?.code === "P2025") {
         logger.info`User with username: ${username} not found while deleting.`;
-        return;
+        return { msg: "user not found", statusCode: 404 };
       }
-      logger
-        .error`Error deleting user with username: ${username}. Error: ${errMsg}`;
+      logger.error`Error deleting user with username: ${username}. Error: ${errMsg}`;
     }
+    return { msg: "user successfully deleted", statusCode: 200 };
   }
 
   /**
@@ -382,8 +383,7 @@ export class WebappDatabase {
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger
-        .error`Error fetching poll options via Prisma for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching poll options via Prisma for poll ID: ${pollId}. Error: ${errMsg}`;
       return [];
     }
   }
@@ -707,9 +707,7 @@ export class WebappDatabase {
    * @param pollId the ID of the poll for which the latest hash should be fetched.
    * @returns An object containing the latest hash (or `null` if no votes have been cast yet — the "genesis" case), an HTTP status code, and an optional error message if the operation failed. Returns 200 on success (including when no votes exist) and 500 if an error occurs during fetching.
    */
-  public async getLatestHash(
-    pollId: number,
-  ): Promise<{
+  public async getLatestHash(pollId: number): Promise<{
     hash: string | null;
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
@@ -729,8 +727,7 @@ export class WebappDatabase {
       return { hash: sqlResult.currentHash, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         hash: null,
         errorMsg: "Error fetching latest hash.",
@@ -765,8 +762,7 @@ export class WebappDatabase {
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error while inserting audit log with action: ${action}, Error: ${errMsg}`;
+      logger.error`Error while inserting audit log with action: ${action}, Error: ${errMsg}`;
       return {
         success: false,
         errorMsg: "Error while inserting audit log",
@@ -794,10 +790,7 @@ export class WebappDatabase {
           timestamp: true,
           details: true,
         },
-        orderBy: [
-          { timestamp: "desc" },
-          { id: "desc" },
-        ],
+        orderBy: [{ timestamp: "desc" }, { id: "desc" }],
       });
       return {
         logs: logs.map((log) => ({
@@ -882,8 +875,7 @@ export class WebappDatabase {
       return { votes, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         votes: [],
         errorMsg: "Error listing votes",
@@ -916,8 +908,7 @@ export class WebappDatabase {
       }));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching poll result counts for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching poll result counts for poll ID: ${pollId}. Error: ${errMsg}`;
       return [];
     }
   }
@@ -948,8 +939,7 @@ export class WebappDatabase {
       return sqlResult !== null;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Uknown error";
-      logger
-        .error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger.error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return false; // Fail-safe: on error refuse to access to the poll.
     }
   }
@@ -994,8 +984,7 @@ export class WebappDatabase {
       return sqlResult.votesAllowed;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger.error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return 0;
     }
   }
@@ -1127,12 +1116,13 @@ export class WebappDatabase {
    *
    * @param pollId - The id of the poll to get progress report on.
    */
-  public async getVoteProgress(
-    pollId: number,
-  ): Promise<string> {
-    const totalEligible = await this.prisma.pollEligibleVoter.count({
-      where: { pollId: pollId },
+  public async getVoteProgress(pollId: number): Promise<string> {
+    const eligibleVotes = await this.prisma.pollEligibleVoter.aggregate({
+      where: { pollId },
+      _sum: { votesAllowed: true },
     });
+    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing
+    const totalEligibleVotes = eligibleVotes._sum.votesAllowed ?? 0;
     const ballotsCast = await this.prisma.vote.count({
       where: { pollId },
     });
@@ -1140,7 +1130,7 @@ export class WebappDatabase {
       where: { pollId },
     });
 
-    return `${ballotsCast + ballotsPending}/${totalEligible}`;
+    return `${ballotsCast + ballotsPending}/${totalEligibleVotes}`;
   }
 
   /**
@@ -1228,9 +1218,7 @@ export class WebappDatabase {
    *   that did not match a User row, so callers can reject the request
    *   with a precise error instead of silently dropping voters.
    */
-  public async getUsersByUsernames(
-    usernames: string[],
-  ): Promise<{
+  public async getUsersByUsernames(usernames: string[]): Promise<{
     users: Array<{ id: number; username: string }>;
     notFound: string[];
   }> {
@@ -1334,9 +1322,9 @@ export class WebappDatabase {
     pollId: number,
   ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
     try {
-      const DeletePoll = await this.prisma.poll.delete(
-        { where: { id: pollId } },
-      );
+      const DeletePoll = await this.prisma.poll.delete({
+        where: { id: pollId },
+      });
 
       return { httpStatusCode: 200 };
     } catch (err) {
@@ -1558,9 +1546,10 @@ export class WebappDatabase {
    *
    * @returns number of rows changed (for logging/debuggin):
    */
-  public async tickPollStatuses(): Promise<
-    { started: number; finished: number }
-  > {
+  public async tickPollStatuses(): Promise<{
+    started: number;
+    finished: number;
+  }> {
     const now = new Date();
     try {
       const started = await this.prisma.poll.updateMany({
@@ -1628,6 +1617,9 @@ export class WebappDatabase {
     try {
       const users = await this.prisma.user.findMany({
         select: { id: true, username: true },
+        orderBy: {
+          id: "asc",
+        },
       });
 
       if (users.length === 0) {
@@ -1672,8 +1664,7 @@ export class WebappDatabase {
       return { voters, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger
-        .error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger.error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         voters: [],
         errorMsg: "Error fetching eligible voters",

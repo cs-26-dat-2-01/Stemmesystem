@@ -26,7 +26,7 @@ function LoginPage({ setIsLoggedIn }: LoginPageProps) {
 
   async function handleLogin(event: React.SubmitEvent) {
     event.preventDefault(); //Prevents default submit
-    const res = await fetch("http://localhost:8000/login", {
+    const res = await fetch("/login", {
       method: "POST",
       body: JSON.stringify({
         username: username,

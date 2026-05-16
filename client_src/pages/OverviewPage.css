@@ -31,6 +31,7 @@
   text-decoration: none;
   margin-bottom: 20px;
   transition: background 0.15s;
+  cursor: pointer;
 }
 .btn-create:hover {
   background: #f3f4f6;
@@ -50,7 +51,7 @@
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #374151;
+  color: var(--color-thead);
   font-size: 0.82rem;
   cursor: pointer;
   text-align: left;
@@ -77,7 +78,7 @@
 .ov-folders-title {
   font-size: 0.78rem;
   font-weight: 700;
-  color: #374151;
+  color: var(--color-thead);
 }
 .ov-folder-add {
   border: none;
@@ -89,7 +90,7 @@
   padding: 0 2px;
 }
 .ov-folder-add:hover {
-  color: #111827;
+  color: var(--color-text);
 }
 
 /* Folder tree */
@@ -107,7 +108,7 @@
   border: none;
   background: transparent;
   font-size: 0.82rem;
-  color: #374151;
+  color: var(--color-thead);
   cursor: pointer;
   text-align: left;
   border-radius: 4px;
@@ -136,7 +137,7 @@
   display: block;
   padding: 4px 6px;
   font-size: 0.8rem;
-  color: #374151;
+  color: var(--color-thead);
   text-decoration: none;
   border-radius: 4px;
   transition: background 0.12s;
@@ -186,7 +187,7 @@
   font-size: 0.82rem;
   outline: none;
   background: #fff;
-  color: #111827;
+  color: var(--color-text);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .ov-search-input:focus {
@@ -211,7 +212,7 @@
   text-align: left;
   font-weight: 700;
   font-size: 0.78rem;
-  color: #374151;
+  color: var(--color-thead);
   white-space: nowrap;
 }
 
@@ -228,13 +229,13 @@
 
 .ov-table td {
   padding: 11px 14px;
-  color: #374151;
+  color: var(--color-thead);
   vertical-align: middle;
 }
 
 /* Column-specific */
 .ov-col-title a {
-  color: #111827;
+  color: var(--color-text);
   text-decoration: none;
   font-weight: 500;
 }
@@ -249,12 +250,12 @@
   align-items: center;
   gap: 5px;
   font-size: 0.82rem;
-  color: #374151;
+  color: var(--color-thead);
 }
 .voted-label svg {
   width: 15px;
   height: 15px;
-  color: #374151;
+  color: var(--color-thead);
   flex-shrink: 0;
 }
 
@@ -271,6 +272,9 @@
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 .btn-vote:hover {
   background: var(--blue-button-hover);
@@ -297,12 +301,12 @@
 .icon-check {
   width: 16px;
   height: 16px;
-  color: #374151;
+  color: var(--color-thead);
 }
 .icon-cross {
   width: 16px;
   height: 16px;
-  color: #374151;
+  color: var(--color-thead);
 }
 
 /* ─── States ─────────────────────────────────────────────────── */
@@ -371,7 +375,7 @@
   .ov-table-row {
     max-width: 100%;
     flex-shrink: 0;
-    border: 2px solid #ccc;
+    border: 2px solid var(--color-border-alternative);
     scroll-snap-align: start;
     flex-basis: 100%;
     display: grid;
