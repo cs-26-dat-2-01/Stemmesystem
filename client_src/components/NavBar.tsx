@@ -51,6 +51,10 @@ function NavBar() {
         <div className="nav-center">
           {isAdmin && <Link to="/admin">Admin</Link>}
         </div>
+        <div className="nav-center">
+          <Link to="/auditlog">Auditlog</Link>
+        </div>
+
 
         <div className="vertical-divider"></div>
 
