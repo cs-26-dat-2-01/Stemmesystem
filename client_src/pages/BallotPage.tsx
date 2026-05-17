@@ -53,6 +53,12 @@ function BallotPage({ pollId }: BallotPageProps) {
         credentials: "include",
       });
 
+      if (resOpen.status === 401) {
+        await fetch("/logout", { method: "POST", credentials: "include" });
+        globalThis.location.href = "/";
+        return;
+      }
+
       if (resOpen.status === 200) {
         const dataOpen = await resOpen.json();
         console.log("Open succeeded:", dataOpen);

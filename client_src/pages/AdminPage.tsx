@@ -53,6 +53,11 @@ function UserList() {
         const res = await fetch("/api/users", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
+        if (res.status === 401) {
+          await fetch("/logout", { method: "POST", credentials: "include" });
+          globalThis.location.href = "/";
+          return;
+        }
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
         const result = await res.json();
         const users: User[] = result.users;

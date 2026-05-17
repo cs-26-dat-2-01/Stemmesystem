@@ -80,6 +80,12 @@ function CreatePollPage({
         credentials: "include",
       });
 
+      if (res.status === 401) {
+        await fetch("/logout", { method: "POST", credentials: "include" });
+        globalThis.location.href = "/";
+        return;
+      }
+
       if (!res.ok) {
         console.error(`Faield to load draft: ${res.status}`);
         return;

@@ -56,6 +56,11 @@ function PollResults({ pollId }: PollResultsProps) {
     (async () => {
       try {
         const res = await fetch(`/api/poll/${pollId}/results`);
+        if (res.status === 401) {
+          await fetch("/logout", { method: "POST", credentials: "include" });
+          globalThis.location.href = "/";
+          return;
+        }
         if (!res.ok) {
           setViewState("error");
           return;

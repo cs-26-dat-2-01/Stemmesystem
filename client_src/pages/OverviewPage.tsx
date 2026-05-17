@@ -438,6 +438,11 @@ function OverviewPage() {
           method: "GET",
           credentials: "include",
         });
+        if (res.status === 401) {
+          await fetch("/logout", { method: "POST", credentials: "include" });
+          globalThis.location.href = "/";
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const pollData: FrontEndPoll[] = await res.json();
