@@ -1672,4 +1672,42 @@ export class WebappDatabase {
       };
     }
   }
+
+  public async markPollClosing(pollId: number):Promise<{
+	  httpStatusCode: ContentfulStatusCode;
+	  errorMsg?: string;
+  }>{
+	try {
+      const result = await this.prisma.poll.updateMany({
+      where: {
+        id: pollId,
+        voteStatus: "started",
+      },
+      data: {
+        voteStatus: "closing",
+      },
+    });
+
+    if (result.count === 1) {
+
+	await this.insertAuditLog(
+	"POLL_STATUS_CLOSING",
+	`pollId:${pollId} has changed status to closing`,
+	);
+
+      return {httpStatusCode: 200}
+    } else {
+	    return{ httpStatusCode: 403, errorMsg: 
+		    "Poll might not have been started, did not exists or something has already finished it"}
+    }
+	} catch (err) {
+	 const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error closing poll ${pollId}: ${errMsg}`;
+      return {
+	httpStatusCode: 500,
+        errorMsg: "Error invalidating poll",
+      };
+
+	}
+  }
 }

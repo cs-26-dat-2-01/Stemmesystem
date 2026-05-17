@@ -58,6 +58,7 @@ export type pollStatus =
   | "saved" // Edits saved but poll haven't been published.
   | "not started" // Poll have been published and will start at the given start time.
   | "started" // Poll is started and eligible voters can cast their ballot.
+  | "closing" // the poll is doing the mixing, and calculating the hash, in between we dont accept votes. 
   | "finished" // Poll is finished and users with correct access rights can see the poll results.
   | "invalidated"; // Poll had integrity loss and must be re-run.
 

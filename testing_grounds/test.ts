@@ -1868,7 +1868,7 @@ Deno.test({
  */
 
 Deno.test({
-  name: "GET /api/auditlog returns 200 with empty logs initially",
+  name: "GET /api/auditlog returns 200 with empty logs initially for authenticated caller",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -1879,10 +1879,16 @@ Deno.test({
     const server = startServer(DB, ac);
 
     try {
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
       const res = await fetch("http://localhost:8000/api/auditlog", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
+          "Cookie": cookies,
           "version": CLIENT_VERSION,
         },
       });
@@ -1968,6 +1974,7 @@ Deno.test({
         method: "GET",
         headers: {
           "Content-Type": "application/json",
+          "Cookie": cookies,
           "version": CLIENT_VERSION,
         },
       });
@@ -2016,7 +2023,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "GET /api/auditlog requires no auth (publicly readable)",
+  name: "GET /api/auditlog returns 401 for unauthenticated caller",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -2041,14 +2048,9 @@ Deno.test({
 
       assertEquals(
         res.status,
-        200,
-        `Expected unauthenticated /api/auditlog to succeed, got ${res.status}: ${text}`,
+        401,
+        `Expected unauthenticated /api/auditlog to fail with 401, got ${res.status}: ${text}`,
       );
-
-      const body = JSON.parse(text);
-      assertEquals(body.logs.length, 1);
-      assertEquals(body.logs[0].action, "PUBLIC_TEST");
-      assertEquals(body.logs[0].details, "publicly visible entry");
     } finally {
       ac.abort();
       await server;
@@ -5078,7 +5080,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "runStartupIntegrityCheck invalidates poll when signaturesIssued exceeds persisted votes",
+    "runStartupIntegrityCheck logs integrity gap when signaturesIssued exceeds persisted votes",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -5099,9 +5101,11 @@ Deno.test({
         eligibleVoters: [{ userId: voter.id, votesAllowed: 2 }],
       });
 
-      // Simulate a crash mid-flush: server issued 2 signatures but the
-      // votes never reached `Vote` or `PendingVote`. countIssuedSignatures
-      // will see 2, countPersistedVotes 0 → integrity check must fail.
+      // Simulate a gap: server issued 2 signatures but the votes never
+      // reached `Vote` or `PendingVote`. Startup integrity should surface
+      // the mismatch for operators without auto-invalidating the poll,
+      // because the server cannot distinguish crash-loss from voter
+      // abandonment at startup.
       await prisma.pollEligibleVoter.update({
         where: {
           pollId_userId: { pollId: poll.id, userId: voter.id },
@@ -5114,14 +5118,14 @@ Deno.test({
       const after = await prisma.poll.findUniqueOrThrow({
         where: { id: poll.id },
       });
-      assertEquals(after.voteStatus, "invalidated");
+      assertEquals(after.voteStatus, "started");
 
       const logs = await prisma.auditLog.findMany({
-        where: { action: "POLL_INVALIDATED_VOTE_LOSS" },
+        where: { action: "POLL_INTEGRITY_GAP" },
       });
       assertEquals(logs.length, 1);
       assert(logs[0].details!.includes(`pollId:${poll.id}`));
-      assert(logs[0].details!.includes("expected:2"));
+      assert(logs[0].details!.includes("issued:2"));
       assert(logs[0].details!.includes("persisted:0"));
     } finally {
       await prisma.$disconnect();

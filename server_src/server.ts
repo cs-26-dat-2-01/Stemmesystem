@@ -131,10 +131,10 @@ export function startServer(
   });
 
   router.get("/api/auditlog", async (c) => {
-	  return await hasValidJWT(c, async () => { 
-    const result = await DB.getAuditLog();
-    return c.json(result, result.httpStatusCode);
-	  });
+    return await hasValidJWT(c, async () => {
+      const result = await DB.getAuditLog();
+      return c.json(result, result.httpStatusCode);
+    });
   });
 
   // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.

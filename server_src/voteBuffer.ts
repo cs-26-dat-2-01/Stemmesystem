@@ -190,7 +190,7 @@ export class VoteBuffer {
   }
 
   //inserts the votes in the buffer again.
-  private requeue(pollId: number, votes: BufferedPollVote[]): void {
+  public requeue(pollId: number, votes: BufferedPollVote[]): void {
     const current = this.buffers.get(pollId) ?? [];
     this.buffers.set(pollId, [...votes, ...current]);
   }
