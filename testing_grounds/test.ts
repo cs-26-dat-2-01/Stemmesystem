@@ -4464,7 +4464,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "/api/admin/add-user returns 200 when username already exists",
+  name: "/api/admin/add-user returns 409 when username already exists",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -4495,7 +4495,7 @@ Deno.test({
         },
       });
 
-      assertEquals(res.status, 200, await res.text());
+      assertEquals(res.status, 409, await res.text());
       // Existing user must still authenticate with the original password —
       // the duplicate-add must NOT overwrite the password.
       const originalLogin = await fetchUserCredentials("alice", "original-pw");

@@ -48,7 +48,10 @@
       "integrity": "2092395af4f2f6c12acd85e569c2539055b39fd936861348c23db59206a8ed4f"
     },
     "@logtape/redaction@2.0.7": {
-      "integrity": "84b3b6c4598660287e52c77838020c8718e9241c0d2b606686d9ad132747ca77"
+      "integrity": "84b3b6c4598660287e52c77838020c8718e9241c0d2b606686d9ad132747ca77",
+      "dependencies": [
+        "jsr:@logtape/logtape"
+      ]
     },
     "@panva/jose@6.2.3": {
       "integrity": "57cc772f01b2ac60f847a7e6ec815059762768186266ed833fb59953e9611312"
