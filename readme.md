@@ -100,7 +100,14 @@ deno run -A prisma db push
 `npx prisma db push` applies `./prisma/schema.prisma` to the database from
 DATABASE_URL.
 
-If you are testing the system, and have previously tested it with another database, it can save som headache if you go into browser console at type localStorage.clear, since else it will associate if you have had the same pollId before. 
+If you are testing the system, and have previously tested it with another database, it can save som headache if you go into browser console at type localStorage.clear, since else it will associate if you have had the same pollId before.
+
+## Testing
+To run the test, you simply run: 
+```shell
+deno run test 
+```
+you can add --coverage to get a coverage report at the end. IMPORTANT: you must terminate the server if its running, since the test does require to startup the server on the same port.
 
 ### Deno Tasks
 
