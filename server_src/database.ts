@@ -1142,14 +1142,32 @@ export class WebappDatabase {
    *
    * @param userId ID på den indloggede bruger
    */
-  public async getFrontEndPollObj(userId: number): Promise<FrontEndPoll[]> {
+  public async getFrontEndPollObj(
+    userId: number,
+    isAdmin: boolean,
+  ): Promise<FrontEndPoll[]> {
     try {
+      // Private polls are only visible to the creator, eligible voters,
+      // and admin. Admin sees everything.
+      const visibilityFilter = isAdmin ? {} : {
+        OR: [
+          { pollVisibility: "public" },
+          { createdBy: userId },
+          { eligibleVoters: { some: { userId } } },
+        ],
+      };
+
       // Fetch all polls for a user, but only votes they are allowed to see!
       const polls = await this.prisma.poll.findMany({
         where: {
-          OR: [
-            { voteStatus: { not: "draft" } }, //include all poll where status is not draft
-            { createdBy: userId }, // but include the drafted polls which is createdBy the user.
+          AND: [
+            {
+              OR: [
+                { voteStatus: { not: "draft" } }, //include all poll where status is not draft
+                { createdBy: userId }, // but include the drafted polls which is createdBy the user.
+              ],
+            },
+            visibilityFilter,
           ],
         },
         include: {

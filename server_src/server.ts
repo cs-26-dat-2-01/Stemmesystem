@@ -146,7 +146,8 @@ export function startServer(
       if (userResult.httpStatusCode !== 200 || !userResult.user) {
         return c.body("401 Unauthorized", 401);
       }
-      const polls = await DB.getFrontEndPollObj(userResult.user.id);
+      const isAdmin = payload.username === "admin";
+      const polls = await DB.getFrontEndPollObj(userResult.user.id, isAdmin);
       return c.json(polls, 200);
     });
   });
