@@ -494,7 +494,9 @@ function CreatePollStep1({
   onNext: () => void;
 }) {
   const [attempted, setAttempted] = useState(false);
-  const today = new Date().toISOString().split("T")[0];
+ const today = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Copenhagen",
+  }).format(new Date());
 
   // Locks date fields to today when checked.
   function handleOnlyToday(checked: boolean) {
