@@ -461,6 +461,10 @@ export class PollManager {
     );
 
     if (result.errorMsg || !result.blindSignatureB64) {
+    this.DB.insertAuditLog(
+      "BLIND_SIG_ISSUEFAIL",
+      `pollId:${pollId}`,
+    );
       return result;
     }
 
