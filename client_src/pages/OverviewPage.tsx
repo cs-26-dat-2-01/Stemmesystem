@@ -7,6 +7,7 @@ import {
   callbackTypes,
   formatTime,
   type FrontEndPoll,
+  type pollStatus,
 } from "../WebLib.ts";
 import { Link, useNavigate } from "react-router";
 import { FaCheck, FaXmark } from "react-icons/fa6"; //SVG icons
@@ -41,12 +42,21 @@ function calculateTimeLeft(p: FrontEndPoll) {
 // Oversætter poll.status til en læsbar dansk tekst i Status-kolonnen.
 // For aktive afstemninger vises stemmefremdriften (f.eks. "3/14") i stedet.
 function statusLabel(poll: FrontEndPoll): string {
-  if (poll.poll.status === "finished") return "Afsluttet";
-  if (poll.poll.status === "not started") return "Ikke startet";
-  if (poll.poll.status === "draft") return "Kladde";
-  if (poll.poll.status === "saved") return "Gemt";
-  // "started" — vis stemmefremdrift
-  return poll.pollProgress;
+  const statusMap: Record<pollStatus, string> = {
+    "draft": "Kladde",
+    "saved": "Gemt",
+    "not started": "Ikke startet",
+    "started": poll.timeLeft,
+    "closing": "Lukker afstemning",
+    "finished": "Afsluttet",
+    "invalidated": "Fejl",
+  };
+
+  const status = poll.poll.status;
+
+  // If the status exists in our map, return the translation.
+  // Otherwise, default to the progress string.
+  return statusMap[status] ?? poll.pollProgress;
 }
 
 // ─── Helper: buildFolders ─────────────────────────────────────────────────────
@@ -226,7 +236,6 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
           <th>Afstemnings titel</th>
           <th>Din status</th>
           <th>Status</th>
-          <th>Tid tilbage</th>
           <th>Offentlig/Privat</th>
           <th>Hemmelig</th>
           <th>Afstemnings ejer</th>
@@ -277,12 +286,6 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                 </td>
 
                 <td className="ov-col-status">{statusLabel(poll)}</td>
-
-                {
-                  /* Tid tilbage — viser "Starter om: HH:MM:SS" for ikke-startede,
-                eller nedtælling til afslutning for aktive afstemninger */
-                }
-                <td className="ov-col-time">{poll.timeLeft}</td>
 
                 <td className="ov-col-visibility">
                   {poll.poll.pollVisibility === "public"
@@ -348,7 +351,6 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                     : null}
                 </td>
                 <td className="ov-col-status">{statusLabel(poll)}</td>
-                <td className="ov-col-time">{poll.timeLeft}</td>
                 <td className="ov-col-visibility">
                   {poll.poll.pollVisibility}
                 </td>
