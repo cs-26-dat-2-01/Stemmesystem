@@ -362,7 +362,7 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
               </td>
               <td className="ov-col-status">{statusLabel(poll)}</td>
               <td className="ov-col-time">{poll.timeLeft}</td>
-              <td className="ov-col-visibility">{poll.poll.pollVisibility}</td>
+              <td className="ov-col-visibility">{poll.poll.pollVisibility === "public" ? "Offentlig" : "Privat"}</td>
               <td className="ov-col-anon">
                 {poll.poll.ballotPrivacy === "secret" ? (
                   <FaCheck />
