@@ -561,7 +561,7 @@ function CreatePollStep1({
         id="description"
         name="description"
         value={description}
-        className="field-area"
+        className="input-createPoll"
         onChange={(e) => setDescription(e.target.value)}
       />
 
@@ -579,6 +579,7 @@ function CreatePollStep1({
             id="visibility"
             name="visibility"
             value={visibility}
+            className="input-createPoll"
             onChange={(e) => setVisibility(e.target.value as pollVisibility)}
           >
             <option value="" disabled>
@@ -600,6 +601,7 @@ function CreatePollStep1({
             id="privacy"
             name="privacy"
             value={privacy}
+            className="input-createPoll"
             onChange={(e) => setPrivacy(e.target.value as ballotPrivacy)}
           >
             <option value="" disabled>
