@@ -260,7 +260,7 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                   <div className="ov-col-item">
                     <b className="ov-col-item-title">Din status:</b>
 
-                    {poll.poll.status === "finished"
+                    {poll.hasVoted || poll.poll.status === "finished"
                       ? (
                         <Link
                           to={`/poll/${poll.poll.id}/results`}
@@ -344,7 +344,7 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                   </Link>
                 </td>
                 <td className="ov-col-mystatus">
-                  {poll.hasVoted
+                  {poll.hasVoted || poll.poll.status === "finished"
                     ? (
                       <button
                         type="button"
