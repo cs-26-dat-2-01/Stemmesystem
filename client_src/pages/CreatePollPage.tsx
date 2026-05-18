@@ -192,7 +192,8 @@ function CreatePollPage({
    */
   function buildPollData(): Partial<Poll> {
     const startsAtValue = startNow
-      ? new Date(Date.now() + (useBuffer === 1 ? 5*60*1000 :0)).toISOString()
+      ? new Date(Date.now() + (useBuffer === 1 ? 5 * 60 * 1000 : 0))
+        .toISOString()
       : startDate && startsAt
       ? `${startDate}T${startsAt}`
       : undefined;
@@ -278,20 +279,23 @@ function CreatePollPage({
    * logged to the console and the editor remains open.
    */
   async function handleDelete() {
-    if (pollId !== null) {
-      if (!window.confirm("Er du sikker på, at du vil slette afstemningen?")) {
-        return;
-      }
-
-      const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
-      if (res.ok) {
-        onExit();
+    if (
+      globalThis.confirm("Er du sikker på, at du vil slette afstemningen?")
+    ) {
+      if (pollId !== null) {
+        const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
+        if (res.ok) {
+          onExit();
+        } else {
+          const msg = await res.text();
+          console.error(`Delete fejlede: ${res.status} ${msg}`);
+        }
       } else {
-        const msg = await res.text();
-        console.error(`Delete fejlede: ${res.status} ${msg}`);
+        onExit();
       }
     }
   }
+
   async function handleNext() {
     await handleSave();
     setStep((s) => s + 1);
@@ -500,7 +504,7 @@ function CreatePollStep1({
   onNext: () => void;
 }) {
   const [attempted, setAttempted] = useState(false);
- const today = new Intl.DateTimeFormat("sv-SE", {
+  const today = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Copenhagen",
   }).format(new Date());
 
