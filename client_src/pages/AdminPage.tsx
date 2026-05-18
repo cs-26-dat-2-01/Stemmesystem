@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
 import "./AdminPage.css";
+import { Link } from "react-router/internal/react-server-client";
+
+//SVG icons
+import { FaCheck, FaTrashCan, FaXmark } from "react-icons/fa6";
+import { FaLongArrowAltLeft, FaUsers } from "react-icons/fa";
+import { IoMdAdd } from "react-icons/io";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,12 +22,16 @@ type AdminView = "users" | "add-user" | "delete-user";
 // ─── Hjælpekomponent: StatusBesked ───────────────────────────────────────────
 // Viser en grøn succesbesked eller rød fejlbesked afhængigt af type.
 // Bruges efter at have tilføjet eller slettet en bruger.
-function StatusMsg(
-  { msg: msg, type }: { msg: string; type: "success" | "error" },
-) {
+function StatusMsg({
+  msg: msg,
+  type,
+}: {
+  msg: string;
+  type: "success" | "error";
+}) {
   return (
     <div className={`admin-status admin-status--${type}`}>
-      {type === "success" ? "✓" : "✗"} {msg}
+      {type === "success" ? <FaCheck /> : <FaXmark />} {msg}
     </div>
   );
 }
@@ -40,12 +50,18 @@ function UserList() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("http://localhost:8000/admin/users", {
+        const res = await fetch("/api/users", {
           credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
         });
+        if (res.status === 401) {
+          await fetch("/logout", { method: "POST", credentials: "include" });
+          globalThis.location.href = "/";
+          return;
+        }
         if (!res.ok) throw new Error(`Server svarede med ${res.status}`);
-        const data: User[] = await res.json();
-        setUsers(data);
+        const result = await res.json();
+        const users: User[] = result.users;
+        setUsers(users);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Ukendt fejl");
       } finally {
@@ -63,7 +79,11 @@ function UserList() {
     );
   }
   if (error) {
-    return <div className="admin-status admin-status--error">✗ {error}</div>;
+    return (
+      <div className="admin-status admin-status--error">
+        <FaXmark /> {error}
+      </div>
+    );
   }
 
   return (
@@ -99,7 +119,10 @@ function AddUsers() {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [status, setStatus] = useState<
-    { msg: string; type: "success" | "error" } | null
+    {
+      msg: string;
+      type: "success" | "error";
+    } | null
   >(null);
   const [loading, setLoading] = useState(false);
 
@@ -124,7 +147,7 @@ function AddUsers() {
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch("http://localhost:8000/admin/users", {
+      const res = await fetch("/api/admin/add-user", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -198,7 +221,7 @@ function AddUsers() {
           onClick={handleSubmission}
           disabled={loading}
         >
-          {loading ? "Opretter…" : "Opret bruger"}
+          {loading ? "Opretter..." : "Opret bruger"}
         </button>
       </div>
     </div>
@@ -212,7 +235,10 @@ function SletBruger() {
   const [username, setUsername] = useState("");
   const [submission, setSubmission] = useState(false);
   const [status, setStatus] = useState<
-    { msg: string; type: "success" | "error" } | null
+    {
+      msg: string;
+      type: "success" | "error";
+    } | null
   >(null);
   const [loading, setLoading] = useState(false);
 
@@ -238,10 +264,12 @@ function SletBruger() {
     setStatus(null);
     try {
       const res = await fetch(
-        `http://localhost:8000/admin/users/${encodeURIComponent(username)}`,
+        `/api/admin/delete-user`,
         {
           method: "DELETE",
           credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username }),
         },
       );
 
@@ -305,7 +333,7 @@ function SletBruger() {
           onClick={handleSlet}
           disabled={loading || !submission}
         >
-          {loading ? "Sletter…" : "Slet bruger"}
+          {loading ? "Sletter..." : "Slet bruger"}
         </button>
       </div>
     </div>
@@ -333,7 +361,7 @@ function AdminPage() {
               }`}
               onClick={() => setActivePane("users")}
             >
-              👥 Brugerliste
+              <FaUsers /> Brugerliste
             </button>
             <button
               type="button"
@@ -342,7 +370,7 @@ function AdminPage() {
               }`}
               onClick={() => setActivePane("add-user")}
             >
-              ➕ Tilføj bruger
+              <IoMdAdd /> Tilføj bruger
             </button>
             <button
               type="button"
@@ -351,12 +379,14 @@ function AdminPage() {
               }`}
               onClick={() => setActivePane("delete-user")}
             >
-              🗑 Slet bruger
+              <FaTrashCan /> Slet bruger
             </button>
           </nav>
 
           {/* Link tilbage til oversigten */}
-          <a href="/" className="admin-back-link">← Tilbage til oversigt</a>
+          <Link to="/" className="admin-back-link">
+            <FaLongArrowAltLeft /> Tilbage til oversigt
+          </Link>
         </aside>
 
         {/* Hovedindhold skifter afhængigt af aktiv fane */}

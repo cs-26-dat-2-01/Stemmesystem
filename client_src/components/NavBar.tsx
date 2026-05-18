@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import "./NavBar.css";
 import { FaUser } from "react-icons/fa";
 import { getCookie } from "../WebLib.ts";
+import { Link } from "react-router/internal/react-server-client";
 
 function NavBar() {
   const [userName] = useState(getCookie("user", document.cookie));
@@ -15,6 +16,7 @@ function NavBar() {
     if (res.status == 200) {
       //Refresh site after clearing cookies
       globalThis.location.reload();
+      globalThis.location.href = "/";
     } else {
       console.log("logout failed with code: " + res.status);
     }
@@ -44,10 +46,13 @@ function NavBar() {
 
       <div className="nav-right-group">
         <div className="nav-center">
-          <a href="/">Hjem</a>
+          <Link to="/">Hjem</Link>
         </div>
         <div className="nav-center">
-          {isAdmin && <a href="/admin">Admin</a>}
+          {isAdmin && <Link to="/admin">Admin</Link>}
+        </div>
+        <div className="nav-center">
+          <Link to="/auditlog">Auditlog</Link>
         </div>
 
         <div className="vertical-divider"></div>

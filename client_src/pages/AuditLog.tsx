@@ -96,18 +96,49 @@ function AuditLog() {
     )
   );
 
+  const [sortField, setSortField] = useState<keyof AuditLogTable>("id");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  //Sort by acending/decending
+  const sortedEntries = [...filteredEntries].sort((a, b) => {
+    const aValue = a[sortField];
+    const bValue = b[sortField];
+
+    if (aValue === null && bValue === null) return 0;
+    if (aValue === null) return 1;
+    if (bValue === null) return -1;
+
+    if (aValue < bValue) {
+      return sortDirection === "asc" ? -1 : 1;
+    }
+
+    if (aValue > bValue) {
+      return sortDirection === "asc" ? 1 : -1;
+    }
+
+    return 0;
+  });
+
   //Page navigation logic
   const startIndex = (currentPage - 1) * entriesPerPage;
   const endIndex = startIndex + entriesPerPage;
 
-  const currentEntries = filteredEntries.slice(startIndex, endIndex);
+  const currentEntries = sortedEntries.slice(startIndex, endIndex);
 
-  const totalPages = Math.ceil(filteredEntries.length / entriesPerPage);
+  const totalPages = Math.max(
+    1, // Prevents total pages from being less than 1.
+    Math.ceil(filteredEntries.length / entriesPerPage),
+  );
 
   useEffect(() => { //Fetches audit log from the server.
     async function fetchAuditLog() {
       try {
         const response = await fetch("/api/auditlog");
+        if (response.status === 401) {
+          await fetch("/logout", { method: "POST", credentials: "include" });
+          globalThis.location.href = "/";
+          return;
+        }
         const data = await response.json();
 
         setEntries(data.logs);
@@ -118,6 +149,21 @@ function AuditLog() {
 
     fetchAuditLog();
   }, []);
+
+  function handleSort(field: keyof AuditLogTable) { //Handles sorting by clicking on the table arrows.
+    if (sortField === field) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDirection("asc");
+    }
+  }
+
+  function renderArrow(field: keyof AuditLogTable) { //Renders the sorting arrows in the table headers.
+    if (sortField !== field) return "↕";
+
+    return sortDirection === "asc" ? "▲" : "▼";
+  }
 
   return (
     <>
@@ -156,10 +202,21 @@ function AuditLog() {
           {/*Audit log table*/}
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Action</th>
-              <th>Time Stamp</th>
-              <th>Details</th>
+              <th onClick={() => handleSort("id")}>
+                ID {renderArrow("id")}
+              </th>
+
+              <th onClick={() => handleSort("action")}>
+                Handling {renderArrow("action")}
+              </th>
+
+              <th onClick={() => handleSort("timestamp")}>
+                Tidspunkt {renderArrow("timestamp")}
+              </th>
+
+              <th onClick={() => handleSort("details")}>
+                Detaljer {renderArrow("details")}
+              </th>
             </tr>
           </thead>
 
@@ -180,7 +237,7 @@ function AuditLog() {
             onClick={() => setCurrentPage(currentPage - 1)}
             disabled={currentPage === 1}
           >
-            Previous
+            Forrige
           </button>
           <span>
             Side {currentPage} af {totalPages}
@@ -190,7 +247,7 @@ function AuditLog() {
             onClick={() => setCurrentPage(currentPage + 1)}
             disabled={currentPage === totalPages}
           >
-            Next
+            Næste
           </button>
           <div className="divider" />
           <label className="label">
@@ -210,7 +267,7 @@ function AuditLog() {
               <option value={100}>100</option>
               <option value={500}>500</option>
               <option value={1000}>1000</option>
-              <option value={entries.length}>All</option>
+              <option value={entries.length}>Alle</option>
             </select>
           </label>
         </div>

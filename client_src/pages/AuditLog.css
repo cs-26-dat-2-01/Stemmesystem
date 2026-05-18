@@ -56,6 +56,15 @@
   vertical-align: middle;
 }
 
+.alog-table th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.alog-table th:hover {
+  background-color: #e5e7eb;
+}
+
 /* Column-specific */
 .alog-col-title a {
   color: #111827;
