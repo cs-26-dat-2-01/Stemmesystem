@@ -383,8 +383,17 @@
   }
   .ov-col-item {
     margin: 0.5rem 0px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ov-col-item svg {
+    display: block;
   }
   .ov-col-item-title {
     margin-right: 0.5rem;
+  }
+  .btn-vote {
+    text-decoration: none;
   }
 }
