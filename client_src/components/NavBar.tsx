@@ -55,7 +55,6 @@ function NavBar() {
           <Link to="/auditlog">Auditlog</Link>
         </div>
 
-
         <div className="vertical-divider"></div>
 
         <div className="nav-right">

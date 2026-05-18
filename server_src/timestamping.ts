@@ -14,6 +14,23 @@ export async function ensureTsaCertificates(): Promise<void> {
   await ensureCertificateFile(CA_CERT_PATH, CA_CERT_URL);
 }
 
+/**
+   * Obtains an timestamp for a poll's close commitment from a Time
+   * Stamping Authority (default: FreeTSA, overridable via `FREETSA_URL`).
+   *
+   * @remarks
+   * The commitment is hashed (SHA-256) into a `.tsq` request via `openssl ts
+   * -query` posted to the TSA, and the returned `.tsr` token bytes are passed back
+   *  along with the original query. Both are stored on the poll so verifiers can later
+   *  re-check the binding between commitment, query and token. Temporary files
+   *  are written under a per-call temp directory which is removed in `finally`.
+   *
+   * Requires the `openssl` binary on `PATH` and a reachable TSA endpoint.
+   *
+   * @param closeCommitment - Hex-encoded close commitment to be timestamped.
+   * @returns The RFC 3161 timestamp query and the TSA-signed timestamp token.
+   * @throws If `openssl ts -query` fails or the TSA returns a non-2xx response.
+   */
 export async function timestampCommitment(
   closeCommitment: string,
 ): Promise<{
@@ -73,6 +90,26 @@ export async function timestampCommitment(
     await Deno.remove(tempDir, { recursive: true }).catch(() => undefined);
   }
 }
+/**
+   * Verifies an timestamp token against the poll's close commitment,
+   * using `openssl ts -verify` and the bundled TSA + CA certificates.
+   *
+   * @remarks
+   * The commitment and token are written to a per-call temp directory and fed
+   * to `openssl ts -verify` together with `CA_CERT_PATH` (trusted root) and
+   * TSA_CERT_PATH` (untrusted intermediate / TSA cert). Verification succeeds
+   * only if the token's signature chains to the trusted CA *and* the token's
+   * hash matches the commitment. The temp directory is removed in `finally`.
+   *
+   * Requires the `openssl` binary on `PATH`.
+   *
+   * @param closeCommitment - Hex-encoded close commitment originally
+  timestamped.
+   * @param timestampToken - The RFC 3161 timestamp token bytes returned by the
+  TSA.
+   * @returns `true` if `openssl ts -verify` succeeds, `false` otherwise (errors
+   *          are logged but not thrown).
+   */
 
 export async function verifyTimestampCommitment(
   closeCommitment: string,

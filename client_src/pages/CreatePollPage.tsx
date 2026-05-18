@@ -192,7 +192,8 @@ function CreatePollPage({
    */
   function buildPollData(): Partial<Poll> {
     const startsAtValue = startNow
-      ? new Date(Date.now() + (useBuffer === 1 ? 5*60*1000 :0)).toISOString()
+      ? new Date(Date.now() + (useBuffer === 1 ? 5 * 60 * 1000 : 0))
+        .toISOString()
       : startDate && startsAt
       ? `${startDate}T${startsAt}`
       : undefined;
@@ -500,7 +501,7 @@ function CreatePollStep1({
   onNext: () => void;
 }) {
   const [attempted, setAttempted] = useState(false);
- const today = new Intl.DateTimeFormat("sv-SE", {
+  const today = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Copenhagen",
   }).format(new Date());
 

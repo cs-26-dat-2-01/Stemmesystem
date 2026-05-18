@@ -147,7 +147,20 @@ export class PollManager {
     });
     return createHash("sha256").update(hashMsg, "utf8").digest("hex");
   }
-
+  /**
+   * Builds the close commitment: a single SHA-256 hash binding together the
+   * final hash-chain tip, the per-option vote counts, the poll metadata, and
+  the
+   * close timestamp. This commitment is what gets sent to the TSA
+   * timestamp so the closed poll can later be verified end-to-end.
+   *
+   * @param poll - The poll being closed (metadata fields are included in the
+  commitment).
+   * @param finalVotes - Votes in chain order; the last vote's `currentHash`
+  seals the chain.
+   * @param closedAt - Timestamp marking when the poll was closed.
+   * @returns Hex-encoded SHA-256 close commitment.
+   */
   private buildCloseCommitment(
     poll: Poll,
     finalVotes: VoteInsert[],
@@ -187,11 +200,30 @@ export class PollManager {
     );
   }
 
+  /** Computes a SHA-256 hash
+   */
   private sha256Hex(message: string): string {
     return createHash("sha256").update(message, "utf8").digest("hex");
   }
-
- private async verifyPollCloseIntegrity(pollId: number): Promise<boolean> {
+  /**
+   * Verifies that a poll is safe to close by comparing issued signatures
+  against
+   * persisted votes (final + pending) and ensuring the RAM buffer is fully
+  drained.
+   *
+   * Three outcomes:
+   * - Buffered votes remain: aborts the close (snapshot not trustworthy).
+   * - persisted > issued: marks the poll as invalidated (more votes than
+  signatures issued indicates a serious integrity breach) and aborts.
+   * - persisted < issued: logs a `POLL_INTEGRITY_GAP_AT_CLOSE` audit entry and
+  warns about lost votes, but still allows the close to proceed.
+   *
+   * @param pollId - ID of the poll being closed.
+   * @returns True if the poll may proceed to close; false if the buffer is not
+  drained
+   *          or the poll was invalidated.
+   */
+  private async verifyPollCloseIntegrity(pollId: number): Promise<boolean> {
     const issuedVotes = await this.DB.countIssuedSignatures(pollId);
     const persistedVotes = await this.DB.countPersistedVotes(pollId);
 
@@ -217,45 +249,17 @@ export class PollManager {
       return false;
     }
 
-    if (persistedVotes < issuedVotes){
-    	this.DB.insertAuditLog(
-	"POLL_INTEGRITY_GAP_AT_CLOSE",
-	`Tried to close pollId: ${pollId}, issued:${issuedVotes}, persisted: ${persistedVotes}, buffered:${bufferedVotes}`,
-	);
-	logger.warn`${pollId} has an integrity gap, might have lost some votes!`; 
+    if (persistedVotes < issuedVotes) {
+      this.DB.insertAuditLog(
+        "POLL_INTEGRITY_GAP_AT_CLOSE",
+        `Tried to close pollId: ${pollId}, issued:${issuedVotes}, persisted: ${persistedVotes}, buffered:${bufferedVotes}`,
+      );
+      logger.warn`${pollId} has an integrity gap, might have lost some votes!`;
     }
 
     return true;
   }
 
-
-  /**
-   * Validates and atomically persits a batch of votes for a single user,
-   * extending the poll's tamper-evident hash-chain.
-   *
-   * @remarks
-   * Called from `POST /api/poll/:/pollId/vote`. The route handler is
-   * responsible for shape-validating the request (votes is a non-empty array of `{optionId, UUID}`)
-   * This method enforces all the logic rules:
-   * - Poll exists and has `voteStatus === "started"
-   * - User is on the eligible-voters list and has remaining vote(s) to cast.
-   * - Every UUID is unique within the batch, and every `optionId`belongs to this poll.
-   *
-   * Each vote in the batch is hashed over the previous vote's hash
-   * (see {@link PollManager.createVoteHash}), and the entire batch is
-   * inserted in a single DB transaction - partial acceptance is not allowed,
-   * so any failure rolls back all votes in the batch.
-   *
-   * Security: `userId` MUST come from a verified JWT payload, never from the request
-   * body, otherwise a client could vote on behalf of another user.
-   *
-   * @param pollId- the poll being voted on.
-   * @param userId - the voting user (must originate from a verified JWT).
-   * @ param votes - The votes to cast. Each vote's UUID must be uniqie across the entire DB;
-   * 			the underlying `VoteToken.uuid`UNIQUE constraint guarantees no replay or collision.
-   *
-   * @returns `{success:true}`on full insert; `{success:false, errorMsg}`if any logic rule fails or the DB rejects the batch.
-   */
   /**
    * Casts an anonymous vote. Called from `POST /api/poll/:pollId/vote`.
    *
@@ -285,7 +289,9 @@ export class PollManager {
    *   `{success: false, errorMsg, httpStatusCode}` on failure:
    *   `400` malformed input / invalid signature / bad option;
    *   `403` poll not open;
+   *    '404' "poll not found";
    *   `409` UUID already cast (replay).
+   *   '500'"Poll has no signing key"
    */
   public async castVote(
     pollId: number,
@@ -461,10 +467,10 @@ export class PollManager {
     );
 
     if (result.errorMsg || !result.blindSignatureB64) {
-    this.DB.insertAuditLog(
-      "BLIND_SIG_ISSUEFAIL",
-      `pollId:${pollId}`,
-    );
+      this.DB.insertAuditLog(
+        "BLIND_SIG_ISSUEFAIL",
+        `pollId:${pollId}`,
+      );
       return result;
     }
 
@@ -570,7 +576,7 @@ export class PollManager {
     this.DB.insertAuditLog(
       "POLL_OPENED",
       `pollId:${pollId}, userId:${userId}, votesAllowed:${votesAllowed},votesRemaining:${votesRemaining}`,
- );
+    );
 
     return {
       result: {
@@ -633,15 +639,16 @@ export class PollManager {
       };
     }
 
-    const [options, votesResult, counts, blindRsaPublicKey, closeArtifacts] = await Promise.all(
-      [
-        this.DB.getPollOptionsFromDB(pollId),
-        this.DB.listVotesForPoll(pollId),
-        this.DB.getPollResultCounts(pollId),
-        this.DB.getPollPublicKey(pollId),
-        this.DB.getPollCloseArtifacts(pollId),
-      ],
-    );
+    const [options, votesResult, counts, blindRsaPublicKey, closeArtifacts] =
+      await Promise.all(
+        [
+          this.DB.getPollOptionsFromDB(pollId),
+          this.DB.listVotesForPoll(pollId),
+          this.DB.getPollResultCounts(pollId),
+          this.DB.getPollPublicKey(pollId),
+          this.DB.getPollCloseArtifacts(pollId),
+        ],
+      );
 
     if (votesResult.errorMsg) {
       return {
@@ -734,14 +741,14 @@ export class PollManager {
     }
 
     return {
-        result: {
-          ballotPrivacy: "open",
-          showTopN: poll.showTopN ?? 0,
-          closeCommitment: closeArtifacts.closeCommitment,
-          closedAt: closeArtifacts.closedAt,
-          hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
-          hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
-          counts: countsWithText,
+      result: {
+        ballotPrivacy: "open",
+        showTopN: poll.showTopN ?? 0,
+        closeCommitment: closeArtifacts.closeCommitment,
+        closedAt: closeArtifacts.closedAt,
+        hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
+        hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
+        counts: countsWithText,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
           optionId: v.pollOptionId,
@@ -786,7 +793,9 @@ export class PollManager {
         httpStatusCode: closeArtifacts.httpStatusCode,
       };
     }
-    if (!closeArtifacts.closeCommitment || !closeArtifacts.closeTimestampToken) {
+    if (
+      !closeArtifacts.closeCommitment || !closeArtifacts.closeTimestampToken
+    ) {
       return {
         errorMsg: "Poll has no timestamp data",
         httpStatusCode: 404,
@@ -1245,11 +1254,12 @@ export class PollManager {
   }
 
   private async finishPollWithVoteDrain(pollId: number): Promise<boolean> {
-	  const pollSatToClosing = await this.DB.markPollClosing(pollId);
-	  if (pollSatToClosing.httpStatusCode !== 200){
-		  logger.error`Cannot set poll to closing, ${pollId}, err:${pollSatToClosing.errorMsg}`;
-		  return false; 
-		}
+    const pollSatToClosing = await this.DB.markPollClosing(pollId);
+    if (pollSatToClosing.httpStatusCode !== 200) {
+      logger
+        .error`Cannot set poll to closing, ${pollId}, err:${pollSatToClosing.errorMsg}`;
+      return false;
+    }
 
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (!pollResult.poll) {
@@ -1257,22 +1267,24 @@ export class PollManager {
       return false;
     }
 
-	const bufferedVotes = this.voteBuffer.takeBufferedVotes(pollId);
- const BufferedVotesIntoPending = await this.DB.insertPendingVoteBatch(
+    const bufferedVotes = this.voteBuffer.takeBufferedVotes(pollId);
+    const BufferedVotesIntoPending = await this.DB.insertPendingVoteBatch(
+      pollId,
+      bufferedVotes,
+    );
+    if (!BufferedVotesIntoPending.success) {
+      logger
+        .error`Cannot insert buffered into pending - poll ${pollId}: ${BufferedVotesIntoPending.errorMsg}`;
+      this.voteBuffer.requeue(
         pollId,
-        bufferedVotes,
+        bufferedVotes.map((vote) => ({ pollId, ...vote })),
       );
-  if (!BufferedVotesIntoPending.success) {
-      logger.error`Cannot insert buffered into pending - poll ${pollId}: ${BufferedVotesIntoPending.errorMsg}`;
-      this.voteBuffer.requeue(pollId, bufferedVotes.map((vote) => ({pollId, ...vote})));
       this.DB.insertAuditLog(
-      "POLL_CLOSE_BUFFER_PERSIST_FAILED",
-      `${pollId}, count: ${bufferedVotes.length} tried to insert buffer to pending, but failed, now the votebuffer is requeued in memory!`,
+        "POLL_CLOSE_BUFFER_PERSIST_FAILED",
+        `${pollId}, count: ${bufferedVotes.length} tried to insert buffer to pending, but failed, now the votebuffer is requeued in memory!`,
       );
       return false;
-  }
-
-	
+    }
 
     const integrityOk = await this.verifyPollCloseIntegrity(pollId);
     if (!integrityOk) {
@@ -1286,7 +1298,6 @@ export class PollManager {
       return false;
     }
 
-    
     const allVotes = pendingResult.votes;
 
     const shuffled = secureShuffle(allVotes);
@@ -1346,13 +1357,12 @@ export class PollManager {
       closeTimestampToken,
       closedAt,
     );
- if (!finalizeResult.success) {
+    if (!finalizeResult.success) {
       logger
         .error`Cannot finish poll ${pollId}: could not finalizeresult, err: ${finalizeResult.errorMsg}`;
       return false;
     }
 
-  
     this.DB.insertAuditLog(
       "POLL_CLOSED_AND_TIMESTAMPED",
       `pollId:${pollId}, count:${finalVotes.length}`,
@@ -1388,37 +1398,37 @@ export class PollManager {
     }
   }
 
-
-private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
+  private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
     const issued = await this.DB.countIssuedSignatures(pollId);
     const persisted = await this.DB.countPersistedVotes(pollId);
     const buffered = this.voteBuffer.countBuffered(pollId);
-    const total = persisted + buffered; 
+    const total = persisted + buffered;
 
-	// HARD: more votes than signatures is impossible without fraud or a bug.                                                                            
-	if (total > issued) {                                   
-  const reason =                                                                                                                
-    `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
-  const invalidated = await this.DB.markPollInvalidated(pollId, reason);                                                        
-  if (!invalidated.success) {         
-    logger.error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;                                                 
-  }                                                                                                                             
-  return false;                                                                                                               
-}                                                                                                                               
-                                                        
-// SOFT: signatures were issued but the corresponding votes were not                                                            
-// persisted. Could be legitimate user abandonment OR server-side vote loss
-// (e.g. crash before buffer flush). The server cannot distinguish these                                                        
-// cases from its own state, so we surface the gap via the audit log
-// and let an operator decide whether further investigation is needed.                                                        
-if (total < issued) {                                                                                                           
-  this.DB.insertAuditLog(             
-    "POLL_INTEGRITY_GAP",                                                                                                       
-    `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,                                         
-  );                                                                                                                            
-  logger                                                                                                                        
-    .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;        
-}               
+    // HARD: more votes than signatures is impossible without fraud or a bug.
+    if (total > issued) {
+      const reason =
+        `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
+      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+      if (!invalidated.success) {
+        logger
+          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+      }
+      return false;
+    }
+
+    // SOFT: signatures were issued but the corresponding votes were not
+    // persisted. Could be legitimate user abandonment OR server-side vote loss
+    // (e.g. crash before buffer flush). The server cannot distinguish these
+    // cases from its own state, so we surface the gap via the audit log
+    // and let an operator decide whether further investigation is needed.
+    if (total < issued) {
+      this.DB.insertAuditLog(
+        "POLL_INTEGRITY_GAP",
+        `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,
+      );
+      logger
+        .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;
+    }
 
     return true;
   }

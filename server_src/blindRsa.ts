@@ -24,25 +24,8 @@
 
 import { RSABSSA } from "@cloudflare/blindrsa-ts";
 
-// ---------------------------------------------------------------------------
-// Ciphersuite
-// ---------------------------------------------------------------------------
-
 /**
  * The RFC 9474 ciphersuite used by both server and client.
- *
- * `RSABSSA-SHA384-PSS-Randomized` — RSA-PSS with SHA-384, MGF1-SHA-384, salt
- * length = hash length (48 bytes), and a randomized `prepare()` step that
- * prepends 32 random bytes to the message before blinding.
- *
- * BEMÆRK (dansk): RFC 9474 §6 anbefaler `Randomized`-varianten frem for
- * `Deterministic`, fordi den giver beskyttelse mod en angriber der prøver at
- * få samme UUID signeret to gange og dermed reducere entropi. For os er
- * msg (= UUID) allerede 32 tilfældige bytes, så `PrepareIdentity` ville
- * også være sikkert nok — men vi følger RFC-anbefalingen for at undgå at
- * skulle forsvare valget i rapporten. Konsekvens: `Vote.id` skal være
- * den *prepared* msg (random_prefix || msg), ikke den rå UUID, fordi det
- * er det `verify()` validerer signaturen imod.
  */
 const SUITE = RSABSSA.SHA384.PSS.Randomized();
 
@@ -84,7 +67,7 @@ function base64Decode(b64: string): Uint8Array {
 
 /**
  * Wrap raw DER bytes as a PEM block with the given label
- * (e.g. `"PUBLIC KEY"` or `"PRIVATE KEY"`). 64-char line wrapping per RFC 7468.
+ * (e.g. `"PUBLIC KEY"` or `"PRIVATE KEY"`).
  */
 function pemEncode(label: string, der: Uint8Array): string {
   const b64 = base64Encode(der);
@@ -113,11 +96,6 @@ function pemDecode(label: string, pem: string): Uint8Array {
  * This is the type that '@cloudflare/blindrsa-ts' expects. They Cryptokey
  * also binds algorithm (RSA-PSS) + hash (SHA-384) + allowed operations, so the
  * library cant accidentally misuse the key.
-
-/**
- * Import an SPKI-PEM public key as a WebCrypto `CryptoKey` usable for
- * RSA-PSS verification under the suite's hash. The same `CryptoKey` is what
- * `@cloudflare/blindrsa-ts` accepts for `verify()` and `blind()`.
  */
 async function importPublicKey(publicKeyPem: string): Promise<CryptoKey> {
   const der = pemDecode("PUBLIC KEY", publicKeyPem);
@@ -132,9 +110,7 @@ async function importPublicKey(publicKeyPem: string): Promise<CryptoKey> {
 
 /**
  * Import a PKCS#8-PEM private key as a WebCrypto `CryptoKey` usable for
- * blind-signing. Marked extractable so future code can rotate or re-export
- * it; if that becomes a concern, flip to `false` here and regenerate any
- * existing keys.
+ * blind-signing.
  */
 async function importPrivateKey(privateKeyPem: string): Promise<CryptoKey> {
   const der = pemDecode("PRIVATE KEY", privateKeyPem);
@@ -147,15 +123,9 @@ async function importPrivateKey(privateKeyPem: string): Promise<CryptoKey> {
   );
 }
 
-// Which below is the "public" API, used by the server.
-//
+// "public" API used by the server.
 /**
  * Generate a fresh RSA keypair for blind-signing a single poll.
- *
- * Call this once per poll at creation time and persist both PEMs on the
- * `Poll` row (`blindRsaPublicKey` + `blindRsaPrivateKey`). The public key is
- * served to clients via `GET /api/poll/:id/open`; the private key must
- * never leave the server.
  *
  * @param modulusLength RSA modulus size in bits. 2048 is the project
  *   default; 3072 or 4096 are valid but slow down `keygen`.
@@ -210,11 +180,6 @@ export async function blindSign(
  *
  *  1. Server-side at the cast endpoint, before accepting a `Vote`.
  *  2. Client-side in the "verify my vote" flow on the results page.
- *
- * Returns `false` (never throws) on any verification failure — malformed
- * signature, key import error, wrong length, bad signature — so callers
- * can treat it as a pure boolean predicate. Distinguishing "invalid input"
- * from "valid input, bad signature" is not useful here: both mean "reject".
  *
  * @param publicKeyPem the poll's SPKI-PEM public key (from DB or `/open`).
  * @param message the prepared message bytes that were signed.

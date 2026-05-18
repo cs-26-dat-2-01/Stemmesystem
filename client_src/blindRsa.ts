@@ -30,16 +30,8 @@
 
 import { RSABSSA } from "@cloudflare/blindrsa-ts";
 
-// ---------------------------------------------------------------------------
-// Ciphersuite
-// ---------------------------------------------------------------------------
-
 /**
  * The RFC 9474 ciphersuite — MUST match `server_src/blindRsa.ts`.
- *
- * `RSABSSA-SHA384-PSS-Randomized` — RSA-PSS with SHA-384, MGF1-SHA-384, salt
- * length = hash length (48 bytes), and a randomized `prepare()` that
- * prepends 32 random bytes to the message before blinding.
  */
 const SUITE = RSABSSA.SHA384.PSS.Randomized();
 
@@ -47,30 +39,13 @@ const SUITE = RSABSSA.SHA384.PSS.Randomized();
  * The output of {@link blind}. `blindedMessageB64` goes to the server in
  * the `POST /api/poll/:id/blindsign` body; `invB64` MUST be kept locally
  * until {@link finalize} is called, after which it can be discarded.
- *
- * @property blindedMessageB64 base64 of the blinded message — sent to server.
- * @property invB64            base64 of the blinding inverse — KEEP PRIVATE.
  */
 export interface BlindResult {
   blindedMessageB64: string;
   invB64: string;
 }
 
-/**
- * The local "receipt" that ties a voter to a vote.
- *
- * Stored in `localStorage` after a successful vote; everything needed to
- * later verify "my vote is in the tally and untampered with" lives in this
- * object plus the public results page. The server never sees these fields
- * together — `preparedMessage` only on the cast endpoint, `signature` only
- * on the cast endpoint, and neither is ever associated with a `userId`.
- *
- * @property preparedMessage the bytes verified against `signature` —
- *   ALSO the value stored as `Vote.id` on the server.
- * @property signatureB64    base64 of the finalized RSA-PSS signature.
- * @property pollId          which poll this receipt belongs to.
- * @property optionId        which option was voted for.
- */
+//Receipt stored in localstorage
 export interface VoteReceipt {
   preparedMessage: Uint8Array;
   signatureB64: string;
@@ -84,7 +59,7 @@ export interface VoteReceipt {
 // send raw bytes over JSON or store them in localStorage, we need encode
 // and decode helpers between Uint8Array and base64 strings.
 
-/** Encode raw bytes as standard base64 (no line wrapping). */
+/** Encode raw bytes as standard base64. */
 function base64Encode(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -121,12 +96,6 @@ function pemDecode(label: string, pem: string): Uint8Array {
  * This is the type that `@cloudflare/blindrsa-ts` expects. The CryptoKey
  * also binds algorithm (RSA-PSS) + hash (SHA-384) + allowed operations,
  * so the library cant accidentally misuse the key. */
-
-/**
- * Import an SPKI-PEM public key as a WebCrypto `CryptoKey` usable for
- * RSA-PSS verification AND for the `blind()` operation. The same key
- * object is reused across blind/finalize/verify within one vote flow.
- */
 async function importPublicKey(publicKeyPem: string): Promise<CryptoKey> {
   const der = pemDecode("PUBLIC KEY", publicKeyPem);
   return await crypto.subtle.importKey(
@@ -141,13 +110,8 @@ async function importPublicKey(publicKeyPem: string): Promise<CryptoKey> {
 // Public API
 /**
  * Generate a fresh cryptographically random 32-byte message.
- *
  * This is the "UUID" the voter holds privately during the issuance phase.
- * After {@link prepare} it becomes the public Vote.id on the server. The
- * server never sees the raw output of this function — only the prepared,
- * blinded form.
- *
- * @returns 32 random bytes from the OS CSPRNG.
+ * @returns 32 random bytes.
  */
 export function generateUuid(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(32));
@@ -167,14 +131,6 @@ export function prepare(msg: Uint8Array): Uint8Array {
 
 /**
  * RFC 9474 §4.2 Blind — blind a prepared message for transmission.
- *
- * The matematical operation is `z = m · r^e mod n` where `m` is the
- * prepared message, `r` is a random blinding factor, and `(n, e)` is the
- * poll's public key. The blinded message `z` reveals nothing about `m`,
- * so the server can sign it without learning what was signed.
- *
- * We will use the inverse of r, so we can use it finalize and get the signed msg.
- *
  * @param publicKeyPem    the poll's public key (from `/api/poll/:id/open`).
  * @param preparedMessage output of {@link prepare}.
  * @returns base64 of the blinded message + base64 of the blinding inverse.
@@ -193,14 +149,6 @@ export async function blind(
 
 /**
  * RFC 9474 §4.4 Finalize — turn a blind signature into a real signature.
- *
- * The server returned `s' = z^d mod n` (a signature on the blinded
- * message). Multiplying by `inv = r^(-1)` gives `s = m^d mod n` — a
- * normal RSA-PSS signature on the prepared message, which `verify()`
- * accepts. The server never sees `m` or `s` directly.
- *
- * Discard `invB64` after this call returns successfully.
- *
  * @param publicKeyPem       the poll's public key (same one used in blind).
  * @param preparedMessage    output of {@link prepare} — must be byte-identical
  *   to what was passed to {@link blind}.
@@ -228,16 +176,6 @@ export async function finalize(
 
 /**
  * Verify a finalized signature against a prepared message.
- *
- * Used in the "see my vote" flow on the results page: the voter
- * recomputes the expected `currentHash` row, fetches their `Vote.id`
- * from the public results, and confirms the signature is valid under
- * the poll's public key. Returns `false` (never throws) on any failure.
- *
- * Identical semantics to `verify()` in `server_src/blindRsa.ts` —
- * kept duplicated here so the client bundle does not need a server
- * import path.
- *
  * @param publicKeyPem    the poll's public key.
  * @param preparedMessage the bytes that were signed (= `Vote.id`).
  * @param signatureB64    base64 of the finalized signature.

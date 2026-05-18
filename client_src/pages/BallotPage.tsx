@@ -1,22 +1,9 @@
 import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
 import "./BallotPage.css";
-import type { Poll, PollOption } from "../WebLib.ts";
+import type { Poll, PollOption, VoteReceipt } from "../WebLib.ts";
 import { Link } from "react-router/internal/react-server-client";
 import { blind, finalize, generateUuid, prepare } from "../blindRsa.ts";
-
-/* What i can see is i can make a "render screen" where we create the UUID, and send it back to the server, we then
-use useEffect from React to do all of this, and then use useState to rerender the page.
-We will follow the basic steps:
-1. First render --> poll is null --> Return <p> generating UUID and loading vote! <p>
-2. useEffect runs after 1. and first generates a UUID, and then fetches the POST /open
-3. Data arrives --> vi use a function called setPoll() to trigger a re-render where we renders.
-4. Second render --> poll exists --> return the poll and buttons to vote
-5. User click "Vote" and a new render comes up with "are you sure, you have voted for: ", and user confirms.
-6. When user confirms it shows a fourth render with "Waiting confirmation.." and it does a POST /vote
-7. The client receives a "OK" and a final fith renders show "You vote has been received, and a UUID:"
-The following "states" is described in the type ViewState below
-*/
 
 type ViewState =
   | "loading" // loading poll-data
@@ -42,11 +29,9 @@ function BallotPage({ pollId }: BallotPageProps) {
     Record<number, number>
   >({});
   // PEM public key for this poll — needed for blind/finalize on the client.
-  // Empty until /open responds.
   const [blindRsaPublicKey, setBlindRsaPublicKey] = useState<string>("");
 
   useEffect(() => {
-    // INDRE async funktion — HER må vi gerne bruge await
     async function openPoll() {
       const resOpen = await fetch(`/api/poll/${pollId}/open`, {
         method: "POST",
@@ -73,10 +58,8 @@ function BallotPage({ pollId }: BallotPageProps) {
         console.log("Open failed:", resOpen.status);
       }
     }
-
-    // Kald den INDRE funktion med det samme
     openPoll();
-  }, [pollId]); // change if pollId changes.
+  }, [pollId]); // Useeffect runs openPoll again if pollid changes.
 
   let allocatedVotes = 0;
   for (const count of Object.values(voteAllocations)) {
@@ -372,20 +355,6 @@ function BallotPage({ pollId }: BallotPageProps) {
     saveReceipts(newReceipts);
     setViewState("done");
   }
-}
-
-/**
- * The local "receipt" written to localStorage after each successful vote.
- * Together with the poll's public key + the public results page, this is
- * everything needed to later prove "my vote is in the tally". The server
- * never has the link from userId to these fields.
- */
-interface VoteReceipt {
-  pollId: number;
-  optionId: number;
-  uuidB64: string;
-  signatureB64: string;
-  castAt: string;
 }
 
 /** Encode raw bytes as standard base64 — small inline helper for the cast body. */
