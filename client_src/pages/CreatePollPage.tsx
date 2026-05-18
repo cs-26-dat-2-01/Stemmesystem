@@ -1215,9 +1215,6 @@ export function CreatePollStep4({
       </div>
 
       <br />
-      <button type="button" onClick={onNext}>
-        Start afstemning
-      </button>
       {!isComplete && missing.length > 0 && (
         <p className="field-hint" style={{ color: "#e74c3c" }}>
           Følgende mangler før afstemningen kan oprettes: {missing.join(", ")}.
