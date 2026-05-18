@@ -7,7 +7,12 @@
   border-bottom: 2px solid var(--color-border-alternative);
   background-color: var(--primary-background-color);
 }
-
+.nav-logo {
+  font-size: 2rem;
+  display: inline-flex;
+  margin-right: 5px;
+  color: #333;
+}
 .nav-left {
   display: flex;
   align-items: center;
