@@ -65,6 +65,7 @@ export async function hasValidJWT(
 
     if (verifiedPayload) {
       if (
+        // Check if user exists in DB, otherwise JWT is not valid.
         (await db.getUserFromDB(verifiedPayload.username as string))
           .httpStatusCode === 200
       ) {
