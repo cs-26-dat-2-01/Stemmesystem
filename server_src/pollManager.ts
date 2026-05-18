@@ -880,7 +880,7 @@ export class PollManager {
    * draft via this method, and `publishPoll` later promotes it out of
    * draft.
    *
-   * Authorization is delegated to `loadEditableDraft`: the caller must
+   * Authorization is delegated to `loadEditablePoll`: the caller must
    * be the poll's creator and the poll must still be in `"draft"`.
    *
    * Pre-processing on `input.voters` (when provided): usernames are
@@ -908,7 +908,7 @@ export class PollManager {
    *   replacement of the corresponding rows when present.
    * @returns `{ httpStatusCode: 200 }` on success;
    *   `{ errorMsg, httpStatusCode }` on failure — `400` for unknown
-   *   voters, or whatever status `loadEditableDraft` / `DB.updatePoll`
+   *   voters, or whatever status `loadEditablePoll` / `DB.updatePoll`
    *   propagate (`403` / `404` / `409` / `500`).
    */
   public async updatePoll(
@@ -920,7 +920,7 @@ export class PollManager {
       optionTexts?: string[];
     },
   ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
-    const draft = await this.loadEditableDraft(userId, pollId);
+    const draft = await this.loadEditablePoll(userId, pollId);
     if (!draft.ok) {
       return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
@@ -988,7 +988,7 @@ export class PollManager {
    *
    * Pipeline (each step short-circuits on failure):
    * 1. Load the draft and verify the caller is allowed to edit it via
-   *    `loadEditableDraft`.
+   *    `loadEditablePoll`.
    * 2. Trim option texts and drop empty entries.
    * 3. Trim voter usernames, drop empty entries, and deduplicate by
    *    username (last entry per name wins).
@@ -1002,14 +1002,14 @@ export class PollManager {
    *
    * @param userId the id of the authenticated caller. Must come from a
    *   verified JWT, never from the request body. Used both for
-   *   authorization (via `loadEditableDraft`) and for the audit log.
+   *   authorization (via `loadEditablePoll`) and for the audit log.
    * @param pollId the id of the draft poll to publish.
    * @param input the final state to publish: poll fields, eligible
    *   voters with per-voter `votesAllowed`, and option texts.
    * @returns `{ pollId, httpStatusCode: 200 }` on success;
    *   `{ errorMsg, httpStatusCode }` on failure — `400` for unknown
    *   voters or validation failures, or whatever status
-   *   `loadEditableDraft` / `DB.updatePoll` propagate (e.g. `403`,
+   *   `loadEditablePoll` / `DB.updatePoll` propagate (e.g. `403`,
    *   `404`, `500`).
    *
    * @remarks
@@ -1030,10 +1030,11 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    const draft = await this.loadEditableDraft(userId, pollId);
+    const draft = await this.loadEditablePoll(userId, pollId);
     if (!draft.ok) {
       return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
+    const wasAlreadyPublished = draft.poll.status === "not started";
 
     const optionTexts = input.optionTexts
       .map((c) => c.trim())
@@ -1097,7 +1098,7 @@ export class PollManager {
     }
 
     this.DB.insertAuditLog(
-      "POLL_PUBLISHED",
+      wasAlreadyPublished ? "POLL_EDITED" : "POLL_PUBLISHED",
       `pollId:${pollId}, createdBy:${userId}, options:${optionTexts.length}, voters:${resolvedVoters.length}`,
     );
 
@@ -1110,17 +1111,23 @@ export class PollManager {
    * `getDraft` so the same rules apply across all edit-related paths
    * (delete uses its own slightly looser rule).
    *
+   * Editing is permitted in two lifecycle phases:
+   * - `"draft"` — the poll has never been published.
+   * - `"not started"` — the poll has been published but its `startsAt`
+   *   is still in the future. Once `startsAt` elapses, the scheduled
+   *   tick flips it to `"started"` and edits are refused.
+   *
    * Returns a discriminated union: `{ ok: true, poll }` when editing is
    * permitted; otherwise `{ ok: false, errorMsg, httpStatusCode }` with
    * the appropriate status — `404` if the poll does not exist, `500` on
    * a database error, `403` if the caller is not the poll's creator, or
-   * `409` if the poll has left draft state and is no longer editable.
+   * `409` if the poll is past the editable phase.
    *
    * @param userId the id of the authenticated caller (from a verified
    *   JWT).
    * @param pollId the id of the poll to load.
    */
-  private async loadEditableDraft(
+  private async loadEditablePoll(
     userId: number,
     pollId: number,
   ): Promise<
@@ -1141,14 +1148,27 @@ export class PollManager {
     if (result.poll.createdBy !== userId) {
       return { ok: false, errorMsg: "Forbidden", httpStatusCode: 403 };
     }
-    if (result.poll.status !== "draft") {
-      return {
-        ok: false,
-        errorMsg: "Only drafts can be edited",
-        httpStatusCode: 409,
-      };
+    if (result.poll.status === "draft") {
+      return { ok: true, poll: result.poll };
     }
-    return { ok: true, poll: result.poll };
+    if (result.poll.status === "not started") {
+      const startsAt = result.poll.startsAt
+        ? new Date(result.poll.startsAt).getTime()
+        : 0;
+      if (startsAt <= Date.now()) {
+        return {
+          ok: false,
+          errorMsg: "Poll has already started and can no longer be edited",
+          httpStatusCode: 409,
+        };
+      }
+      return { ok: true, poll: result.poll };
+    }
+    return {
+      ok: false,
+      errorMsg: "Poll is past the editable phase",
+      httpStatusCode: 409,
+    };
   }
 
   /**
@@ -1161,7 +1181,7 @@ export class PollManager {
    * Authorization checks, in order:
    * 1. Poll must exist (`404` otherwise; `500` on database error).
    * 2. Caller must be the poll's creator (`403` otherwise).
-   * 3. Poll must be in `"draft"` or `"saved"` state (`403` otherwise).
+   * 3. Poll must be in `"draft"` or `"not started"` state (`403` otherwise).
    *
    * On success, writes a `POLL_DELETED` audit log entry. The audit-log
    * write is fire-and-forget and does not affect the response.
@@ -1197,10 +1217,10 @@ export class PollManager {
 
     if (
       statusofVote.poll.status !== "draft" &&
-      statusofVote.poll.status !== "saved"
+      statusofVote.poll.status !== "not started"
     ) {
       return {
-        errorMsg: "Only drafts and saved polls can be deleted",
+        errorMsg: "Only drafts and not-started polls can be deleted",
         httpStatusCode: 403,
       };
     }
@@ -1241,7 +1261,7 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    const draft = await this.loadEditableDraft(userId, pollId);
+    const draft = await this.loadEditablePoll(userId, pollId);
     if (!draft.ok) {
       return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }

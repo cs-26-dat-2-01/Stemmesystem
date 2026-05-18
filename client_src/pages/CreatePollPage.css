@@ -287,6 +287,25 @@ input[type="number"] {
   padding: 7px 12px;
   font-size: 0.75rem;
 }
+/* Edit-deadline banner shown when editing a "not started" vote */ 
+.edit-deadline-banner {
+  background: #eef4ff;
+  color: #1f3b80;
+  border-bottom: 1px solid #c8d6f3;
+  padding: 0.6rem 3rem;
+  font-size: 0.85rem;
+  text-align: center;
+}
+.edit-deadline-banner--warning {
+  background: #fff6e0;
+  color: #8a5b00;
+  border-bottom-color: #f0d68a;
+}
+.edit-deadline-banner--expired {
+  background: #fde2e1;
+  color: #8a1f1c;
+  border-bottom-color: #f2a8a4;
+}
 
 /* Divider between sections */
 

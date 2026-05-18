@@ -55,7 +55,6 @@ export type pollVisibility = "public" | "private";
 export type ballotPrivacy = "secret" | "open";
 export type pollStatus =
   | "draft" // Ongoing editing by poll creator.
-  | "saved" // Edits saved but poll haven't been published.
   | "not started" // Poll have been published and will start at the given start time.
   | "started" // Poll is started and eligible voters can cast their ballot.
   | "closing" // the poll is doing the mixing, and calculating the hash, in between we dont accept votes.

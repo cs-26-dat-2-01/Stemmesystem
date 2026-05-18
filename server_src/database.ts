@@ -18,6 +18,16 @@ import {
 
 import { Prisma, PrismaClient } from "../generated/prisma/client.ts";
 
+// Formats a Date as "YYYY-MM-DDTHH:MM:SS" in the server's local timezone.
+// Why: the create-poll UI splits on "T" to pull dato/tid back into separate
+// inputs, which broke when we returned the default Date.toString() format
+// ("Mon May 18 2026 ...") — the "T" inside "Time" split that off as garbage.
+function formatLocalDatetime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 /**
  * The result of the getUserFromDB function, which is used to fetch a user from the database based on a username.
  *
@@ -348,9 +358,11 @@ export class WebappDatabase {
         createdBy: sqlResult.createdBy,
         createdAt: sqlResult.createdAt.toString(),
         startsAt: sqlResult.startsAt
-          ? sqlResult.startsAt.toString()
+          ? formatLocalDatetime(sqlResult.startsAt)
           : undefined,
-        endsAt: sqlResult.endsAt ? sqlResult.endsAt.toString() : undefined,
+        endsAt: sqlResult.endsAt
+          ? formatLocalDatetime(sqlResult.endsAt)
+          : undefined,
         pollVisibility: sqlResult.pollVisibility as pollVisibility | null,
         ballotPrivacy: sqlResult.ballotPrivacy as ballotPrivacy | null,
         showTopN: sqlResult.showTopN,
@@ -1296,8 +1308,8 @@ export class WebappDatabase {
             status: poll.voteStatus as pollStatus,
             createdBy: poll.createdBy,
             createdAt: poll.createdAt.toString(),
-            startsAt: poll.startsAt ? poll.startsAt.toString() : undefined,
-            endsAt: poll.endsAt ? poll.endsAt.toString() : undefined,
+            startsAt: poll.startsAt ? formatLocalDatetime(poll.startsAt) : undefined,
+            endsAt: poll.endsAt ? formatLocalDatetime(poll.endsAt) : undefined,
             pollVisibility: poll.pollVisibility as pollVisibility | null,
             ballotPrivacy: poll.ballotPrivacy as ballotPrivacy | null,
             showTopN: poll.showTopN,

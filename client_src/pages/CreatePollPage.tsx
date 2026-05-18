@@ -1,10 +1,11 @@
 import "./CreatePollPage.css";
 import { useEffect, useState } from "react";
-import type {
-  ballotPrivacy,
-  Poll,
-  PollOption,
-  pollVisibility,
+import {
+  type ballotPrivacy,
+  formatTime,
+  type Poll,
+  type PollOption,
+  type pollVisibility,
 } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
 
@@ -66,6 +67,43 @@ function CreatePollPage({
   const [topNOnly, setTopNOnly] = useState(false);
   const [ballotLimit, setBallotLimit] = useState(1);
 
+  // Tracks whether the user has attempted to leave Step 1 — controls
+  // whether the red validation hints are rendered. Hoisted so bottom-nav
+  // and publish can also flip it on without going through Step 1's own
+  // "Gem og fortsæt" button.
+  const [step1Attempted, setStep1Attempted] = useState(false);
+
+  // True when the loaded poll was already published (`"not started"`).
+  // Drives the edit-deadline banner so a fresh draft doesn't show it.
+  const [wasPublished, setWasPublished] = useState(false);
+
+  // Re-render every second so the edit-deadline countdown stays current.
+  // Only ticks when the banner is actually shown.
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    if (!wasPublished) return;
+    const interval = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [wasPublished]);
+
+  // Mirror of the date/time validation logic in Step 1 so the parent can
+  // gate publishing without re-running it inside the child.
+  function isStep1Valid(): boolean {
+    if (!visibility || !privacy) return false;
+    if (!startNow && (!startsAt || !startDate)) return false;
+    if (!endsAt || !endDate) return false;
+    const now = new Date();
+    const startDateTime = startNow
+      ? now
+      : new Date(`${startDate}T${startsAt}`);
+    const endDateTime = new Date(`${endDate}T${endsAt}`);
+    if (Number.isNaN(startDateTime.getTime())) return false;
+    if (Number.isNaN(endDateTime.getTime())) return false;
+    if (startDateTime < now) return false;
+    if (endDateTime <= startDateTime) return false;
+    return true;
+  }
+
   // toggle mobile viewport at 900px width.
   const isMobile = useIsMobile(900);
 
@@ -90,6 +128,7 @@ function CreatePollPage({
         return;
       }
       const data = await res.json();
+      setWasPublished(data.poll.status === "not started");
       setTitle(data.poll.title ?? "");
       setDescription(data.poll.description ?? "");
       setVisibility(data.poll.pollVisibility ?? "private");
@@ -253,6 +292,11 @@ function CreatePollPage({
       console.error("cant publish without pollId");
       return;
     }
+    if (!isStep1Valid()) {
+      setStep1Attempted(true);
+      setStep(0);
+      return;
+    }
     const res = await fetch(`/api/polls/${pollId}/publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -299,10 +343,36 @@ function CreatePollPage({
     setStep((s) => s + 1);
   }
 
+  // Banner shown while editing an already-published poll: counts down to
+  // the start time, after which the server refuses further edits.
+  const editDeadlineMs = wasPublished && startDate && startsAt
+    ? new Date(`${startDate}T${startsAt}`).getTime()
+    : null;
+  const editTimeLeftMs =
+    editDeadlineMs !== null && !Number.isNaN(editDeadlineMs)
+      ? editDeadlineMs - nowMs
+      : null;
+
   return (
     <div className="create-poll-page">
       {/* Navbar at the top */}
       <NavBar />
+
+      {wasPublished && editTimeLeftMs !== null && (
+        <div
+          className={`edit-deadline-banner ${
+            editTimeLeftMs <= 0
+              ? "edit-deadline-banner--expired"
+              : editTimeLeftMs < 5 * 60 * 1000
+              ? "edit-deadline-banner--warning"
+              : ""
+          }`}
+        >
+          {editTimeLeftMs <= 0
+            ? "Afstemningen er startet — yderligere redigeringer vil blive afvist."
+            : `Afstemningen starter om ${formatTime(editTimeLeftMs)} — husk at gemme dine ændringer inden.`}
+        </div>
+      )}
 
       {/* Show the correct step */}
       {step === 0 && (
@@ -335,6 +405,8 @@ function CreatePollPage({
           setTopNOnly={setTopNOnly}
           ballotLimit={ballotLimit}
           setBallotLimit={setBallotLimit}
+          attempted={step1Attempted}
+          setAttempted={setStep1Attempted}
           onNext={handleNext}
         />
       )}
@@ -379,6 +451,7 @@ function CreatePollPage({
             type="button"
             className="button-secondary create-poll-button"
             onClick={async () => {
+              setStep1Attempted(true);
               await handleSave();
               setStep((s) => Math.max(0, s - 1));
             }}
@@ -401,6 +474,7 @@ function CreatePollPage({
                     : "create-poll-button"
                 }
                 onClick={async () => {
+                  setStep1Attempted(true);
                   await handleSave();
                   setStep(i);
                 }}
@@ -414,6 +488,7 @@ function CreatePollPage({
             type="button"
             className="button-secondary create-poll-button"
             onClick={async () => {
+              setStep1Attempted(true);
               await handleSave();
               setStep((s) => Math.min(3, s + 1));
             }}
@@ -426,10 +501,11 @@ function CreatePollPage({
           type="button"
           className="create-poll-button"
           onClick={async () => {
+            setStep1Attempted(true);
             await handleSave();
           }}
         >
-          Gem kladde
+          Gem ændringer
         </button>
       </div>
     </div>
@@ -470,6 +546,8 @@ function CreatePollStep1({
   setTopNOnly,
   ballotLimit,
   setBallotLimit,
+  attempted,
+  setAttempted,
   onNext,
 }: {
   title: string;
@@ -500,9 +578,10 @@ function CreatePollStep1({
   setTopNOnly: (v: boolean) => void;
   ballotLimit: number;
   setBallotLimit: (v: number) => void;
+  attempted: boolean;
+  setAttempted: (v: boolean) => void;
   onNext: () => void;
 }) {
-  const [attempted, setAttempted] = useState(false);
   const today = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Copenhagen",
   }).format(new Date());
