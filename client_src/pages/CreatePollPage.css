@@ -100,9 +100,26 @@ input[type="number"] {
 
 .create-poll-grid-3 {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1.3fr;
   gap: 1.5rem;
   margin-top: 1rem;
+}
+
+/* Sub-grid: dropdown is on the left, explanation on right */
+.visibility-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+/* Explanation on the side or below the field */
+.create-poll-content .field-hint {
+  font-size: 0.78rem;
+  color: #666;
+  line-height: 1.35;
+  margin: 0.25rem 0 0.5rem;
 }
 
 /* Overview fields for the third page */
@@ -358,7 +375,8 @@ input[type="number"] {
   }
 
   .create-poll-grid-2,
-  .create-poll-grid-3 {
+  .create-poll-grid-3,
+  .visibility-row {
     grid-template-columns: 1fr;
     gap: 1rem;
   }

@@ -537,8 +537,6 @@ function CreatePollStep1({
     endDateTime > startDateTime;
 
   return (
-    // Added "field-hints" as there are in the wireframe, to tell the user what each field does.
-    // Certain fields have their text omitted since they take up a lot of space.
 
     <div className="create-poll-content">
       <h2>Generel information</h2>
@@ -573,54 +571,76 @@ function CreatePollStep1({
           <h2>Synligheds indstillinger</h2>
 
           {/* Public or private */}
-          <label htmlFor="visibility">Offentlig eller privat afstemning</label>
-          <p className="field-hint"></p>
-          <select
-            id="visibility"
-            name="visibility"
-            value={visibility}
-            className="input-createPoll"
-            onChange={(e) => setVisibility(e.target.value as pollVisibility)}
-          >
-            <option value="" disabled>
-              Vælg...
-            </option>
-            <option value="public">Offentlig</option>
-            <option value="private">Privat</option>
-          </select>
-          {attempted && !visibility && (
-            <p style={{ color: "red" }}>
-              Vælg venligst offentlig eller privat afstemning.
+          <div className="visibility-row">
+            <div>
+              <label htmlFor="visibility">
+                Offentlig eller privat afstemning
+              </label>
+              <select
+                id="visibility"
+                name="visibility"
+                value={visibility}
+                className="input-createPoll"
+                onChange={(e) =>
+                  setVisibility(e.target.value as pollVisibility)
+                }
+              >
+                <option value="" disabled>
+                  Vælg...
+                </option>
+                <option value="public">Offentlig</option>
+                <option value="private">Privat</option>
+              </select>
+              {attempted && !visibility && (
+                <p style={{ color: "red" }}>
+                  Vælg venligst offentlig eller privat afstemning.
+                </p>
+              )}
+            </div>
+            <p className="field-hint">
+              Bestemmer om de stemmeberettigede og resultatet af afstemningen
+              er synligt for alle frivillige. Ellers er det kun synligt for
+              dig og de stemmeberettigede.
             </p>
-          )}
+          </div>
 
           {/* Open or secret */}
-          <label htmlFor="secrecyMode">Åben eller hemmelig stemme</label>
-          <p className="field-hint"></p>
-          <select
-            id="privacy"
-            name="privacy"
-            value={privacy}
-            className="input-createPoll"
-            onChange={(e) => setPrivacy(e.target.value as ballotPrivacy)}
-          >
-            <option value="" disabled>
-              Vælg...
-            </option>
-            <option value="open">Åben</option>
-            <option value="secret">Hemmelig</option>
-          </select>
-          {attempted && !privacy && (
-            <p style={{ color: "red" }}>
-              Vælg venligst åben eller hemmelig stemme.
+          <div className="visibility-row">
+            <div>
+              <label htmlFor="secrecyMode">Åben eller hemmelig stemme</label>
+              <select
+                id="privacy"
+                name="privacy"
+                value={privacy}
+                className="input-createPoll"
+                onChange={(e) => setPrivacy(e.target.value as ballotPrivacy)}
+              >
+                <option value="" disabled>
+                  Vælg...
+                </option>
+                <option value="open">Åben</option>
+                <option value="secret">Hemmelig</option>
+              </select>
+              {attempted && !privacy && (
+                <p style={{ color: "red" }}>
+                  Vælg venligst åben eller hemmelig stemme.
+                </p>
+              )}
+            </div>
+            <p className="field-hint">
+              Ved åbne afstemninger vises efterfølgende, hvad hver stemme har stemt.
+		Ved hemmelige afstemninger kan man ikke se hvad hver stemme har stemt. 
             </p>
-          )}
+          </div>
         </div>
 
         {/* Right: start and end time */}
         <div>
           <h2>Afstemnings start og slut</h2>
-          <p className="field-hint"></p>
+          <p className="field-hint">
+            Afstemninger kan redigeres indtil de starter. Det anbefales at
+            sætte en start-buffer, så man kan nå at rette eventuelle fejl.
+          </p>
 
           {/* Start time, disabled when start now is checked */}
           <label htmlFor="startsAt">Start tidspunkt</label>
@@ -686,7 +706,10 @@ function CreatePollStep1({
             />
             Vis kun top n
           </label>
-          <p className="field-hint"></p>
+          <p className="field-hint">
+            Hvis sat, vises stemmefordelingen ikke når afstemningen er slut,
+            i stedet vises kun de n valgmuligheder med flest stemmer.
+          </p>
           {topNOnly && (
             <>
               <label htmlFor="showTopN">Top N:</label>
@@ -706,7 +729,10 @@ function CreatePollStep1({
         <div>
           <h2>Antal valgmuligheder</h2>
           <label htmlFor="ballotLimit">Max antal stemmer per deltager</label>
-          <p className="field-hint"></p>
+          <p className="field-hint">
+            Angiv hvor mange valgmuligheder hver stemmeberettiget maksimalt
+            kan vælge.
+          </p>
           <input
             id="ballotLimit"
             name="ballotLimit"
@@ -720,7 +746,10 @@ function CreatePollStep1({
         {/* Date */}
         <div>
           <h2>Dato</h2>
-          <p className="field-hint">Hvornår afstemningen afslutter.</p>
+          <p className="field-hint">
+            Start- og slutdato for afstemningen. En afstemning kan maks vare
+            N dage.
+          </p>
 
           <label htmlFor="startDate">Start dato</label>
           <input
