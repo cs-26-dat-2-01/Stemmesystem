@@ -204,7 +204,8 @@ async function seedVote(prisma: PrismaClient, input: {
       pollId: input.pollId,
       pollOptionId: input.optionId,
       timestamp: input.timestamp,
-      chainPosition: input.chainPosition ?? ((latestVote?.chainPosition ?? 0) + 1),
+      chainPosition: input.chainPosition ??
+        ((latestVote?.chainPosition ?? 0) + 1),
       previousHash,
       currentHash,
       signature: input.signature ?? crypto.randomUUID(),
@@ -265,7 +266,10 @@ async function requestBlindSignature(
   publicKeyPem: string,
 ) {
   const preparedMessage = prepare(generateUuid());
-  const { blindedMessageB64, invB64 } = await blind(publicKeyPem, preparedMessage);
+  const { blindedMessageB64, invB64 } = await blind(
+    publicKeyPem,
+    preparedMessage,
+  );
   const signRes = await fetch(
     `http://localhost:8000/api/poll/${pollId}/blindsign`,
     {
@@ -293,7 +297,11 @@ async function issueAndCastVote(
   cookies: string,
   publicKeyPem: string,
 ) {
-  const blindRequest = await requestBlindSignature(pollId, cookies, publicKeyPem);
+  const blindRequest = await requestBlindSignature(
+    pollId,
+    cookies,
+    publicKeyPem,
+  );
   const signText = await blindRequest.signRes.text();
   if (blindRequest.signRes.status !== 200) {
     return {
@@ -351,7 +359,9 @@ async function waitForPollToFinish(
     if (poll?.voteStatus === "finished") return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error(`Poll ${pollId} did not reach finished state within ${timeoutMs}ms`);
+  throw new Error(
+    `Poll ${pollId} did not reach finished state within ${timeoutMs}ms`,
+  );
 }
 
 async function getSignaturesIssued(
@@ -1400,33 +1410,39 @@ Deno.test({
         blindRequest.invB64,
       );
 
-      const firstRes = await fetch(`http://localhost:8000/api/poll/${poll.id}/vote`, {
-        method: "POST",
-        body: JSON.stringify({
-          uuid: blindRequest.uuidB64,
-          signature: signatureB64,
-          optionId: poll.options[0].id,
-        }),
-        headers: {
-          "Content-Type": "application/json",
-          "version": CLIENT_VERSION,
+      const firstRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            uuid: blindRequest.uuidB64,
+            signature: signatureB64,
+            optionId: poll.options[0].id,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "version": CLIENT_VERSION,
+          },
         },
-      });
+      );
 
       assertEquals(firstRes.status, 200, await firstRes.text());
 
-      const secondRes = await fetch(`http://localhost:8000/api/poll/${poll.id}/vote`, {
-        method: "POST",
-        body: JSON.stringify({
-          uuid: blindRequest.uuidB64,
-          signature: signatureB64,
-          optionId: poll.options[1].id,
-        }),
-        headers: {
-          "Content-Type": "application/json",
-          "version": CLIENT_VERSION,
+      const secondRes = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            uuid: blindRequest.uuidB64,
+            signature: signatureB64,
+            optionId: poll.options[1].id,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "version": CLIENT_VERSION,
+          },
         },
-      });
+      );
 
       const text = await secondRes.text();
 
@@ -1436,7 +1452,10 @@ Deno.test({
         `Expected reused UUID to fail, got
   ${secondRes.status}: ${text}`,
       );
-      assertEquals(await prisma.pendingVote.count({ where: { pollId: poll.id } }), 1);
+      assertEquals(
+        await prisma.pendingVote.count({ where: { pollId: poll.id } }),
+        1,
+      );
       assertEquals(
         await getSignaturesIssued(prisma, poll.id, admin.id),
         1,
@@ -1868,7 +1887,8 @@ Deno.test({
  */
 
 Deno.test({
-  name: "GET /api/auditlog returns 200 with empty logs initially for authenticated caller",
+  name:
+    "GET /api/auditlog returns 200 with empty logs initially for authenticated caller",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);
@@ -1998,11 +2018,15 @@ Deno.test({
       );
       assert(
         actions.includes("BLIND_SIG_ISSUED"),
-        `Expected BLIND_SIG_ISSUED in audit log, got ${JSON.stringify(actions)}`,
+        `Expected BLIND_SIG_ISSUED in audit log, got ${
+          JSON.stringify(actions)
+        }`,
       );
       assert(
         actions.includes("POLL_CLOSED_AND_TIMESTAMPED"),
-        `Expected POLL_CLOSED_AND_TIMESTAMPED in audit log, got ${JSON.stringify(actions)}`,
+        `Expected POLL_CLOSED_AND_TIMESTAMPED in audit log, got ${
+          JSON.stringify(actions)
+        }`,
       );
 
       // Each entry has the documented shape.
@@ -4502,7 +4526,10 @@ Deno.test({
       // the duplicate-add must NOT overwrite the password.
       const originalLogin = await fetchUserCredentials("alice", "original-pw");
       assert(originalLogin.length > 0);
-      assertEquals(await prisma.user.count({ where: { username: "alice" } }), 1);
+      assertEquals(
+        await prisma.user.count({ where: { username: "alice" } }),
+        1,
+      );
     } finally {
       ac.abort();
       await server;

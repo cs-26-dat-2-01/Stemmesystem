@@ -84,7 +84,8 @@ received votes are mixed in RAM before they are flushed to `PendingVote`, and
 `VOTE_BUFFER_FLUSH_MS` controls the maximum time in milliseconds before a
 partial batch is flushed anyway.
 
-It is also important that the timezone of the server running the application is set accordingly. 
+It is also important that the timezone of the server running the application is
+set accordingly.
 
 Prisma also needs to be initialized locally. This requires Node/npm so `npx` is
 available.
@@ -100,14 +101,22 @@ deno run -A prisma db push
 `npx prisma db push` applies `./prisma/schema.prisma` to the database from
 DATABASE_URL.
 
-If you are testing the system, and have previously tested it with another database, it can save som headache if you go into browser console at type localStorage.clear, since else it will associate if you have had the same pollId before.
+If you are testing the system, and have previously tested it with another
+database, it can save som headache if you go into browser console at type
+localStorage.clear, since else it will associate if you have had the same pollId
+before.
 
 ## Testing
-To run the test, you simply run: 
+
+To run the test, you simply run:
+
 ```shell
-deno run test 
+deno run test
 ```
-you can add --coverage to get a coverage report at the end. IMPORTANT: you must terminate the server if its running, since the test does require to startup the server on the same port.
+
+you can add --coverage to get a coverage report at the end. IMPORTANT: you must
+terminate the server if its running, since the test does require to startup the
+server on the same port.
 
 ### Deno Tasks
 

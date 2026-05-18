@@ -393,7 +393,11 @@ export class WebappDatabase {
       return [];
     }
   }
-
+  /** Checks to see if the vote is in vote or pending vote table.
+   *
+   * @param the UUID you are searching for
+   * @returns Promise< exists: boolean
+   */
   public async voteExistsInAnyVoteStore(uuid: string): Promise<{
     exists: boolean;
     errorMsg?: string;
@@ -426,6 +430,12 @@ export class WebappDatabase {
     }
   }
 
+  /** Inserts votes into pendinvVote table from the buffer. The votes should be shuffled before.
+   *
+   * @param pollId
+   * @param votes: from the buffer
+   * @returns success: boolean and httpStatusCode: 200 if success, 409 for vote already cast, 500 for error "uknown"
+   */
   public async insertPendingVoteBatch(
     pollId: number,
     votes: PendingVoteInsert[],
@@ -465,6 +475,10 @@ export class WebappDatabase {
     }
   }
 
+  /** returns all votes specific to a poll in pendingvote table
+   * @param the pollId for the wanted votes
+   * @returns Promise with votes: array with all the votes, httpstatuscode: 200 if success, 500 if err together with a err msg.
+   */
   public async listPendingVotesForPoll(
     pollId: number,
   ): Promise<{
@@ -500,7 +514,22 @@ export class WebappDatabase {
       };
     }
   }
-
+  /**
+   * Finalizes poll closure: inserts remaining votes into the hash chain, clears
+   pending votes,
+   * and marks the poll as finished with its close commitment and timestamp
+  proof.
+   *
+   * @param pollId - ID of the poll being closed.
+   * @param votes - Votes to append to the chain, in order.
+   * @param closeCommitment - Commitment hash sealing the final chain state.
+   * @param closeTimestampQuery - timestamp query bytes for the close
+  commitment.
+   * @param closeTimestampToken - timestamp token bytes returned by the
+   TSA.
+   * @param closedAt - Timestamp marking when the poll was closed.
+   * @returns Success flag, optional error message, and HTTP status code.
+   */
   public async finalizePollClose(
     pollId: number,
     votes: VoteInsert[],
@@ -582,6 +611,14 @@ export class WebappDatabase {
     }
   }
 
+  /**
+   * Fetches the close artifacts for a finished poll: the close commitment and
+  its timestamp query/token, along with the close timestamp.
+   * @param pollId - ID of the poll to fetch artifacts for.
+   * @returns Close commitment, timestamp query/token bytes, closedAt, and HTTP
+  status code;
+   *          fields are null and status is 404 if the poll does not exist.
+   */
   public async getPollCloseArtifacts(pollId: number): Promise<{
     closeCommitment: string | null;
     closeTimestampQuery: Uint8Array<ArrayBuffer> | null;
@@ -634,7 +671,13 @@ export class WebappDatabase {
       };
     }
   }
-
+  /**
+   * Fetches timestamp query bytes stored for a closed poll.
+   *
+   * @param pollId - ID of the poll to fetch the timestamp query for.
+   * @returns Timestamp query bytes (or null if missing/not found) and HTTP
+  status code;         status is 404 if the poll does not exist.
+  */
   public async getPollTimestampQuery(pollId: number): Promise<{
     timestampQuery: Uint8Array<ArrayBuffer> | null;
     httpStatusCode: ContentfulStatusCode;
@@ -670,7 +713,14 @@ export class WebappDatabase {
       };
     }
   }
-
+  /**
+   * Fetches timestamp token bytes stored for a closed poll.
+   *
+   * @param pollId - ID of the poll to fetch the timestamp token for.
+   * @returns Timestamp token bytes (or null if missing/not found) and HTTP
+  status code;
+   *          status is 404 if the poll does not exist.
+   */
   public async getPollTimestampToken(pollId: number): Promise<{
     timestampToken: Uint8Array<ArrayBuffer> | null;
     httpStatusCode: ContentfulStatusCode;
@@ -957,18 +1007,6 @@ export class WebappDatabase {
   }
 
   /**
-   * Unsafe function to run custom SQL on the database, use with caution.
-   * This function was for testing and debugging purposes but have not been translated into prisma yet,
-   * as the entire testing database setup is not yet migrated.
-   *
-   * @param customSQL A custom SQL statements to be run on the database.
-   */
-  // public runCustomSQL(customSQL: string) {
-  //   logger.info`Running custom SQL statement: \n ${customSQL}`;
-  //   this.DB.exec(customSQL);
-  // }
-
-  /**
    * Returns the number of votes a given user is allowed to cast in a given poll, based on the `votesAllowed` field of the user's `pollEligibleVoter` entry.
    * On error or if the user has no eligibility entry for the poll, the function returns 0 as a fail-safe to prevent accidentally granting voting power.
    *
@@ -1003,7 +1041,7 @@ export class WebappDatabase {
   }
 
   /**
-   * Returns the number of blind signatures already issued to this user for
+   * Returns the number of blind signatures already issued to this USER for
    * this poll. Replaces the old `countCastVotes` — after the blind-RSA
    * redesign there is no userId on `Vote` rows, so "how many has this user
    * cast" is no longer a meaningful server-side question. The closest
@@ -1033,7 +1071,13 @@ export class WebappDatabase {
       return 0;
     }
   }
-
+  /**
+   * Sums `votesAllowed` across all eligible voters for a poll, giving the total
+   * number of votes that may be cast.
+   *
+   * @param pollId - ID of the poll to count allowed votes for.
+   * @returns Total allowed votes, or 0 if none exist or an error occurs.
+   */
   public async countTotalVotesAllowed(pollId: number): Promise<number> {
     try {
       const result = await this.prisma.pollEligibleVoter.aggregate(
@@ -1047,7 +1091,13 @@ export class WebappDatabase {
       return 0;
     }
   }
-
+  /**
+   * Counts the number of votes currently sitting in `pendingVote` for a poll
+   * (i.e. received but not yet finalized into the hash chain).
+   *
+   * @param pollId - ID of the poll to count pending votes for.
+   * @returns Number of pending votes, or 0 if none exist or an error occurs.
+   */
   public async countReceivedVotes(pollId: number): Promise<number> {
     try {
       const rows = await this.prisma.pendingVote.aggregate({
@@ -1063,6 +1113,13 @@ export class WebappDatabase {
     }
   }
 
+  /**
+   * Sums `signaturesIssued` across all eligible voters for a poll, giving the
+   * total number of blind signatures handed out.
+   *
+   * @param pollId - ID of the poll to count issued signatures for.
+   * @returns Total issued signatures, or 0 if none exist or an error occurs.
+   */
   public async countIssuedSignatures(pollId: number): Promise<number> {
     try {
       const result = await this.prisma.pollEligibleVoter.aggregate({
@@ -1077,7 +1134,14 @@ export class WebappDatabase {
       return 0;
     }
   }
-
+  /**
+   * Counts all persisted votes for a poll, combining finalized votes in `vote`
+   * and not-yet-finalized votes in `pendingVote`.
+   *
+   * @param pollId - ID of the poll to count persisted votes for.
+   * @returns Total persisted votes (final + pending), or 0 if none exist or an
+  error occurs.
+   */
   public async countPersistedVotes(pollId: number): Promise<number> {
     try {
       const [finalVotes, pendingVotes] = await Promise.all([
@@ -1092,7 +1156,15 @@ export class WebappDatabase {
       return 0;
     }
   }
-
+  /**
+   * Marks a poll as invalidated (e.g. due to vote loss or integrity failure)
+  and
+   * writes a `POLL_INVALIDATED_VOTE_LOSS` entry to the audit log.
+   *
+   * @param pollId - ID of the poll to invalidate.
+   * @param reason - Human-readable reason recorded in the audit log.
+   * @returns Success flag, optional error message, and HTTP status code.
+   */
   public async markPollInvalidated(
     pollId: number,
     reason: string,
@@ -1136,7 +1208,6 @@ export class WebappDatabase {
       where: { pollId },
       _sum: { votesAllowed: true },
     });
-    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing
     const totalEligibleVotes = eligibleVotes._sum.votesAllowed ?? 0;
     const ballotsCast = await this.prisma.vote.count({
       where: { pollId },
@@ -1147,15 +1218,27 @@ export class WebappDatabase {
 
     return `${ballotsCast + ballotsPending}/${totalEligibleVotes}`;
   }
-
   /**
-   * Henter alle afstemninger fra databasen og beregner ekstra info til oversigts-siden:
-   * - Om den indloggede bruger har stemt (hasVoted)
-   * - Om brugeren er stemmeberettiget (isEligible)
-   * - Tid tilbage til deadline formateret som "TT:MM:SS"
-   * - Stemmefremdrift som "afgivne/totale" f.eks. "3/14"
+   * Fetches all polls visible to the user and enriches each with view-model
+  fields
+   * for the overview page: eligibility, a `hasVoted` proxy based on issued
+   * signatures vs. votes allowed, the owner's username, and a vote-progress
+  string.
    *
-   * @param userId ID på den indloggede bruger
+   * Visibility rules: drafts are only included for their creator; private polls
+   * are only shown to the creator, eligible voters, and admins.
+   *
+   * Note: since VoteToken was removed, `Vote` rows can no longer be linked back
+   to
+   * a `userId`. `hasVoted` is therefore approximated by checking whether the
+  user
+   * has used their full signature issuance quota.
+   *
+   * @param userId - ID of the logged-in user (used for eligibility and
+  visibility checks).
+   * @param isAdmin - If true, bypasses visibility filtering and returns all
+  non-draft polls plus the user's own drafts.
+   * @returns Array of `FrontEndPoll` view models, or an empty array on error.
    */
   public async getFrontEndPollObj(
     userId: number,
@@ -1186,12 +1269,7 @@ export class WebappDatabase {
           ],
         },
         include: {
-          // Hent ejers brugernavn i stedet for blot userId
           creator: { select: { username: true } },
-          // Hent den indloggede brugers eligibility + signaturesIssued — bruges
-          // både til isUserEligibleVoter og som proxy for "hasVoted" (efter
-          // VoteToken-fjernelsen kan vi ikke længere koble Vote-rækker til
-          // userId, så vi viser i stedet "har brugt sin issuance-kvote").
           eligibleVoters: {
             where: { userId },
             select: {
@@ -1355,7 +1433,7 @@ export class WebappDatabase {
     pollId: number,
   ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
     try {
-      const DeletePoll = await this.prisma.poll.delete({
+      await this.prisma.poll.delete({
         where: { id: pollId },
       });
 
@@ -1599,6 +1677,13 @@ export class WebappDatabase {
       return { started: 0, finished: 0 };
     }
   }
+  /**
+   * Returns the IDs of all polls that are currently `started` and whose
+  `endsAt`
+   * has passed — i.e. polls ready to be transitioned to `finished`.
+   *
+   * @returns Array of poll IDs ready to finish, or an empty array on error.
+   */
 
   public async getPollIdsReadyToFinish(): Promise<number[]> {
     try {
@@ -1616,7 +1701,13 @@ export class WebappDatabase {
       return [];
     }
   }
-
+  /**
+   * Returns the IDs of all polls currently in the `started` state, regardless
+  of
+   * their `endsAt`.
+   *
+   * @returns Array of started poll IDs, or an empty array on error.
+   */
   public async listStartedPollIds(): Promise<number[]> {
     try {
       const polls = await this.prisma.poll.findMany({
@@ -1706,7 +1797,16 @@ export class WebappDatabase {
       };
     }
   }
-
+  /**
+   * Atomically transitions a poll from `started` to `closing`, guarding against
+   * concurrent finishers. Writes a `POLL_STATUS_CLOSING` audit log entry on
+   * success.
+   *
+   * @param pollId - ID of the poll to mark as closing.
+   * @returns HTTP 200 on a successful transition; 403 if the poll did not exist
+   *          or was not in `started` (e.g. already closing/finished); 500 on
+   *          unexpected errors.
+   */
   public async markPollClosing(pollId: number): Promise<{
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./PollResults.css";
 import NavBar from "../components/NavBar.tsx";
-import type { ResultsPayload } from "../WebLib.ts";
+import type { ResultsPayload, VoteReceipt } from "../WebLib.ts";
 import { verify } from "../blindRsa.ts";
 import { voteHashMessage } from "../WebLib.ts";
 
@@ -9,19 +9,6 @@ type ViewState =
   | "loading"
   | "ready"
   | "error";
-
-/**
- * Local "receipt" persisted by BallotPage after a successful vote.
- * Mirrors the shape there — kept in sync manually since the two pages
- * exchange data through localStorage, not through a shared type.
- */
-interface VoteReceipt {
-  pollId: number;
-  optionId: number;
-  uuidB64: string;
-  signatureB64: string;
-  castAt: string;
-}
 
 /** Outcome of running self-verification on a single receipt. */
 interface VerifyResult {
@@ -313,7 +300,7 @@ function PollResults({ pollId }: PollResultsProps) {
               disabled={!data.hasCloseTimestampToken}
             >
               Download response (.tsr)
-	           </button>
+            </button>
             <button
               type="button"
               className="rs-verify-btn"

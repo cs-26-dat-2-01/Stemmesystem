@@ -58,7 +58,7 @@ export type pollStatus =
   | "saved" // Edits saved but poll haven't been published.
   | "not started" // Poll have been published and will start at the given start time.
   | "started" // Poll is started and eligible voters can cast their ballot.
-  | "closing" // the poll is doing the mixing, and calculating the hash, in between we dont accept votes. 
+  | "closing" // the poll is doing the mixing, and calculating the hash, in between we dont accept votes.
   | "finished" // Poll is finished and users with correct access rights can see the poll results.
   | "invalidated"; // Poll had integrity loss and must be re-run.
 
@@ -67,15 +67,6 @@ export interface PollOption {
   pollId: pollId;
   optionText: string | null;
   displayOrder: number;
-}
-
-export interface VoteToken {
-  id: number;
-  pollId: pollId;
-  userId: userId;
-  UUID: string;
-  createdAt: string;
-  used: boolean;
 }
 
 export interface Vote {
@@ -201,6 +192,20 @@ export interface FrontEndPoll {
 }
 
 /**
+ * The local "receipt" written to localStorage after each successful vote.
+ * Together with the poll's public key + the public results page, this is
+ * everything needed to later prove "my vote is in the tally". The server
+ * never has the link from userId to these fields.
+ */
+export interface VoteReceipt {
+  pollId: number;
+  optionId: number;
+  uuidB64: string;
+  signatureB64: string;
+  castAt: string;
+}
+
+/**
  * Calculate the time remaining until the deadline is reached for a poll.
  * @param poll - The poll object to calculate for.
  * @param now - Optional reference timestamp used for derived rendering.
@@ -232,7 +237,6 @@ export function calculateTimeRemaining(
  * Builds the message string that goes into the vote hash. Same logic
  * must run on the server (when inserting a vote) and on the client
  * (during self-verify) — keep this in one place so they cannot drift.
- *
  * "Ultra-secret" mode: when the poll is BOTH `secret` AND has `showTopN`
  * active, optionId is dropped from the hash so the brute-force tally
  * attack (low-entropy optionId → recover counts) is no longer possible.
