@@ -4,6 +4,7 @@ import { BlankEnv, BlankInput } from "@hono/hono/types";
 import { getCookie } from "../client_src/WebLib.ts";
 import { env } from "./secret_handling.ts";
 import { logger } from "./main_lib.ts";
+import { WebappDatabase } from "./database.ts";
 
 // https://docs.deno.com/examples/creating_and_verifying_jwt/
 const serverSecret = new TextEncoder().encode(env.JWT_SERVER_SECRET);
@@ -50,8 +51,8 @@ export async function verifyJWT(token: string): Promise<JWTPayload | null> {
  * @param c   - The context given by Hono for the request.
  * @param fn  - The logic encasulated in a function that run on a valid JWT. Must return a hono context.
  */
-
 export async function hasValidJWT(
+  db: WebappDatabase,
   c: Context<BlankEnv, string, BlankInput>,
   fn: (payload: JWTPayload) => Response | Promise<Response>,
 ) {
@@ -61,8 +62,14 @@ export async function hasValidJWT(
   // Note: We don't need to directly check if the cookie is valid as the JWT itself contains expiry info.
   if (typeof jwt === "string") {
     const verifiedPayload = await verifyJWT(jwt);
+
     if (verifiedPayload) {
-      return fn(verifiedPayload);
+      if (
+        (await db.getUserFromDB(verifiedPayload.username as string))
+          .httpStatusCode === 200
+      ) {
+        return fn(verifiedPayload);
+      }
     }
   } else {
     logger.debug("No auth token found");

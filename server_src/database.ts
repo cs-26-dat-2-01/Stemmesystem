@@ -164,11 +164,13 @@ export class WebappDatabase {
     await dbInstance.logDatabaseState();
 
     // Get admin from database
-    const { user, httpStatusCode, errorMsg } =
-      await dbInstance.getUserFromDB("admin");
+    const { user, httpStatusCode, errorMsg } = await dbInstance.getUserFromDB(
+      "admin",
+    );
 
     if (!user) {
-      logger.fatal`Admin user not found in database after initialization. Status code: ${httpStatusCode}, error message: ${errorMsg}`;
+      logger
+        .fatal`Admin user not found in database after initialization. Status code: ${httpStatusCode}, error message: ${errorMsg}`;
       throw new Error("Admin user not found in database after initialization.");
     }
 
@@ -259,14 +261,16 @@ export class WebappDatabase {
         const errorCode = (createErr as Prisma.PrismaClientKnownRequestError)
           ?.code;
         if (errorCode === "P2002") {
-          logger.info`User with username: ${username} already exists (concurrent create).`;
+          logger
+            .info`User with username: ${username} already exists (concurrent create).`;
           return 200;
         }
         throw createErr;
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
+      logger
+        .error`Error while adding user to database with username: ${username}. Error: ${errMsg}`;
       return 500;
     }
   }
@@ -289,7 +293,8 @@ export class WebappDatabase {
         logger.info`User with username: ${username} not found while deleting.`;
         return { msg: "user not found", statusCode: 404 };
       }
-      logger.error`Error deleting user with username: ${username}. Error: ${errMsg}`;
+      logger
+        .error`Error deleting user with username: ${username}. Error: ${errMsg}`;
     }
     return { msg: "user successfully deleted", statusCode: 200 };
   }
@@ -383,7 +388,8 @@ export class WebappDatabase {
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error`Error fetching poll options via Prisma for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger
+        .error`Error fetching poll options via Prisma for poll ID: ${pollId}. Error: ${errMsg}`;
       return [];
     }
   }
@@ -547,7 +553,8 @@ export class WebappDatabase {
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error`finalizePollClose failed for pollId ${pollId}. Error: ${msg}`;
+      logger
+        .error`finalizePollClose failed for pollId ${pollId}. Error: ${msg}`;
       return {
         success: false,
         errorMsg: "Error while finalizing poll close",
@@ -727,7 +734,8 @@ export class WebappDatabase {
       return { hash: sqlResult.currentHash, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger
+        .error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         hash: null,
         errorMsg: "Error fetching latest hash.",
@@ -762,7 +770,8 @@ export class WebappDatabase {
       return { success: true, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error while inserting audit log with action: ${action}, Error: ${errMsg}`;
+      logger
+        .error`Error while inserting audit log with action: ${action}, Error: ${errMsg}`;
       return {
         success: false,
         errorMsg: "Error while inserting audit log",
@@ -875,7 +884,8 @@ export class WebappDatabase {
       return { votes, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger
+        .error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         votes: [],
         errorMsg: "Error listing votes",
@@ -908,7 +918,8 @@ export class WebappDatabase {
       }));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error fetching poll result counts for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger
+        .error`Error fetching poll result counts for poll ID: ${pollId}. Error: ${errMsg}`;
       return [];
     }
   }
@@ -939,7 +950,8 @@ export class WebappDatabase {
       return sqlResult !== null;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Uknown error";
-      logger.error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger
+        .error`Error checking eligibility for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return false; // Fail-safe: on error refuse to access to the poll.
     }
   }
@@ -984,7 +996,8 @@ export class WebappDatabase {
       return sqlResult.votesAllowed;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger
+        .error`Error getting number of votes allowed for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return 0;
     }
   }
@@ -1059,7 +1072,8 @@ export class WebappDatabase {
       return result._sum.signaturesIssued ?? 0;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error counting issued signatures for pollId ${pollId}: ${errMsg}`;
+      logger
+        .error`Error counting issued signatures for pollId ${pollId}: ${errMsg}`;
       return 0;
     }
   }
@@ -1073,7 +1087,8 @@ export class WebappDatabase {
       return finalVotes + pendingVotes;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error counting persisted votes for pollId ${pollId}: ${errMsg}`;
+      logger
+        .error`Error counting persisted votes for pollId ${pollId}: ${errMsg}`;
       return 0;
     }
   }
@@ -1682,7 +1697,8 @@ export class WebappDatabase {
       return { voters, httpStatusCode: 200 };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger
+        .error`Error fetching eligible voters for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         voters: [],
         errorMsg: "Error fetching eligible voters",
@@ -1691,41 +1707,42 @@ export class WebappDatabase {
     }
   }
 
-  public async markPollClosing(pollId: number):Promise<{
-	  httpStatusCode: ContentfulStatusCode;
-	  errorMsg?: string;
-  }>{
-	try {
+  public async markPollClosing(pollId: number): Promise<{
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
       const result = await this.prisma.poll.updateMany({
-      where: {
-        id: pollId,
-        voteStatus: "started",
-      },
-      data: {
-        voteStatus: "closing",
-      },
-    });
+        where: {
+          id: pollId,
+          voteStatus: "started",
+        },
+        data: {
+          voteStatus: "closing",
+        },
+      });
 
-    if (result.count === 1) {
+      if (result.count === 1) {
+        await this.insertAuditLog(
+          "POLL_STATUS_CLOSING",
+          `pollId:${pollId} has changed status to closing`,
+        );
 
-	await this.insertAuditLog(
-	"POLL_STATUS_CLOSING",
-	`pollId:${pollId} has changed status to closing`,
-	);
-
-      return {httpStatusCode: 200}
-    } else {
-	    return{ httpStatusCode: 403, errorMsg: 
-		    "Poll might not have been started, did not exists or something has already finished it"}
-    }
-	} catch (err) {
-	 const errMsg = err instanceof Error ? err.message : "Unknown error";
+        return { httpStatusCode: 200 };
+      } else {
+        return {
+          httpStatusCode: 403,
+          errorMsg:
+            "Poll might not have been started, did not exists or something has already finished it",
+        };
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger.error`Error closing poll ${pollId}: ${errMsg}`;
       return {
-	httpStatusCode: 500,
+        httpStatusCode: 500,
         errorMsg: "Error invalidating poll",
       };
-
-	}
+    }
   }
 }

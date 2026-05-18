@@ -124,14 +124,14 @@ export function startServer(
     the correct version for communicating correctly with the API.
   */
   router.get("/api/version", async (c) => {
-    return await hasValidJWT(c, () => {
+    return await hasValidJWT(DB, c, () => {
       const result = assertClientVersion(c);
       return c.json(result);
     });
   });
 
   router.get("/api/auditlog", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const result = await DB.getAuditLog();
       return c.json(result, result.httpStatusCode);
     });
@@ -140,7 +140,7 @@ export function startServer(
   // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
   // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
   router.get("/api/polls", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       await pollManager.tickPollStatuses();
       const userResult = await DB.getUserFromDB(payload.username as string);
       if (userResult.httpStatusCode !== 200 || !userResult.user) {
@@ -163,7 +163,7 @@ export function startServer(
   });
 
   router.post("/api/admin/add-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload: JWTPayload) => {
+    return await hasValidJWT(DB, c, async (verifiedPayload: JWTPayload) => {
       if (verifiedPayload.username !== "admin") {
         // To-do: Create better authentication for this.
         logger.trace`Failed authenication atempt on admin API route.`;
@@ -177,7 +177,7 @@ export function startServer(
   });
 
   router.delete("/api/admin/delete-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload: JWTPayload) => {
+    return await hasValidJWT(DB, c, async (verifiedPayload: JWTPayload) => {
       if (verifiedPayload.username !== "admin") {
         // To-do: Create better authentication for this.
         logger.trace`Failed authenication atempt on admin API route.`;
@@ -196,7 +196,7 @@ export function startServer(
    Validates the JWT and returns the current user's username and admin status.
  */
   router.get("/api/me", async (c) => {
-    return await hasValidJWT(c, (payload: JWTPayload) => {
+    return await hasValidJWT(DB, c, (payload: JWTPayload) => {
       return c.json({
         username: payload.username,
         isAdmin: payload.username === "admin",
@@ -365,7 +365,7 @@ export function startServer(
    * @param c - Hono request context. Expects `:pollId`as a URL parameter and a valid `JWT`cookie
    */
   router.post("/api/poll/:pollId/open", (c) => {
-    return hasValidJWT(c, async (payload) => {
+    return hasValidJWT(DB, c, async (payload) => {
       const parsePollIdFromURL = c.req.param("pollId");
       const pollId = Number(parsePollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -486,7 +486,7 @@ export function startServer(
    * `500` on DB / signing error.
    */
   router.post("/api/poll/:pollId/blindsign", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -538,7 +538,7 @@ export function startServer(
    * `500` on DB error. The body is the error message in all non-200 cases.
    */
   router.get("/api/poll/:pollId/results", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -556,7 +556,7 @@ export function startServer(
   });
 
   router.post("/api/poll/:pollId/verify-timestamp", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -574,7 +574,7 @@ export function startServer(
   });
 
   router.get("/api/poll/:pollId/timestamp-token", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
@@ -598,7 +598,7 @@ export function startServer(
   });
 
   router.get("/api/poll/:pollId/timestamp-query", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) {
         return c.body("Invalid pollId", 400);
@@ -634,7 +634,7 @@ export function startServer(
   // Body: { poll: Poll, voters: Array<{username, votesAllowed}>, choices: string[] }
   // createdBy hentes fra JWT, ikke fra request body.
   router.post("/api/polls", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       let body = undefined;
       try {
         body = await c.req.json();
@@ -696,7 +696,7 @@ export function startServer(
    */
 
   router.patch("/api/polls/:pollId", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -790,7 +790,7 @@ export function startServer(
    *   the manager's `errorMsg` as the body.
    */
   router.post("/api/polls/:pollId/publish", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -865,7 +865,7 @@ export function startServer(
    *   body.
    */
   router.delete("/api/polls/:pollId", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
 
@@ -907,7 +907,7 @@ export function startServer(
    *   returned `200`.
    */
   router.get("/api/polls/:pollId", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
 
@@ -947,7 +947,7 @@ export function startServer(
    *   returned `200`.
    */
   router.get("/api/polls/:pollId/overview", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
 
@@ -988,7 +988,7 @@ export function startServer(
    * assuming the body is a bare array.
    */
   router.get("/api/users", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const results = await DB.getAllUsersFromDB();
       return c.json(results, results.httpStatusCode);
     });
@@ -1004,7 +1004,7 @@ export function startServer(
   router.get(
     "/api/websocket",
     async (c) => {
-      return await hasValidJWT(c, async (payload) => {
+      return await hasValidJWT(DB, c, async (payload) => {
         const response = await upgradeWebSocket(() => {
           return {
             onOpen(_event, ws) {
