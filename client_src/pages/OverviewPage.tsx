@@ -45,8 +45,8 @@ function statusLabel(poll: FrontEndPoll): string {
   const statusMap: Record<pollStatus, string> = {
     "draft": "Kladde",
     "saved": "Gemt",
-    "not started": "Ikke startet",
-    "started": poll.timeLeft,
+    "not started": poll.timeLeft,
+    "started": `Slutter om ${poll.timeLeft}`,
     "closing": "Lukker afstemning",
     "finished": "Afsluttet",
     "invalidated": "Fejl",
@@ -243,63 +243,90 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
       </thead>
       {isMobile
         ? (
-          <tbody>
+          <tbody className="ov-table-body">
             {polls.map((poll) => (
-              <tr key={poll.poll.id}>
+              <tr key={poll.poll.id} className="ov-table-row">
                 <td className="ov-col-title">
-                  <Link to={`/poll/${poll.poll.id}`}>{poll.poll.title}</Link>
+                  <div className="ov-col-item">
+                    <b className="ov-col-item-title">Afstemnings titel:</b>
+
+                    <Link className="ov-link-btn" to={`/poll/${poll.poll.id}`}>
+                      {poll.poll.title}
+                    </Link>
+                  </div>
                 </td>
 
-                {
-                  /* Din status:
-                - Afsluttet → "Se resultat"-knap
-                - Aktiv + har stemt → "Du har stemt" med hak
-                - Aktiv + ikke stemt → "Stem"-knap
-                - Ikke startet → tom */
-                }
                 <td className="ov-col-mystatus">
-                  {poll.poll.status === "finished"
-                    ? (
-                      <Link
-                        to={`/poll/${poll.poll.id}/results`}
-                        className="btn-results"
-                      >
-                        Se resultat
-                      </Link>
-                    )
-                    : poll.hasVoted
-                    ? (
-                      <span className="voted-label">
-                        Du har stemt <FaCheck />
-                      </span>
-                    )
-                    : poll.poll.status === "started"
-                    ? (
-                      <Link
-                        to={`/poll/${poll.poll.id}/vote`}
-                        className="btn-vote"
-                      >
-                        Stem
-                      </Link>
-                    )
-                    : null}
+                  <div className="ov-col-item">
+                    <b className="ov-col-item-title">Din status:</b>
+
+                    {poll.poll.status === "finished"
+                      ? (
+                        <Link
+                          to={`/poll/${poll.poll.id}/results`}
+                          className="btn-vote"
+                        >
+                          Se resultat
+                        </Link>
+                      )
+                      : poll.hasVoted
+                      ? (
+                        <span className="voted-label">
+                          Du har stemt <FaCheck />
+                        </span>
+                      )
+                      : poll.poll.status === "started"
+                      ? (
+                        <Link
+                          to={`/poll/${poll.poll.id}/vote`}
+                          className="btn-vote"
+                        >
+                          Stem
+                        </Link>
+                      )
+                      : null}
+                  </div>
                 </td>
 
-                <td className="ov-col-status">{statusLabel(poll)}</td>
+                <td className="ov-col-status">
+                  <div className="ov-col-item">
+                    <b className="ov-col-item-title">Status:</b>
+
+                    <span>{statusLabel(poll)}</span>
+                  </div>
+                </td>
 
                 <td className="ov-col-visibility">
-                  {poll.poll.pollVisibility === "public"
-                    ? "Offentlig"
-                    : "Privat"}
+                  <div className="ov-col-item">
+                    <b className="ov-col-item-title">Offentlig/Privat:</b>
+
+                    <span>
+                      {poll.poll.pollVisibility === "public"
+                        ? "Offentlig"
+                        : "Privat"}
+                    </span>
+                  </div>
                 </td>
 
                 <td className="ov-col-anon">
-                  {poll.poll.ballotPrivacy === "secret"
-                    ? <FaCheck />
-                    : <FaXmark />}
+                  <div className="ov-col-item">
+                    <b className="ov-col-item-title">Hemmelig:</b>
+
+                    <span>
+                      {poll.poll.ballotPrivacy === "secret"
+                        ? <FaCheck />
+                        : <FaXmark />}
+                    </span>
+                  </div>
                 </td>
 
-                <td className="ov-col-owner">{poll.poll.createdBy}</td>
+                <td className="ov-col-owner">
+                  <div className="ov-col-item">
+                    <b className="ov-col-item-title">Afstemnings ejer:</b>
+
+                    <span>{poll.poll.createdBy}</span>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -352,7 +379,9 @@ function PollTable({ polls }: { polls: FrontEndPoll[] }) {
                 </td>
                 <td className="ov-col-status">{statusLabel(poll)}</td>
                 <td className="ov-col-visibility">
-                  {poll.poll.pollVisibility}
+                  {poll.poll.pollVisibility === "public"
+                    ? "Offentlig"
+                    : "Privat"}
                 </td>
                 <td className="ov-col-anon">
                   {poll.poll.ballotPrivacy === "secret"
