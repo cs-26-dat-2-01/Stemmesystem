@@ -16,6 +16,27 @@ import { FaSearch } from "react-icons/fa";
 
 type FilterType = "all" | "eligible" | "drafts";
 
+// ─── Helper: calculate time ───────────────────────────────────────────────────
+
+/**
+ * Calculates the time entry for the overview page table.
+ */
+function calculateTimeLeft(p: FrontEndPoll) {
+  let timeLeft: string;
+
+  if (p.poll.status === "not started" && p.poll.startsAt) {
+    // Afstemning der ikke er startet endnu — vis tid til start
+    const diffMs = new Date(p.poll.startsAt).getTime() - Date.now();
+    timeLeft = diffMs > 0
+      ? `Starter om: ${formatTime(diffMs)}`
+      : "Starter snart";
+  } else {
+    // Aktiv afstemning — vis tid til afslutning
+    timeLeft = calculateTimeRemaining(p.poll.endsAt);
+  }
+  return timeLeft;
+}
+
 // ─── Helper: statusLabel ──────────────────────────────────────────────────────
 // Oversætter poll.status til en læsbar dansk tekst i Status-kolonnen.
 // For aktive afstemninger vises stemmefremdriften (f.eks. "3/14") i stedet.
@@ -355,7 +376,6 @@ function OverviewPage() {
   // this will lead to performance issues as the application scales.
   const [polls, setPolls] = useState<FrontEndPoll[]>([]);
   const [loading, setLoading] = useState(true);
-  const [now, setNow] = useState(() => Date.now());
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [activeFolderFilter, setActiveFolderFilter] = useState<string | null>(
     null,
@@ -375,16 +395,6 @@ function OverviewPage() {
       }
     };
   }
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-
-    return () => {
-      clearInterval(id);
-    };
-  }, []);
 
   // rawPollsRef gemmer rådata så timer-intervallet kan genberegne
   // tid uden at trigge et nyt fetch fra serveren.
@@ -407,10 +417,12 @@ function OverviewPage() {
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: FrontEndPoll[] = await res.json();
+
         // Beregn initial tid for hver afstemning
         data.forEach((p) => {
-          p.timeLeft = calculateTimeRemaining(p.poll.endsAt);
+          p.timeLeft = calculateTimeLeft(p);
         });
+
         rawPollsRef.current = data;
         setPolls([...data]);
       } catch (err) {
@@ -429,19 +441,7 @@ function OverviewPage() {
       if (rawPollsRef.current.length === 0) return;
 
       const updated = rawPollsRef.current.map((p) => {
-        let timeLeft: string;
-
-        if (p.poll.status === "not started" && p.poll.startsAt) {
-          // Afstemning der ikke er startet endnu — vis tid til start
-          const diffMs = new Date(p.poll.startsAt).getTime() - Date.now();
-          timeLeft = diffMs > 0
-            ? `Starter om: ${formatTime(diffMs)}`
-            : "Starter snart";
-        } else {
-          // Aktiv afstemning — vis tid til afslutning
-          timeLeft = calculateTimeRemaining(p.poll.endsAt);
-        }
-
+        const timeLeft: string = calculateTimeLeft(p);
         return { ...p, timeLeft };
       });
 
@@ -481,11 +481,8 @@ function OverviewPage() {
     );
 
   const displayedPolls = filteredPolls.map((poll) => {
-    const timeLeft = calculateTimeRemaining(poll.poll.endsAt, now);
-
     return {
       ...poll,
-      timeLeft: timeLeft === "00:00:00" ? "afsluttet" : timeLeft,
     };
   });
 
