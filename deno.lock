@@ -11,6 +11,7 @@
     "jsr:@std/dotenv@0.225.6": "0.225.6",
     "jsr:@std/dotenv@~0.225.6": "0.225.6",
     "jsr:@std/internal@^1.0.12": "1.0.13",
+    "npm:@cloudflare/blindrsa-ts@~0.4.5": "0.4.5",
     "npm:@eslint/js@^9.39.4": "9.39.4",
     "npm:@prisma/adapter-libsql@*": "7.8.0",
     "npm:@prisma/adapter-libsql@7.8.0": "7.8.0",
@@ -47,7 +48,10 @@
       "integrity": "2092395af4f2f6c12acd85e569c2539055b39fd936861348c23db59206a8ed4f"
     },
     "@logtape/redaction@2.0.7": {
-      "integrity": "84b3b6c4598660287e52c77838020c8718e9241c0d2b606686d9ad132747ca77"
+      "integrity": "84b3b6c4598660287e52c77838020c8718e9241c0d2b606686d9ad132747ca77",
+      "dependencies": [
+        "jsr:@logtape/logtape"
+      ]
     },
     "@panva/jose@6.2.3": {
       "integrity": "57cc772f01b2ac60f847a7e6ec815059762768186266ed833fb59953e9611312"
@@ -184,6 +188,12 @@
       "dependencies": [
         "@babel/helper-string-parser",
         "@babel/helper-validator-identifier"
+      ]
+    },
+    "@cloudflare/blindrsa-ts@0.4.5": {
+      "integrity": "sha512-fwVlqM/tWdic+rmDlRUxjo442R1p7ac5j9H2kmif7xzYD4RPvzh0yaEW/RooP6tYV78QOos3Iq1PKYQTJyLa8g==",
+      "dependencies": [
+        "sjcl"
       ]
     },
     "@electric-sql/pglite-socket@0.1.1_@electric-sql+pglite@0.4.1": {
@@ -1790,6 +1800,9 @@
     "signal-exit@4.1.0": {
       "integrity": "sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw=="
     },
+    "sjcl@1.0.8": {
+      "integrity": "sha512-LzIjEQ0S0DpIgnxMEayM1rq9aGwGRG4OnZhCdjx7glTaJtf4zRfpg87ImfjSJjoW9vKpagd82McDOwbRT5kQKQ=="
+    },
     "source-map-js@1.2.1": {
       "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="
     },
@@ -1937,6 +1950,7 @@
     ],
     "packageJson": {
       "dependencies": [
+        "npm:@cloudflare/blindrsa-ts@~0.4.5",
         "npm:@eslint/js@^9.39.4",
         "npm:@prisma/adapter-libsql@^7.8.0",
         "npm:@prisma/client@^7.8.0",

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
 import "./CreatePollPage.css";
-import type {
-  ballotPrivacy,
-  Poll,
-  PollOption,
-  pollVisibility,
+import { useEffect, useState } from "react";
+import {
+  type ballotPrivacy,
+  formatTime,
+  type Poll,
+  type PollOption,
+  type pollVisibility,
 } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
 
@@ -37,7 +38,6 @@ function useIsMobile(breakpoint: number) {
     - Save poll sends saved data to the backend.
     - Delete poll returns the creator to the overview page.
 */
-
 function CreatePollPage({
   onExit,
   draftId = null,
@@ -67,6 +67,43 @@ function CreatePollPage({
   const [topNOnly, setTopNOnly] = useState(false);
   const [ballotLimit, setBallotLimit] = useState(1);
 
+  // Tracks whether the user has attempted to leave Step 1 — controls
+  // whether the red validation hints are rendered. Hoisted so bottom-nav
+  // and publish can also flip it on without going through Step 1's own
+  // "Gem og fortsæt" button.
+  const [step1Attempted, setStep1Attempted] = useState(false);
+
+  // True when the loaded poll was already published (`"not started"`).
+  // Drives the edit-deadline banner so a fresh draft doesn't show it.
+  const [wasPublished, setWasPublished] = useState(false);
+
+  // Re-render every second so the edit-deadline countdown stays current.
+  // Only ticks when the banner is actually shown.
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    if (!wasPublished) return;
+    const interval = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [wasPublished]);
+
+  // Mirror of the date/time validation logic in Step 1 so the parent can
+  // gate publishing without re-running it inside the child.
+  function isStep1Valid(): boolean {
+    if (!visibility || !privacy) return false;
+    if (!startNow && (!startsAt || !startDate)) return false;
+    if (!endsAt || !endDate) return false;
+    const now = new Date();
+    const startDateTime = startNow
+      ? now
+      : new Date(`${startDate}T${startsAt}`);
+    const endDateTime = new Date(`${endDate}T${endsAt}`);
+    if (Number.isNaN(startDateTime.getTime())) return false;
+    if (Number.isNaN(endDateTime.getTime())) return false;
+    if (startDateTime < now) return false;
+    if (endDateTime <= startDateTime) return false;
+    return true;
+  }
+
   // toggle mobile viewport at 900px width.
   const isMobile = useIsMobile(900);
 
@@ -80,11 +117,18 @@ function CreatePollPage({
         credentials: "include",
       });
 
+      if (res.status === 401) {
+        await fetch("/logout", { method: "POST", credentials: "include" });
+        globalThis.location.href = "/";
+        return;
+      }
+
       if (!res.ok) {
         console.error(`Faield to load draft: ${res.status}`);
         return;
       }
       const data = await res.json();
+      setWasPublished(data.poll.status === "not started");
       setTitle(data.poll.title ?? "");
       setDescription(data.poll.description ?? "");
       setVisibility(data.poll.pollVisibility ?? "private");
@@ -186,7 +230,9 @@ function CreatePollPage({
    */
   function buildPollData(): Partial<Poll> {
     const startsAtValue = startNow
-      ? new Date().toISOString()
+      ? new Date(
+          Date.now() + (useBuffer === 1 ? 5 * 60 * 1000 : 0),
+        ).toISOString()
       : startDate && startsAt
         ? `${startDate}T${startsAt}`
         : undefined;
@@ -246,6 +292,11 @@ function CreatePollPage({
       console.error("cant publish without pollId");
       return;
     }
+    if (!isStep1Valid()) {
+      setStep1Attempted(true);
+      setStep(0);
+      return;
+    }
     const res = await fetch(`/api/polls/${pollId}/publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -272,29 +323,56 @@ function CreatePollPage({
    * logged to the console and the editor remains open.
    */
   async function handleDelete() {
-    if (pollId !== null) {
-      if (!window.confirm("Er du sikker på, at du vil slette afstemningen?")) {
-        return;
-      }
-
-      const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
-      if (res.ok) {
-        onExit();
+    if (globalThis.confirm("Er du sikker på, at du vil slette afstemningen?")) {
+      if (pollId !== null) {
+        const res = await fetch(`/api/polls/${pollId}`, { method: "DELETE" });
+        if (res.ok) {
+          onExit();
+        } else {
+          const msg = await res.text();
+          console.error(`Delete fejlede: ${res.status} ${msg}`);
+        }
       } else {
-        const msg = await res.text();
-        console.error(`Delete fejlede: ${res.status} ${msg}`);
+        onExit();
       }
     }
   }
+
   async function handleNext() {
     await handleSave();
     setStep((s) => s + 1);
   }
 
+  // Banner shown while editing an already-published poll: counts down to
+  // the start time, after which the server refuses further edits.
+  const editDeadlineMs = wasPublished && startDate && startsAt
+    ? new Date(`${startDate}T${startsAt}`).getTime()
+    : null;
+  const editTimeLeftMs =
+    editDeadlineMs !== null && !Number.isNaN(editDeadlineMs)
+      ? editDeadlineMs - nowMs
+      : null;
+
   return (
     <div className="create-poll-page">
       {/* Navbar at the top */}
       <NavBar />
+
+      {wasPublished && editTimeLeftMs !== null && (
+        <div
+          className={`edit-deadline-banner ${
+            editTimeLeftMs <= 0
+              ? "edit-deadline-banner--expired"
+              : editTimeLeftMs < 5 * 60 * 1000
+              ? "edit-deadline-banner--warning"
+              : ""
+          }`}
+        >
+          {editTimeLeftMs <= 0
+            ? "Afstemningen er startet — yderligere redigeringer vil blive afvist."
+            : `Afstemningen starter om ${formatTime(editTimeLeftMs)} — husk at gemme dine ændringer inden.`}
+        </div>
+      )}
 
       {/* Show the correct step */}
       {step === 0 && (
@@ -327,6 +405,8 @@ function CreatePollPage({
           setTopNOnly={setTopNOnly}
           ballotLimit={ballotLimit}
           setBallotLimit={setBallotLimit}
+          attempted={step1Attempted}
+          setAttempted={setStep1Attempted}
           onNext={handleNext}
         />
       )}
@@ -371,6 +451,7 @@ function CreatePollPage({
             type="button"
             className="button-secondary create-poll-button"
             onClick={async () => {
+              setStep1Attempted(true);
               await handleSave();
               setStep((s) => Math.max(0, s - 1));
             }}
@@ -393,6 +474,7 @@ function CreatePollPage({
                     : "create-poll-button"
                 }
                 onClick={async () => {
+                  setStep1Attempted(true);
                   await handleSave();
                   setStep(i);
                 }}
@@ -406,6 +488,7 @@ function CreatePollPage({
             type="button"
             className="button-secondary create-poll-button"
             onClick={async () => {
+              setStep1Attempted(true);
               await handleSave();
               setStep((s) => Math.min(3, s + 1));
             }}
@@ -418,10 +501,11 @@ function CreatePollPage({
           type="button"
           className="create-poll-button"
           onClick={async () => {
+            setStep1Attempted(true);
             await handleSave();
           }}
         >
-          Gem kladde
+          Gem ændringer
         </button>
       </div>
     </div>
@@ -431,6 +515,7 @@ function CreatePollPage({
 /* Create poll page 1.
     - Page where the creator of the poll inputs all relevant basic information.
     - Uses data structure from WebLib to define data for input.
+    - TODO: Lacks sync with backend to save data (all pages).
 */
 function CreatePollStep1({
   title,
@@ -461,6 +546,8 @@ function CreatePollStep1({
   setTopNOnly,
   ballotLimit,
   setBallotLimit,
+  attempted,
+  setAttempted,
   onNext,
 }: {
   title: string;
@@ -491,10 +578,13 @@ function CreatePollStep1({
   setTopNOnly: (v: boolean) => void;
   ballotLimit: number;
   setBallotLimit: (v: number) => void;
+  attempted: boolean;
+  setAttempted: (v: boolean) => void;
   onNext: () => void;
 }) {
-  const [attempted, setAttempted] = useState(false);
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Copenhagen",
+  }).format(new Date());
 
   // Locks date fields to today when checked.
   function handleOnlyToday(checked: boolean) {
@@ -526,8 +616,6 @@ function CreatePollStep1({
     endDateTime > startDateTime;
 
   return (
-    // Added "field-hints" as there are in the wireframe, to tell the user what each field does.
-    // Certain fields have their text omitted since they take up a lot of space.
 
     <div className="create-poll-content">
       <h2>Generel information</h2>
@@ -540,7 +628,6 @@ function CreatePollStep1({
         name="title"
         type="text"
         value={title}
-        className="input-createPoll"
         onChange={(e) => setTitle(e.target.value)}
       />
 
@@ -563,54 +650,76 @@ function CreatePollStep1({
           <h2>Synligheds indstillinger</h2>
 
           {/* Public or private */}
-          <label htmlFor="visibility">Offentlig eller privat afstemning</label>
-          <p className="field-hint"></p>
-          <select
-            id="visibility"
-            name="visibility"
-            value={visibility}
-            className="input-createPoll"
-            onChange={(e) => setVisibility(e.target.value as pollVisibility)}
-          >
-            <option value="" disabled>
-              Vælg...
-            </option>
-            <option value="public">Offentlig</option>
-            <option value="private">Privat</option>
-          </select>
-          {attempted && !visibility && (
-            <p style={{ color: "red" }}>
-              Vælg venligst offentlig eller privat afstemning.
+          <div className="visibility-row">
+            <div>
+              <label htmlFor="visibility">
+                Offentlig eller privat afstemning
+              </label>
+              <select
+                id="visibility"
+                name="visibility"
+                value={visibility}
+                className="input-createPoll"
+                onChange={(e) =>
+                  setVisibility(e.target.value as pollVisibility)
+                }
+              >
+                <option value="" disabled>
+                  Vælg...
+                </option>
+                <option value="public">Offentlig</option>
+                <option value="private">Privat</option>
+              </select>
+              {attempted && !visibility && (
+                <p style={{ color: "red" }}>
+                  Vælg venligst offentlig eller privat afstemning.
+                </p>
+              )}
+            </div>
+            <p className="field-hint">
+              Bestemmer om de stemmeberettigede og resultatet af afstemningen
+              er synligt for alle frivillige. Ellers er det kun synligt for
+              dig og de stemmeberettigede.
             </p>
-          )}
+          </div>
 
           {/* Open or secret */}
-          <label htmlFor="secrecyMode">Åben eller hemmelig stemme</label>
-          <p className="field-hint"></p>
-          <select
-            id="privacy"
-            name="privacy"
-            value={privacy}
-            className="input-createPoll"
-            onChange={(e) => setPrivacy(e.target.value as ballotPrivacy)}
-          >
-            <option value="" disabled>
-              Vælg...
-            </option>
-            <option value="open">Åben</option>
-            <option value="secret">Hemmelig</option>
-          </select>
-          {attempted && !privacy && (
-            <p style={{ color: "red" }}>
-              Vælg venligst åben eller hemmelig stemme.
+          <div className="visibility-row">
+            <div>
+              <label htmlFor="secrecyMode">Åben eller hemmelig stemme</label>
+              <select
+                id="privacy"
+                name="privacy"
+                value={privacy}
+                className="input-createPoll"
+                onChange={(e) => setPrivacy(e.target.value as ballotPrivacy)}
+              >
+                <option value="" disabled>
+                  Vælg...
+                </option>
+                <option value="open">Åben</option>
+                <option value="secret">Hemmelig</option>
+              </select>
+              {attempted && !privacy && (
+                <p style={{ color: "red" }}>
+                  Vælg venligst åben eller hemmelig stemme.
+                </p>
+              )}
+            </div>
+            <p className="field-hint">
+              Ved åbne afstemninger vises efterfølgende, hvad hver stemme har stemt.
+		Ved hemmelige afstemninger kan man ikke se hvad hver stemme har stemt. 
             </p>
-          )}
+          </div>
         </div>
 
         {/* Right: start and end time */}
         <div>
           <h2>Afstemnings start og slut</h2>
-          <p className="field-hint"></p>
+          <p className="field-hint">
+            Afstemninger kan redigeres indtil de starter. Det anbefales at
+            sætte en start-buffer, så man kan nå at rette eventuelle fejl.
+          </p>
 
           {/* Start time, disabled when start now is checked */}
           <label htmlFor="startsAt">Start tidspunkt</label>
@@ -676,7 +785,10 @@ function CreatePollStep1({
             />
             Vis kun top n
           </label>
-          <p className="field-hint"></p>
+          <p className="field-hint">
+            Hvis sat, vises stemmefordelingen ikke når afstemningen er slut,
+            i stedet vises kun de n valgmuligheder med flest stemmer.
+          </p>
           {topNOnly && (
             <>
               <label htmlFor="showTopN">Top N:</label>
@@ -696,7 +808,10 @@ function CreatePollStep1({
         <div>
           <h2>Antal valgmuligheder</h2>
           <label htmlFor="ballotLimit">Max antal stemmer per deltager</label>
-          <p className="field-hint"></p>
+          <p className="field-hint">
+            Angiv hvor mange valgmuligheder hver stemmeberettiget maksimalt
+            kan vælge.
+          </p>
           <input
             id="ballotLimit"
             name="ballotLimit"
@@ -710,7 +825,10 @@ function CreatePollStep1({
         {/* Date */}
         <div>
           <h2>Dato</h2>
-          <p className="field-hint">Hvornår afstemningen afslutter.</p>
+          <p className="field-hint">
+            Start- og slutdato for afstemningen. En afstemning kan maks vare
+            N dage.
+          </p>
 
           <label htmlFor="startDate">Start dato</label>
           <input
@@ -775,8 +893,9 @@ function CreatePollStep1({
             endsAt &&
             endDate &&
             datesValid
-          )
+          ) {
             onNext();
+          }
         }}
       >
         Gem og fortsæt
@@ -949,7 +1068,7 @@ function CreatePollStep2({
       </div>
 
       <br />
-      <button type="button" className="create-poll-button" onClick={onNext}>
+      <button type="button" onClick={onNext}>
         Gem og fortsæt
       </button>
     </div>
@@ -1013,7 +1132,7 @@ function CreatePollStep3({
       <br />
       <button
         type="button"
-        className="button-secondary create-poll-button"
+        className="button-secondary"
         onClick={handleAddChoice}
       >
         + Tilføj valgmulighed
@@ -1021,7 +1140,7 @@ function CreatePollStep3({
 
       <br />
       <br />
-      <button type="button" className="create-poll-button" onClick={onNext}>
+      <button type="button" onClick={onNext}>
         Gem og fortsæt
       </button>
     </div>

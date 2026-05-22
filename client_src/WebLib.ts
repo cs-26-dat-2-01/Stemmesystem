@@ -55,10 +55,11 @@ export type pollVisibility = "public" | "private";
 export type ballotPrivacy = "secret" | "open";
 export type pollStatus =
   | "draft" // Ongoing editing by poll creator.
-  | "saved" // Edits saved but poll haven't been published.
   | "not started" // Poll have been published and will start at the given start time.
   | "started" // Poll is started and eligible voters can cast their ballot.
-  | "finished"; // Poll is finished and users with correct access rights can see the poll results.
+  | "closing" // the poll is doing the mixing, and calculating the hash, in between we dont accept votes.
+  | "finished" // Poll is finished and users with correct access rights can see the poll results.
+  | "invalidated"; // Poll had integrity loss and must be re-run.
 
 export interface PollOption {
   id: pollOptionId;
@@ -67,22 +68,18 @@ export interface PollOption {
   displayOrder: number;
 }
 
-export interface VoteToken {
-  id: number;
-  pollId: pollId;
-  userId: userId;
-  UUID: string;
-  createdAt: string;
-  used: boolean;
-}
-
 export interface Vote {
   id: string;
   pollId: pollId;
   pollOptionId: pollOptionId;
+  // Publication/drain time, not the original cast time.
   timestamp: string;
+  chainPosition: number;
   previousHash: string;
   currentHash: string;
+  // Base64 RSA-PSS signature on the prepared message (= `id`). Public so
+  // anyone can verify each vote was authorized by the poll's signing key.
+  signature: string;
 }
 
 /**
@@ -113,25 +110,64 @@ export interface OpenpollResult {
   options: PollOption[];
   votesAllowed: number;
   votesRemaining: number;
+  // PEM-encoded blind-RSA public key for this poll. Used client-side to
+  // blind the message and finalize the signature.
+  blindRsaPublicKey: string;
 }
 
 export interface VoteInput {
   optionId: number;
-  UUID: string;
+  // Base64 of the prepared message (Randomized suite output). Becomes Vote.id.
+  uuid: string;
+  // Base64 of the finalized RSA-PSS signature on `uuid`.
+  signature: string;
 }
 
 export type ResultsPayload =
   | {
     ballotPrivacy: "secret";
     showTopN: number;
-    counts: { optionId: number; optionText: string; count: number }[];
-    votes: { uuid: string }[];
+    closeCommitment: string | null;
+    closedAt: string | null;
+    hasCloseTimestampQuery: boolean;
+    hasCloseTimestampToken: boolean;
+    counts: {
+      optionId: number;
+      optionText: string;
+      count?: number | null;
+      rank?: number;
+    }[];
+    votes: {
+      uuid: string;
+      previousHash: string;
+      currentHash: string;
+      signature: string;
+    }[];
+    // PEM public key needed for client-side self-verification.
+    blindRsaPublicKey: string;
   }
   | {
     ballotPrivacy: "open";
     showTopN: number;
-    counts: { optionId: number; optionText: string; count: number }[];
-    votes: { uuid: string; optionId: number; optionText: string }[];
+    closeCommitment: string | null;
+    closedAt: string | null;
+    hasCloseTimestampQuery: boolean;
+    hasCloseTimestampToken: boolean;
+    counts: {
+      optionId: number;
+      optionText: string;
+      count: number | null;
+      rank?: number;
+    }[];
+    votes: {
+      uuid: string;
+      optionId: number;
+      optionText: string;
+      previousHash: string;
+      currentHash: string;
+      signature: string;
+    }[];
+    blindRsaPublicKey: string;
   };
 
 /**
@@ -155,6 +191,20 @@ export interface FrontEndPoll {
 }
 
 /**
+ * The local "receipt" written to localStorage after each successful vote.
+ * Together with the poll's public key + the public results page, this is
+ * everything needed to later prove "my vote is in the tally". The server
+ * never has the link from userId to these fields.
+ */
+export interface VoteReceipt {
+  pollId: number;
+  optionId: number;
+  uuidB64: string;
+  signatureB64: string;
+  castAt: string;
+}
+
+/**
  * Calculate the time remaining until the deadline is reached for a poll.
  * @param poll - The poll object to calculate for.
  * @param now - Optional reference timestamp used for derived rendering.
@@ -162,7 +212,7 @@ export interface FrontEndPoll {
 export function calculateTimeRemaining(
   pollEndsAt: string | undefined,
   now = Date.now(),
-) {
+): string {
   if (!pollEndsAt) {
     return "Ingen deadline";
   }
@@ -171,13 +221,44 @@ export function calculateTimeRemaining(
   if (pollEndsAt) {
     const diffMs = new Date(pollEndsAt).getTime() - now;
     if (diffMs > 0) {
-      const hours = Math.floor(diffMs / 3_600_000);
-      const mins = Math.floor((diffMs % 3_600_000) / 60_000);
-      const secs = Math.floor((diffMs % 60_000) / 1_000);
-      timeLeft = `${String(hours).padStart(2, "0")}:${
-        String(mins).padStart(2, "0")
-      }:${String(secs).padStart(2, "0")}`;
+      timeLeft = formatTime(diffMs);
     }
   }
   return timeLeft;
+}
+
+// Formaterer millisekunder til HH:MM:SS streng.
+export function formatTime(ms: number): string {
+  const hours = Math.floor(ms / 3_600_000);
+  const mins = Math.floor((ms % 3_600_000) / 60_000);
+  const secs = Math.floor((ms % 60_000) / 1_000);
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${
+    String(secs).padStart(2, "0")
+  }`;
+}
+
+/**
+ * Builds the message string that goes into the vote hash. Same logic
+ * must run on the server (when inserting a vote) and on the client
+ * (during self-verify) — keep this in one place so they cannot drift.
+ * "Ultra-secret" mode: when the poll is BOTH `secret` AND has `showTopN`
+ * active, optionId is dropped from the hash so the brute-force tally
+ * attack (low-entropy optionId → recover counts) is no longer possible.
+ * The trade-off is that we can no longer detect DB-admin tampering with
+ * `optionId` on individual rows; only "UUID is in this position in the
+ * chain" stays verifiable.
+ */
+export function voteHashMessage(opts: {
+  previousHash: string;
+  uuid: string;
+  optionId: number;
+  pollId: number;
+  ballotPrivacy: ballotPrivacy | null;
+  showTopN: number | null;
+}): string {
+  const ultraSecret = opts.ballotPrivacy === "secret" &&
+    !!opts.showTopN && opts.showTopN > 0;
+  return ultraSecret
+    ? `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|pollId:${opts.pollId}`
+    : `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|pollOptionId:${opts.optionId}|pollId:${opts.pollId}`;
 }
