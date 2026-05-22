@@ -1,22 +1,15 @@
 import {
-  ballotPrivacy,
   OpenpollResult,
   Poll,
   PollOption,
   ResultsPayload,
-  voteHashMessage,
 } from "../client_src/WebLib.ts";
 import { WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
-import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
-import { blindSign, keygen, verify } from "./blindRsa.ts";
-import { secureShuffle, VoteBuffer } from "./voteBuffer.ts";
-import type { PendingVoteInsert, VoteInsert } from "./database.ts";
-import {
-  timestampCommitment,
-  verifyTimestampCommitment,
-} from "./timestamping.ts";
+import { keygen } from "./blindRsa.ts";
+import { SecretPollManager } from "./secretPollManager.ts";
+import { verifyTimestampCommitment } from "./timestamping.ts";
 /**
  * Validates that a poll has all the fields and invariants required to
  * leave draft state and be published. Used as the gate in
@@ -96,7 +89,7 @@ function validateForPublish(
  * - Enforcing poll-state preconditions (poll exists, is open for voting).
  * - Enforcing user-level constraints (eligibility, vote quota, batch limits).
  * - Building tamper-evident audit records by chaining vote hashes
- *   	(see {@link PollManager.createVoteHash})
+ *   	(see `createVoteHash` in `voteIntegrity.ts`)
  * Layering:
  * - `server.ts` route handlers -> parse HTTP input, return HTTP responses
  * - `PollManager`-> logic rules, and orchestration.
@@ -107,191 +100,18 @@ function validateForPublish(
  */
 export class PollManager {
   private DB: WebappDatabase;
-  private voteBuffer: VoteBuffer;
+  private secret: SecretPollManager;
 
   constructor(db: WebappDatabase) {
     this.DB = db;
-    this.voteBuffer = new VoteBuffer(db);
+    this.secret = new SecretPollManager(db);
   }
 
   /**
-   * Computes a SHA-256 hash that chains this vote to the previous one in the votes table.
-   * If the hash is for the first vote casted, the previousHash is 0.
-   * The purpose is to produce a tamper-evident record.
-   *
-   * @remarks
-   * Each vote's hash is computed over the *previous* vote's hash plus this
-   * vote's identifying fields. Modifying any earlier vote breaks the chain
-   * for every subsequent vote, so the integrity of the entire vote can be
-   * verified by recomputing the chain from a known starting point.
-   *
-   * Pipe-separated key:value format is used to avoid ambiguity if any field
-   * happens to contain the delimiter - keep this format stable: changing it
-   * would invalidate all previously stored hashes.
-   */
-  private createVoteHash(
-    previousHash: string,
-    UUID: string,
-    optionId: number,
-    pollId: number,
-    ballotPrivacy: ballotPrivacy | null,
-    showTopN: number | null,
-  ): string {
-    const hashMsg = voteHashMessage({
-      previousHash: previousHash,
-      uuid: UUID,
-      optionId: optionId,
-      pollId: pollId,
-      ballotPrivacy: ballotPrivacy,
-      showTopN: showTopN,
-    });
-    return createHash("sha256").update(hashMsg, "utf8").digest("hex");
-  }
-  /**
-   * Builds the close commitment: a single SHA-256 hash binding together the
-   * final hash-chain tip, the per-option vote counts, the poll metadata, and
-  the
-   * close timestamp. This commitment is what gets sent to the TSA
-   * timestamp so the closed poll can later be verified end-to-end.
-   *
-   * @param poll - The poll being closed (metadata fields are included in the
-  commitment).
-   * @param finalVotes - Votes in chain order; the last vote's `currentHash`
-  seals the chain.
-   * @param closedAt - Timestamp marking when the poll was closed.
-   * @returns Hex-encoded SHA-256 close commitment.
-   */
-  private buildCloseCommitment(
-    poll: Poll,
-    finalVotes: VoteInsert[],
-    closedAt: Date,
-  ): string {
-    const finalChainHash = finalVotes.at(-1)?.currentHash ?? "0";
-
-    const countByOptionId = new Map<number, number>();
-    for (const vote of finalVotes) {
-      countByOptionId.set(
-        vote.optionId,
-        (countByOptionId.get(vote.optionId) ?? 0) + 1,
-      );
-    }
-
-    const sortedCounts = JSON.stringify(
-      [...countByOptionId.entries()]
-        .sort(([a], [b]) => a - b)
-        .map(([optionId, count]) => ({ optionId, count })),
-    );
-
-    const pollMetadata = JSON.stringify({
-      pollId: poll.id,
-      ballotPrivacy: poll.ballotPrivacy,
-      pollVisibility: poll.pollVisibility,
-      showTopN: poll.showTopN,
-      ballotLimit: poll.ballotLimit,
-      startsAt: poll.startsAt ?? null,
-      endsAt: poll.endsAt ?? null,
-    });
-
-    const countsHash = this.sha256Hex(sortedCounts);
-    const metadataHash = this.sha256Hex(pollMetadata);
-
-    return this.sha256Hex(
-      `${finalChainHash}${countsHash}${metadataHash}${closedAt.toISOString()}`,
-    );
-  }
-
-  /** Computes a SHA-256 hash
-   */
-  private sha256Hex(message: string): string {
-    return createHash("sha256").update(message, "utf8").digest("hex");
-  }
-  /**
-   * Verifies that a poll is safe to close by comparing issued signatures
-  against
-   * persisted votes (final + pending) and ensuring the RAM buffer is fully
-  drained.
-   *
-   * Three outcomes:
-   * - Buffered votes remain: aborts the close (snapshot not trustworthy).
-   * - persisted > issued: marks the poll as invalidated (more votes than
-  signatures issued indicates a serious integrity breach) and aborts.
-   * - persisted < issued: logs a `POLL_INTEGRITY_GAP_AT_CLOSE` audit entry and
-  warns about lost votes, but still allows the close to proceed.
-   *
-   * @param pollId - ID of the poll being closed.
-   * @returns True if the poll may proceed to close; false if the buffer is not
-  drained
-   *          or the poll was invalidated.
-   */
-  private async verifyPollCloseIntegrity(pollId: number): Promise<boolean> {
-    const issuedVotes = await this.DB.countIssuedSignatures(pollId);
-    const persistedVotes = await this.DB.countPersistedVotes(pollId);
-
-    const bufferedVotes = this.voteBuffer.countBuffered(pollId);
-
-    // After a poll has been moved to "closing", the RAM buffer should have been
-    // drained into pendingVote. If not, the close snapshot is not trustworthy.
-    if (bufferedVotes !== 0) {
-      logger.error`Poll ${pollId} still has ${bufferedVotes} buffered vote(s)
-  during integrity check`;
-      return false;
-    }
-
-    if (persistedVotes > issuedVotes) {
-      const reason =
-        `expected:${issuedVotes}, persisted:${persistedVotes}, buffered:${bufferedVotes}`;
-
-      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
-      if (!invalidated.success) {
-        logger.error`Failed to invalidate poll ${pollId}:
-  ${invalidated.errorMsg}`;
-      }
-      return false;
-    }
-
-    if (persistedVotes < issuedVotes) {
-      this.DB.insertAuditLog(
-        "POLL_INTEGRITY_GAP_AT_CLOSE",
-        `Tried to close pollId: ${pollId}, issued:${issuedVotes}, persisted: ${persistedVotes}, buffered:${bufferedVotes}`,
-      );
-      logger.warn`${pollId} has an integrity gap, might have lost some votes!`;
-    }
-
-    return true;
-  }
-
-  /**
-   * Casts an anonymous vote. Called from `POST /api/poll/:pollId/vote`.
-   *
-   * @remarks
-   * No `userId` is taken or expected — the cast endpoint is unauthenticated
-   * by design. Authorization comes from the blind signature: only a user
-   * who completed the issuance phase under `/blindsign` can produce a
-   * valid signature on the UUID. The server verifies the signature
-   * against the poll's public key and inserts the vote.
-   *
-   * Each `(uuid, signature)` pair is single-use: the UNIQUE constraint on
-   * `Vote.id` rejects replay at the DB layer with a `409`.
-   *
-   * Security/privacy invariants:
-   * - Caller-side: no JWT, no cookie, no userId — the route handler MUST
-   *   NOT pass any user identity into this method, even if it has one
-   *   from a stray cookie.
-   * - Audit-log records only `uuid` (the public UUID), never any user
-   *   identifier or IP. A DB-admin reading the log can see "this UUID
-   *   was cast" but nothing tying it to a person.
-   *
-   * @param pollId      the poll being voted on.
-   * @param uuidB64     base64 of the prepared message (`= Vote.id`).
-   * @param signatureB64 base64 of the finalized RSA-PSS signature on uuid.
-   * @param optionId    the option being voted for. Must belong to this poll.
-   * @returns `{success: true}` on insert;
-   *   `{success: false, errorMsg, httpStatusCode}` on failure:
-   *   `400` malformed input / invalid signature / bad option;
-   *   `403` poll not open;
-   *    '404' "poll not found";
-   *   `409` UUID already cast (replay).
-   *   '500'"Poll has no signing key"
+   * Public facade for the anonymous (secret) cast. Advances poll statuses,
+   * then delegates to {@link SecretPollManager.castVote}, which is where the
+   * blind-signature verification and privacy invariants live. Kept on
+   * `PollManager` so `server.ts` has a single entry point.
    */
   public async castVote(
     pollId: number,
@@ -304,141 +124,12 @@ export class PollManager {
     httpStatusCode: ContentfulStatusCode;
   }> {
     await this.tickPollStatuses();
-
-    if (typeof uuidB64 !== "string" || uuidB64.length === 0) {
-      return { success: false, errorMsg: "Invalid uuid", httpStatusCode: 400 };
-    }
-    if (typeof signatureB64 !== "string" || signatureB64.length === 0) {
-      return {
-        success: false,
-        errorMsg: "Invalid signature",
-        httpStatusCode: 400,
-      };
-    }
-    if (!Number.isInteger(optionId)) {
-      return {
-        success: false,
-        errorMsg: "Invalid optionId",
-        httpStatusCode: 400,
-      };
-    }
-
-    const pollResult = await this.DB.getPollFromDB(pollId);
-    if (pollResult.httpStatusCode !== 200 || !pollResult.poll) {
-      return {
-        success: false,
-        errorMsg: "Poll not found",
-        httpStatusCode: 404,
-      };
-    }
-    if (pollResult.poll.status !== "started") {
-      return {
-        success: false,
-        errorMsg: "Voting is not open for this poll",
-        httpStatusCode: 403,
-      };
-    }
-
-    const publicKeyPem = await this.DB.getPollPublicKey(pollId);
-    if (!publicKeyPem) {
-      return {
-        success: false,
-        errorMsg: "Poll has no signing key",
-        httpStatusCode: 500,
-      };
-    }
-
-    // Decode the base64 uuid back to the prepared-message bytes that the
-    // signature is verified against. Bad base64 → invalid signature.
-    let uuidBytes: Uint8Array;
-    try {
-      const binary = atob(uuidB64);
-      uuidBytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        uuidBytes[i] = binary.charCodeAt(i);
-      }
-    } catch {
-      return {
-        success: false,
-        errorMsg: "Invalid uuid encoding",
-        httpStatusCode: 400,
-      };
-    }
-
-    const sigOk = await verify(publicKeyPem, uuidBytes, signatureB64);
-    if (!sigOk) {
-      return {
-        success: false,
-        errorMsg: "Invalid signature",
-        httpStatusCode: 400,
-      };
-    }
-
-    const validOptionIds = new Set(
-      (await this.DB.getPollOptionsFromDB(pollId)).map((o) => o.id),
-    );
-    if (!validOptionIds.has(optionId)) {
-      return {
-        success: false,
-        errorMsg: `Option ${optionId} does not belong to poll ${pollId}`,
-        httpStatusCode: 400,
-      };
-    }
-
-    const insertResult = await this.voteBuffer.add(pollId, {
-      optionId,
-      uuid: uuidB64,
-      signature: signatureB64,
-    });
-
-    if (!insertResult.success) {
-      return {
-        success: false,
-        errorMsg: insertResult.errorMsg ?? "Error while inserting vote",
-        httpStatusCode: insertResult.httpStatusCode,
-      };
-    }
-
-    const bufferedVotes = this.voteBuffer.countBuffered(pollId);
-    const pendingVotes = await this.DB.countReceivedVotes(pollId);
-    const receivedTotal = bufferedVotes + pendingVotes;
-    const totalAllowed = await this.DB.countTotalVotesAllowed(pollId);
-
-    if (receivedTotal === totalAllowed) {
-      this.finishPollWithVoteDrain(pollId);
-    }
-
-    return { success: true, httpStatusCode: 200 };
+    return this.secret.castVote(pollId, uuidB64, signatureB64, optionId);
   }
 
   /**
-   * Issues a blind signature on a client-supplied blinded message
-   * (RFC 9474 §4.3). Called from `POST /api/poll/:pollId/blindsign`.
-   *
-   * @remarks
-   * This is the only point where `userId` and any vote-related data
-   * touch each other server-side — and even here the server sees only
-   * the *blinded* message, not the underlying UUID. The audit-log entry
-   * deliberately records only `(pollId, userId)` and never the blinded
-   * bytes, so a DB-admin can see "user U claimed a signature for poll P"
-   * but nothing tying U to any concrete vote.
-   *
-   * Quota check, counter increment, and the actual signing all happen
-   * inside a single Prisma transaction (see `DB.issueBlindSignature`):
-   * if the crypto step throws — e.g. the client uploaded malformed
-   * bytes — the `signaturesIssued` counter is rolled back so the user
-   * does not lose a quota slot to a malformed request.
-   *
-   * Security: `userId` MUST come from a verified JWT payload, never
-   * from the request body. Status checks (`voteStatus === "started"`)
-   * also happen inside the transaction to close the race between
-   * "poll opens" and "user requests signature".
-   *
-   * @param pollId            the poll being voted on.
-   * @param userId            the requesting user (must originate from JWT).
-   * @param blindedMessageB64 base64 of the blinded message from the client.
-   * @returns `{ blindSignatureB64, httpStatusCode: 200 }` on success;
-   *   `{ errorMsg, httpStatusCode }` on failure.
+   * Public facade for blind-signature issuance. Advances poll statuses, then
+   * delegates to {@link SecretPollManager.issueBlindSignature}.
    */
   public async issueBlindSignature(
     pollId: number,
@@ -450,39 +141,7 @@ export class PollManager {
     httpStatusCode: ContentfulStatusCode;
   }> {
     await this.tickPollStatuses();
-
-    if (
-      typeof blindedMessageB64 !== "string" || blindedMessageB64.length === 0
-    ) {
-      return {
-        errorMsg: "Missing or invalid 'blinded' field",
-        httpStatusCode: 400,
-      };
-    }
-
-    const result = await this.DB.issueBlindSignature(
-      pollId,
-      userId,
-      (privateKeyPem) => blindSign(privateKeyPem, blindedMessageB64),
-    );
-
-    if (result.errorMsg || !result.blindSignatureB64) {
-      this.DB.insertAuditLog(
-        "BLIND_SIG_ISSUEFAIL",
-        `pollId:${pollId}`,
-      );
-      return result;
-    }
-
-    this.DB.insertAuditLog(
-      "BLIND_SIG_ISSUED",
-      `pollId:${pollId}`,
-    );
-
-    return {
-      blindSignatureB64: result.blindSignatureB64,
-      httpStatusCode: 200,
-    };
+    return this.secret.issueBlindSignature(pollId, userId, blindedMessageB64);
   }
 
   /**
@@ -1273,123 +932,6 @@ export class PollManager {
     };
   }
 
-  private async finishPollWithVoteDrain(pollId: number): Promise<boolean> {
-    const pollSatToClosing = await this.DB.markPollClosing(pollId);
-    if (pollSatToClosing.httpStatusCode !== 200) {
-      logger
-        .error`Cannot set poll to closing, ${pollId}, err:${pollSatToClosing.errorMsg}`;
-      return false;
-    }
-
-    const pollResult = await this.DB.getPollFromDB(pollId);
-    if (!pollResult.poll) {
-      logger.error`Cannot finish poll ${pollId}: poll not found`;
-      return false;
-    }
-
-    const bufferedVotes = this.voteBuffer.takeBufferedVotes(pollId);
-    const BufferedVotesIntoPending = await this.DB.insertPendingVoteBatch(
-      pollId,
-      bufferedVotes,
-    );
-    if (!BufferedVotesIntoPending.success) {
-      logger
-        .error`Cannot insert buffered into pending - poll ${pollId}: ${BufferedVotesIntoPending.errorMsg}`;
-      this.voteBuffer.requeue(
-        pollId,
-        bufferedVotes.map((vote) => ({ pollId, ...vote })),
-      );
-      this.DB.insertAuditLog(
-        "POLL_CLOSE_BUFFER_PERSIST_FAILED",
-        `${pollId}, count: ${bufferedVotes.length} tried to insert buffer to pending, but failed, now the votebuffer is requeued in memory!`,
-      );
-      return false;
-    }
-
-    const integrityOk = await this.verifyPollCloseIntegrity(pollId);
-    if (!integrityOk) {
-      logger.error`Cannot finish poll ${pollId}: integrity check failed`;
-      return false;
-    }
-
-    const pendingResult = await this.DB.listPendingVotesForPoll(pollId);
-    if (pendingResult.httpStatusCode !== 200) {
-      logger.error`Cannot finish poll ${pollId}: ${pendingResult.errorMsg}`;
-      return false;
-    }
-
-    const allVotes = pendingResult.votes;
-
-    const shuffled = secureShuffle(allVotes);
-
-    const latesthashFromDB = await this.DB.getLatestHash(pollId);
-    if (latesthashFromDB.httpStatusCode !== 200) {
-      logger
-        .error`Cannot finish poll ${pollId}: could not retrieve latest hash`;
-      return false;
-    }
-
-    let previousHash = latesthashFromDB.hash ?? "0";
-    const finalVotes: VoteInsert[] = shuffled.map((vote) => {
-      const currentHash = this.createVoteHash(
-        previousHash,
-        vote.uuid,
-        vote.optionId,
-        pollId,
-        pollResult.poll!.ballotPrivacy,
-        pollResult.poll!.showTopN,
-      );
-      const finalVote = {
-        optionId: vote.optionId,
-        uuid: vote.uuid,
-        signature: vote.signature,
-        previousHash,
-        currentHash,
-      };
-      previousHash = currentHash;
-      return finalVote;
-    });
-
-    const closedAt = new Date();
-    const closeCommitment = this.buildCloseCommitment(
-      pollResult.poll,
-      finalVotes,
-      closedAt,
-    );
-
-    let closeTimestampQuery: Uint8Array;
-    let closeTimestampToken: Uint8Array;
-    try {
-      const timestampArtifacts = await timestampCommitment(closeCommitment);
-      closeTimestampQuery = timestampArtifacts.timestampQuery;
-      closeTimestampToken = timestampArtifacts.timestampToken;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error`Cannot timestamp poll ${pollId}: ${msg}`;
-      return false;
-    }
-
-    const finalizeResult = await this.DB.finalizePollClose(
-      pollId,
-      finalVotes,
-      closeCommitment,
-      closeTimestampQuery,
-      closeTimestampToken,
-      closedAt,
-    );
-    if (!finalizeResult.success) {
-      logger
-        .error`Cannot finish poll ${pollId}: could not finalizeresult, err: ${finalizeResult.errorMsg}`;
-      return false;
-    }
-
-    this.DB.insertAuditLog(
-      "POLL_CLOSED_AND_TIMESTAMPED",
-      `pollId:${pollId}, count:${finalVotes.length}`,
-    );
-    return true;
-  }
-
   /**
    * Advances poll lifecycle states based on the current time, by
    * delegating to `DB.tickPollStatuses` (which moves polls from
@@ -1410,7 +952,9 @@ export class PollManager {
 
     const pollsReadyToFinish = await this.DB.getPollIdsReadyToFinish();
     const finishResults = await Promise.all(
-      pollsReadyToFinish.map((pollId) => this.finishPollWithVoteDrain(pollId)),
+      pollsReadyToFinish.map((pollId) =>
+        this.secret.finishPollWithVoteDrain(pollId)
+      ),
     );
     const finishedCount = finishResults.filter(Boolean).length + finished;
     if (finishedCount > 0) {
@@ -1418,50 +962,13 @@ export class PollManager {
     }
   }
 
-  private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
-    const issued = await this.DB.countIssuedSignatures(pollId);
-    const persisted = await this.DB.countPersistedVotes(pollId);
-    const buffered = this.voteBuffer.countBuffered(pollId);
-    const total = persisted + buffered;
-
-    // HARD: more votes than signatures is impossible without fraud or a bug.
-    if (total > issued) {
-      const reason =
-        `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
-      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
-      if (!invalidated.success) {
-        logger
-          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
-      }
-      return false;
-    }
-
-    // SOFT: signatures were issued but the corresponding votes were not
-    // persisted. Could be legitimate user abandonment OR server-side vote loss
-    // (e.g. crash before buffer flush). The server cannot distinguish these
-    // cases from its own state, so we surface the gap via the audit log
-    // and let an operator decide whether further investigation is needed.
-    if (total < issued) {
-      this.DB.insertAuditLog(
-        "POLL_INTEGRITY_GAP",
-        `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,
-      );
-      logger
-        .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;
-    }
-
-    return true;
-  }
-
-  public async runStartupIntegrityCheck(): Promise<void> {
-    const startedPollIds = await this.DB.listStartedPollIds();
-
-    for (const pollId of startedPollIds) {
-      const integrityOk = await this.verifyPollIntegrityAtStartUp(pollId);
-      if (!integrityOk) {
-        logger.error`Startup integrity check failed for poll ${pollId}`;
-      }
-    }
+  /**
+   * Public facade for the startup integrity check. Delegates to
+   * {@link SecretPollManager.runStartupIntegrityCheck}; called once from
+   * `main.ts` at boot.
+   */
+  public runStartupIntegrityCheck(): Promise<void> {
+    return this.secret.runStartupIntegrityCheck();
   }
 
   /**

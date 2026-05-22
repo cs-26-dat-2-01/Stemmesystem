@@ -153,12 +153,13 @@ function PollResults({ pollId }: PollResultsProps) {
       // Verify the stored signature under the poll's public key. We pass
       // the raw prepared-message bytes (decoded from base64) — that's what
       // the signature is over.
+      // Open-poll votes carry no blind signature (signature === null), so
+      // there is nothing to verify under the poll key; only the hash chain
+      // applies. Secret-poll votes always have a signature.
       const preparedBytes = base64Decode(row.uuid);
-      const signatureOk = await verify(
-        data.blindRsaPublicKey,
-        preparedBytes,
-        row.signature,
-      );
+      const signatureOk = row.signature !== null
+        ? await verify(data.blindRsaPublicKey, preparedBytes, row.signature)
+        : false;
 
       const detail = !hashOk
         ? "Hash matcher ikke (ændring i kæden?)"

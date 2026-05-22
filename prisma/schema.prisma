@@ -22,6 +22,7 @@ model User {
 
   createdPolls     Poll[]
   eligibleVoterFor PollEligibleVoter[]
+  votes            Vote[]
 }
 
 model Poll {
@@ -89,19 +90,20 @@ model PendingVote {
   uuid         String @unique
   signature    String @unique
 }
-
+// Open polls has userId and voter, but secret polls doesnt use this. Signature is only for secret polls. 
 model Vote {
   id           String     @id
   pollId       Int
   poll         Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
   pollOptionId Int
   option       PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  userId       Int?
+  voter        User?      @relation(fields: [userId], references: [id], onDelete: Restrict)
   timestamp    DateTime   @default(now())
   chainPosition Int
   previousHash String
   currentHash  String     @unique
-  // Blind-signature after Finalize 
-  signature    String
+  signature    String?
 
   @@unique([pollId, chainPosition])
 }

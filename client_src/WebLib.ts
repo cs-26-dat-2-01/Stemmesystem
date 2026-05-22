@@ -79,7 +79,8 @@ export interface Vote {
   currentHash: string;
   // Base64 RSA-PSS signature on the prepared message (= `id`). Public so
   // anyone can verify each vote was authorized by the poll's signing key.
-  signature: string;
+  // Null for open-poll votes, which bypass blind RSA and carry no signature.
+  signature: string | null;
 }
 
 /**
@@ -141,7 +142,7 @@ export type ResultsPayload =
       uuid: string;
       previousHash: string;
       currentHash: string;
-      signature: string;
+      signature: string | null;
     }[];
     // PEM public key needed for client-side self-verification.
     blindRsaPublicKey: string;
@@ -165,7 +166,7 @@ export type ResultsPayload =
       optionText: string;
       previousHash: string;
       currentHash: string;
-      signature: string;
+      signature: string | null;
     }[];
     blindRsaPublicKey: string;
   };
