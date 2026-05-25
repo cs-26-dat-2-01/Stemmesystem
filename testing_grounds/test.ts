@@ -5518,6 +5518,129 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name:
+    "Secret results report how many eligible voters never requested a ballot",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const alice = await seedUser(prisma, "alice", "pw");
+      const bob = await seedUser(prisma, "bob", "pw");
+      const carol = await seedUser(prisma, "carol", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "finished",
+        ballotPrivacy: "secret",
+        eligibleVoters: [
+          { userId: alice.id, votesAllowed: 1 },
+          { userId: bob.id, votesAllowed: 1 },
+          { userId: carol.id, votesAllowed: 1 },
+        ],
+      });
+
+      // Only alice ever requested a ballot → bob and carol count as non-voters.
+      await prisma.pollEligibleVoter.update({
+        where: { pollId_userId: { pollId: poll.id, userId: alice.id } },
+        data: { signaturesIssued: 1 },
+      });
+
+      const cookies = await fetchUserCredentials("alice", "pw");
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/results`,
+        { headers: { "Cookie": cookies, "version": CLIENT_VERSION } },
+      );
+      const text = await res.text();
+      assertEquals(res.status, 200, text);
+      const body = JSON.parse(text);
+
+      assertEquals(body.ballotPrivacy, "secret");
+      assertEquals(body.eligibleCount, 3);
+      assertEquals(body.nonVoterCount, 2);
+      // Secret never exposes identities.
+      assertEquals("nonVoters" in body, false);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Open results list the eligible voters who have not voted, by name",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const alice = await seedUser(prisma, "alice", "pw");
+      const bob = await seedUser(prisma, "bob", "pw");
+      const carol = await seedUser(prisma, "carol", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "finished",
+        ballotPrivacy: "open",
+        eligibleVoters: [
+          { userId: alice.id, votesAllowed: 1 },
+          { userId: bob.id, votesAllowed: 1 },
+          { userId: carol.id, votesAllowed: 1 },
+        ],
+      });
+
+      // Only alice voted → bob and carol are the non-voters.
+      await seedVote(prisma, {
+        pollId: poll.id,
+        userId: alice.id,
+        optionId: poll.options[0].id,
+      });
+
+      const cookies = await fetchUserCredentials("alice", "pw");
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/results`,
+        { headers: { "Cookie": cookies, "version": CLIENT_VERSION } },
+      );
+      const text = await res.text();
+      assertEquals(res.status, 200, text);
+      const body = JSON.parse(text);
+
+      assertEquals(body.ballotPrivacy, "open");
+      assertEquals(body.eligibleCount, 3);
+      assertEquals(
+        body.nonVoters.map((v: { username: string }) => v.username).sort(),
+        ["bob", "carol"],
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/poll/:pollId/verify-timestamp
 // ---------------------------------------------------------------------------

@@ -1311,9 +1311,12 @@ export class WebappDatabase {
 
       return await Promise.all(polls.map(async (poll) => {
         const myEligibility = poll.eligibleVoters[0];
-        const hasUsedAllSignatures = myEligibility
-          ? myEligibility.signaturesIssued >= myEligibility.votesAllowed
-          : false;
+        const hasVoted = !myEligibility
+          ? false
+          : poll.ballotPrivacy === "open"
+          ? await this.countCastVotesByUser(poll.id, userId) >=
+            myEligibility.votesAllowed
+          : myEligibility.signaturesIssued >= myEligibility.votesAllowed;
 
         const result: FrontEndPoll = {
           poll: {
@@ -1332,7 +1335,7 @@ export class WebappDatabase {
             useBuffer: poll.useBuffer,
           },
           isUserEligibleVoter: myEligibility !== undefined,
-          hasVoted: hasUsedAllSignatures,
+          hasVoted,
           pollProgress: await this.getVoteProgress(poll.id),
           timeLeft: "not initialized",
           pollOwnerUsername: poll.creator.username,
@@ -1822,6 +1825,28 @@ export class WebappDatabase {
         errorMsg: "Error fetching eligible voters",
         httpStatusCode: 500,
       };
+    }
+  }
+
+  /**
+   * Returns every eligible voter for a poll with their `signaturesIssued`
+   * count. Used by the results page to derive non-voters: for secret polls
+   * (anonymous) the only available signal is `signaturesIssued === 0`; for
+   * open polls the caller compares `userId` against the `Vote` table.
+   */
+  public async getEligibleVoterStatuses(
+    pollId: number,
+  ): Promise<{ userId: number; signaturesIssued: number }[]> {
+    try {
+      return await this.prisma.pollEligibleVoter.findMany({
+        where: { pollId },
+        select: { userId: true, signaturesIssued: true },
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error fetching eligible voter statuses for pollId ${pollId}: ${errMsg}`;
+      return [];
     }
   }
   /**

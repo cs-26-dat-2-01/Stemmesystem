@@ -201,6 +201,34 @@
   margin-top: 8px;
 }
 
+.rs-nonvoters {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  color: #374151;
+}
+
+.rs-nonvoters p {
+  margin: 0;
+}
+
+.rs-nonvoter-note {
+  margin-top: 6px !important;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.rs-nonvoter-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.rs-nonvoter-list li {
+  margin-bottom: 2px;
+}
+
 .rs-verify-meta {
   font-size: 0.75rem;
   font-family: monospace;

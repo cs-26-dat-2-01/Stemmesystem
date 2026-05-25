@@ -358,6 +358,37 @@ function PollResults({ pollId }: PollResultsProps) {
             )}
           </div>
 
+          <div className="rs-nonvoters">
+            {data.ballotPrivacy === "secret"
+              ? (
+                <>
+                  <p>
+                    {data.nonVoterCount} af {data.eligibleCount}{" "}
+                    stemmeberettigede har ikke anmodet om en stemmeseddel.
+                  </p>
+                  <p className="rs-nonvoter-note">
+                    I anonyme afstemninger er dette det tætteste systemet kan
+                    komme på "har ikke stemt".
+                  </p>
+                </>
+              )
+              : data.nonVoters.length === 0
+              ? <p>Alle stemmeberettigede har stemt.</p>
+              : (
+                <>
+                  <p>
+                    {data.nonVoters.length} af {data.eligibleCount} har ikke
+                    stemt:
+                  </p>
+                  <ul className="rs-nonvoter-list">
+                    {data.nonVoters.map((v) => (
+                      <li key={v.userId}>{v.username}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+          </div>
+
           <table className="rs-table">
             <thead>
               <tr>

@@ -149,6 +149,10 @@ export type ResultsPayload =
       currentHash: string;
       signature: string | null;
     }[];
+    // Non-voters for a secret poll: anonymity means we can only report how
+    // many eligible voters never requested a ballot (a count, no identities).
+    nonVoterCount: number;
+    eligibleCount: number;
     // PEM public key needed for client-side self-verification.
     blindRsaPublicKey: string;
   }
@@ -175,6 +179,9 @@ export type ResultsPayload =
       currentHash: string;
       signature: string | null;
     }[];
+    // Non-voters for an open poll: exact, since votes carry userId.
+    nonVoters: { userId: number; username: string }[];
+    eligibleCount: number;
     blindRsaPublicKey: string | null;
   };
 

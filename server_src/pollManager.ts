@@ -315,16 +315,23 @@ export class PollManager {
       };
     }
 
-    const [options, votesResult, counts, blindRsaPublicKey, closeArtifacts] =
-      await Promise.all(
-        [
-          this.DB.getPollOptionsFromDB(pollId),
-          this.DB.listVotesForPoll(pollId),
-          this.DB.getPollResultCounts(pollId),
-          this.DB.getPollPublicKey(pollId),
-          this.DB.getPollCloseArtifacts(pollId),
-        ],
-      );
+    const [
+      options,
+      votesResult,
+      counts,
+      blindRsaPublicKey,
+      closeArtifacts,
+      eligibleStatuses,
+    ] = await Promise.all(
+      [
+        this.DB.getPollOptionsFromDB(pollId),
+        this.DB.listVotesForPoll(pollId),
+        this.DB.getPollResultCounts(pollId),
+        this.DB.getPollPublicKey(pollId),
+        this.DB.getPollCloseArtifacts(pollId),
+        this.DB.getEligibleVoterStatuses(pollId),
+      ],
+    );
 
     if (votesResult.errorMsg) {
       return {
@@ -390,7 +397,14 @@ export class PollManager {
       countsWithText = fullCounts;
     }
 
+    const eligibleCount = eligibleStatuses.length;
+
     if (poll.ballotPrivacy === "secret") {
+      // Anonymous: the only signal for "hasn't voted" is that the voter never
+      // requested a ballot (signaturesIssued === 0). A voter who was issued a
+      // ballot but never cast it is indistinguishable, by design.
+      const nonVoterCount =
+        eligibleStatuses.filter((s) => s.signaturesIssued === 0).length;
       return {
         result: {
           ballotPrivacy: "secret",
@@ -400,6 +414,8 @@ export class PollManager {
           hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
           hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
           counts: countsWithText,
+          nonVoterCount,
+          eligibleCount,
           // previousHash + currentHash enable hash-chain verification.
           // signature lets anyone verify (under the public key) that each
           // vote was authorized — universal verifiability without
@@ -416,11 +432,25 @@ export class PollManager {
       };
     }
 
-    const userIds = [...new Set(
-    votesResult.votes.map(
-    (v) => v.userId).filter( (id): id is number => id !== null))]; 
+    const voterIds = votesResult.votes
+      .map((v) => v.userId)
+      .filter((id): id is number => id !== null);
+    const votedUserIds = new Set(voterIds);
 
-    const usernamesById = await this.DB.getUsernamesByIds(userIds); 
+    // One lookup for both voters (results table) and the eligible voters who
+    // did NOT vote (the "har ikke stemt" list).
+    const usernamesById = await this.DB.getUsernamesByIds([
+      ...new Set([...voterIds, ...eligibleStatuses.map((s) => s.userId)]),
+    ]);
+
+    // Open polls carry userId, so non-voters are exact: eligible minus voted.
+    const nonVoters = eligibleStatuses
+      .filter((s) => !votedUserIds.has(s.userId))
+      .map((s) => ({
+        userId: s.userId,
+        username: usernamesById.get(s.userId) ?? "(unknown)",
+      }));
+
     return {
       result: {
         ballotPrivacy: "open",
@@ -430,6 +460,8 @@ export class PollManager {
         hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
         hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
         counts: countsWithText,
+        nonVoters,
+        eligibleCount,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
 	  userId: v.userId, 

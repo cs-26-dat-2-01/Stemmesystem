@@ -269,7 +269,7 @@ function PollTable(
                 <div className="ov-col-item">
                   <b className="ov-col-item-title">Din status:</b>
 
-                  {poll.hasVoted || poll.poll.status === "finished" ? (
+                  {poll.poll.status === "finished" ? (
                     <Link
                       to={`/poll/${poll.poll.id}/results`}
                       className="btn-vote"
@@ -357,7 +357,7 @@ function PollTable(
                 </Link>
               </td>
               <td className="ov-col-mystatus">
-                {poll.hasVoted || poll.poll.status === "finished" ? (
+                {poll.poll.status === "finished" ? (
                   <button
                     type="button"
                     className="btn-vote"
@@ -365,6 +365,10 @@ function PollTable(
                   >
                     Se resultat <FaCheck />
                   </button>
+                ) : poll.hasVoted ? (
+                  <span className="voted-label">
+                    Du har stemt <FaCheck />
+                  </span>
                 ) : poll.poll.status === "started" ? (
                   <button
                     type="button"
