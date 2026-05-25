@@ -73,10 +73,11 @@ export interface Vote {
   pollId: pollId;
   pollOptionId: pollOptionId;
   // Publication/drain time, not the original cast time.
+  userId: number | null;
   timestamp: string;
   chainPosition: number;
   previousHash: string;
-  currentHash: string;
+  currentHash: string; 
   // Base64 RSA-PSS signature on the prepared message (= `id`). Public so
   // anyone can verify each vote was authorized by the poll's signing key.
   // Null for open-poll votes, which bypass blind RSA and carry no signature.
@@ -111,6 +112,10 @@ export interface OpenpollResult {
   options: PollOption[];
   votesAllowed: number;
   votesRemaining: number;
+  // The viewing user's own id (from the verified JWT). The open-poll client
+  // stores it in the vote receipt so self-verify can recompute the hash from
+  // the voter's independent copy of userId.
+  userId: number;
   // PEM-encoded blind-RSA public key for this poll. Used client-side to
   // blind the message and finalize the signature.
   blindRsaPublicKey: string;
@@ -162,13 +167,15 @@ export type ResultsPayload =
     }[];
     votes: {
       uuid: string;
+      username: string, 
+      userId: number | null;
       optionId: number;
       optionText: string;
       previousHash: string;
       currentHash: string;
       signature: string | null;
     }[];
-    blindRsaPublicKey: string;
+    blindRsaPublicKey: string | null;
   };
 
 /**
@@ -201,7 +208,8 @@ export interface VoteReceipt {
   pollId: number;
   optionId: number;
   uuidB64: string;
-  signatureB64: string;
+  signatureB64?: string;
+  userId?: number; 
   castAt: string;
 }
 
@@ -253,10 +261,15 @@ export function voteHashMessage(opts: {
   previousHash: string;
   uuid: string;
   optionId: number;
+  userId?: number | null;
   pollId: number;
   ballotPrivacy: ballotPrivacy | null;
   showTopN: number | null;
 }): string {
+	if (opts.ballotPrivacy === "open"){
+	return `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|UserId:${opts.userId}|pollOptionId:${opts.optionId}|pollid:${opts.pollId}`;
+	}
+
   const ultraSecret = opts.ballotPrivacy === "secret" &&
     !!opts.showTopN && opts.showTopN > 0;
   return ultraSecret

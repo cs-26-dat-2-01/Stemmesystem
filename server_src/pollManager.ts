@@ -10,6 +10,16 @@ import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
 import { keygen } from "./blindRsa.ts";
 import { SecretPollManager } from "./secretPollManager.ts";
 import { verifyTimestampCommitment } from "./timestamping.ts";
+import { VoteBuffer } from "./voteBuffer.ts";
+import { OpenPollManager } from "./openPollManager.ts";
+
+type CastInput =
+    | { ballotPrivacy: "secret"; uuid: string; signature: string; optionId: number
+   }
+    | { ballotPrivacy: "open";   userId: number; votes: { uuid: string; optionId:
+  number }[] };
+
+
 /**
  * Validates that a poll has all the fields and invariants required to
  * leave draft state and be published. Used as the gate in
@@ -101,10 +111,14 @@ function validateForPublish(
 export class PollManager {
   private DB: WebappDatabase;
   private secret: SecretPollManager;
+  private voteBuffer: VoteBuffer;
+  private open: OpenPollManager;
 
   constructor(db: WebappDatabase) {
     this.DB = db;
     this.secret = new SecretPollManager(db);
+    this.voteBuffer = new VoteBuffer(db);
+    this.open = new OpenPollManager(db); 
   }
 
   /**
@@ -113,18 +127,20 @@ export class PollManager {
    * blind-signature verification and privacy invariants live. Kept on
    * `PollManager` so `server.ts` has a single entry point.
    */
+
   public async castVote(
     pollId: number,
-    uuidB64: string,
-    signatureB64: string,
-    optionId: number,
+    input: CastInput,
   ): Promise<{
     success: boolean;
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
     await this.tickPollStatuses();
-    return this.secret.castVote(pollId, uuidB64, signatureB64, optionId);
+    if (input.ballotPrivacy === "secret"){
+    return this.secret.castVote(pollId, input.uuid, input.signature, input.optionId);
+    }
+    return this.open.castVoteOpen(pollId, input.userId, input.votes); 
   }
 
   /**
@@ -243,6 +259,7 @@ export class PollManager {
         options,
         votesAllowed,
         votesRemaining,
+        userId,
         blindRsaPublicKey,
       },
     };
@@ -399,6 +416,11 @@ export class PollManager {
       };
     }
 
+    const userIds = [...new Set(
+    votesResult.votes.map(
+    (v) => v.userId).filter( (id): id is number => id !== null))]; 
+
+    const usernamesById = await this.DB.getUsernamesByIds(userIds); 
     return {
       result: {
         ballotPrivacy: "open",
@@ -410,6 +432,8 @@ export class PollManager {
         counts: countsWithText,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
+	  userId: v.userId, 
+	  username: v.userId !== null ? (usernamesById.get(v.userId) ?? "(unknown)") : "(unknown)",
           optionId: v.pollOptionId,
           optionText: optionTextById.get(v.pollOptionId) ?? "(unknown)",
           previousHash: v.previousHash,
@@ -952,23 +976,19 @@ export class PollManager {
 
     const pollsReadyToFinish = await this.DB.getPollIdsReadyToFinish();
     const finishResults = await Promise.all(
-      pollsReadyToFinish.map((pollId) =>
-        this.secret.finishPollWithVoteDrain(pollId)
-      ),
+      pollsReadyToFinish.map(async (pollId) => {
+        // Branch on the STORED ballotPrivacy: open polls seal in place (votes
+        // are already live), secret polls drain buffer/pending and shuffle.
+        const ballotPrivacy = await this.DB.getPollStatus(pollId);
+        return ballotPrivacy === "open"
+          ? this.open.sealOpenPollClose(pollId)
+          : this.secret.finishPollWithVoteDrain(pollId);
+      }),
     );
     const finishedCount = finishResults.filter(Boolean).length + finished;
     if (finishedCount > 0) {
       this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finishedCount}`);
     }
-  }
-
-  /**
-   * Public facade for the startup integrity check. Delegates to
-   * {@link SecretPollManager.runStartupIntegrityCheck}; called once from
-   * `main.ts` at boot.
-   */
-  public runStartupIntegrityCheck(): Promise<void> {
-    return this.secret.runStartupIntegrityCheck();
   }
 
   /**
@@ -1016,5 +1036,68 @@ export class PollManager {
     const options = await this.DB.getPollOptionsFromDB(pollId);
     const voters = await this.DB.getEligibleVoters(pollId);
     return { result: { poll, options, voters }, httpStatusCode: 200 };
+  }
+
+
+  private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
+	  const privacy = await this.DB.getPollStatus(pollId); 
+	  if (privacy === "secret"){
+const issued = await this.DB.countIssuedSignatures(pollId);
+    const persisted = await this.DB.countPersistedVotes(pollId);
+    const buffered = this.voteBuffer.countBuffered(pollId);
+    const total = persisted + buffered;
+
+    // HARD: more votes than signatures is impossible without fraud or a bug.
+    if (total > issued) {
+      const reason =
+        `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
+      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+      if (!invalidated.success) {
+        logger
+          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+      }
+      return false;
+    }
+
+    // SOFT: signatures were issued but the corresponding votes were not
+    // persisted. Could be legitimate user abandonment OR server-side vote loss
+    // (e.g. crash before buffer flush). The server cannot distinguish these
+    // cases from its own state, so we surface the gap via the audit log
+    // and let an operator decide whether further investigation is needed.
+    if (total < issued) {
+      this.DB.insertAuditLog(
+        "POLL_INTEGRITY_GAP",
+        `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,
+      );
+      logger
+        .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;
+    }
+
+	  } else {
+    const persisted = await this.DB.countPersistedVotes(pollId);
+    const votesAllowed = await this.DB.countTotalVotesAllowed(pollId); 
+    if (persisted > votesAllowed) {
+      const reason =
+        `more votes than allowed: persisted:${persisted}, votesAllowed:${votesAllowed}`;
+      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+      if (!invalidated.success) {
+        logger
+          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+      }
+      return false;
+    }
+	  }
+    return true;
+  }
+
+  public async runStartupIntegrityCheck(): Promise<void> {
+    const startedPollIds = await this.DB.listStartedPollIds();
+
+    for (const pollId of startedPollIds) {
+      const integrityOk = await this.verifyPollIntegrityAtStartUp(pollId);
+      if (!integrityOk) {
+        logger.error`Startup integrity check failed for poll ${pollId}`;
+      }
+    }
   }
 }

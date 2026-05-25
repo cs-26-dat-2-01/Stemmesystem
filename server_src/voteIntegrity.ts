@@ -3,11 +3,6 @@ import { createHash } from "node:crypto";
 import type { VoteInsert } from "./database.ts";
 
 /**
- * Shared, mode-agnostic vote-integrity primitives. Extracted from
- * `PollManager` so both the secret flow (`SecretPollManager`) and the open
- * flow (`OpenPollManager`) compute hashes and the close commitment from a
- * single source of truth.
- *
  * The exact byte layout produced here is consensus-critical: the same logic
  * runs during close (server) and during client-side self-verification, and any
  * drift between secret and open would break verification. Keep these as pure
@@ -38,6 +33,7 @@ export function createVoteHash(
   previousHash: string,
   UUID: string,
   optionId: number,
+  userId: number | null, 
   pollId: number,
   ballotPrivacy: ballotPrivacy | null,
   showTopN: number | null,
@@ -46,6 +42,7 @@ export function createVoteHash(
     previousHash: previousHash,
     uuid: UUID,
     optionId: optionId,
+    userId, 
     pollId: pollId,
     ballotPrivacy: ballotPrivacy,
     showTopN: showTopN,

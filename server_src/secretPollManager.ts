@@ -323,6 +323,7 @@ export class SecretPollManager {
         previousHash,
         vote.uuid,
         vote.optionId,
+	null,
         pollId,
         pollResult.poll!.ballotPrivacy,
         pollResult.poll!.showTopN,
@@ -429,49 +430,4 @@ export class SecretPollManager {
     return true;
   }
 
-  private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
-    const issued = await this.DB.countIssuedSignatures(pollId);
-    const persisted = await this.DB.countPersistedVotes(pollId);
-    const buffered = this.voteBuffer.countBuffered(pollId);
-    const total = persisted + buffered;
-
-    // HARD: more votes than signatures is impossible without fraud or a bug.
-    if (total > issued) {
-      const reason =
-        `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
-      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
-      if (!invalidated.success) {
-        logger
-          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
-      }
-      return false;
-    }
-
-    // SOFT: signatures were issued but the corresponding votes were not
-    // persisted. Could be legitimate user abandonment OR server-side vote loss
-    // (e.g. crash before buffer flush). The server cannot distinguish these
-    // cases from its own state, so we surface the gap via the audit log
-    // and let an operator decide whether further investigation is needed.
-    if (total < issued) {
-      this.DB.insertAuditLog(
-        "POLL_INTEGRITY_GAP",
-        `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,
-      );
-      logger
-        .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;
-    }
-
-    return true;
-  }
-
-  public async runStartupIntegrityCheck(): Promise<void> {
-    const startedPollIds = await this.DB.listStartedPollIds();
-
-    for (const pollId of startedPollIds) {
-      const integrityOk = await this.verifyPollIntegrityAtStartUp(pollId);
-      if (!integrityOk) {
-        logger.error`Startup integrity check failed for poll ${pollId}`;
-      }
-    }
-  }
 }

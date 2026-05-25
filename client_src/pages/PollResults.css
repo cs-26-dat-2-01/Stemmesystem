@@ -186,6 +186,21 @@
   color: #991b1b;
 }
 
+.rs-verify-list li.warn {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.rs-verify-note {
+  font-size: 0.85rem;
+  color: #6b7280;
+  background: #f9fafb;
+  border-left: 3px solid #fcd34d;
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
 .rs-verify-meta {
   font-size: 0.75rem;
   font-family: monospace;

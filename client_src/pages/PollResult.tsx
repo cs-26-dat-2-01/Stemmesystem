@@ -18,6 +18,10 @@ interface VerifyResult {
   found: boolean; // vote with this uuid is present in the tally
   hashOk: boolean; // computed sha256 matches the stored currentHash
   signatureOk: boolean; // signature is valid under the poll's public key
+  // Open only: a vote attributed to MY userId that this device has no receipt
+  // for. A warning, not a hard failure — it may simply have been cast from
+  // another device / after clearing browser data.
+  unrecognised?: boolean;
   detail?: string; // human-readable error when something failed
 }
 
@@ -136,12 +140,16 @@ function PollResults({ pollId }: PollResultsProps) {
         continue;
       }
 
-      // Recompute the chain hash. Format must match server's createVoteHash.
+      // Recompute the chain hash. Format must match the server's
+      // createVoteHash. For open polls the hash includes userId — and we use
+      // the receipt's OWN copy (receipt.userId), so a server that swapped the
+      // user on this row is detectable.
       const hashMsg = voteHashMessage(
         {
           previousHash: row.previousHash,
           uuid: row.uuid,
           optionId: receipt.optionId,
+          userId: receipt.userId,
           pollId: pollId,
           ballotPrivacy: data.ballotPrivacy,
           showTopN: data.showTopN,
@@ -150,20 +158,20 @@ function PollResults({ pollId }: PollResultsProps) {
       const expectedHash = await sha256Hex(hashMsg);
       const hashOk = expectedHash === row.currentHash;
 
-      // Verify the stored signature under the poll's public key. We pass
-      // the raw prepared-message bytes (decoded from base64) — that's what
-      // the signature is over.
-      // Open-poll votes carry no blind signature (signature === null), so
-      // there is nothing to verify under the poll key; only the hash chain
-      // applies. Secret-poll votes always have a signature.
+      // Verify the stored signature under the poll's public key (raw
+      // prepared-message bytes). Open-poll votes carry no blind signature, so
+      // signature verification is N/A — the live hash chain is the integrity
+      // check. Secret-poll votes always have a signature.
       const preparedBytes = base64Decode(row.uuid);
-      const signatureOk = row.signature !== null
+      const signatureOk = isOpen
+        ? true
+        : row.signature !== null && data.blindRsaPublicKey !== null
         ? await verify(data.blindRsaPublicKey, preparedBytes, row.signature)
         : false;
 
       const detail = !hashOk
         ? "Hash matcher ikke (ændring i kæden?)"
-        : !signatureOk
+        : !isOpen && !signatureOk
         ? "Signatur er ugyldig"
         : undefined;
 
@@ -176,6 +184,32 @@ function PollResults({ pollId }: PollResultsProps) {
         signatureOk,
         detail,
       });
+    }
+
+    // Reverse (open only): votes attributed to MY userId that this device has
+    // no receipt for. Could be a server-fabricated vote under my identity — or
+    // simply one cast from another device / after clearing browser data.
+    // Surfaced as a warning, since this device cannot tell the two apart.
+    if (data.ballotPrivacy === "open") {
+      const myUuids = new Set(myReceipts.map((r) => r.uuidB64));
+      const myUserId = myReceipts[0]?.userId;
+      if (myUserId !== undefined) {
+        for (const v of data.votes) {
+          if (v.userId === myUserId && !myUuids.has(v.uuid)) {
+            results.push({
+              uuidB64: v.uuid,
+              optionId: v.optionId,
+              castAt: "",
+              found: true,
+              hashOk: false,
+              signatureOk: true,
+              unrecognised: true,
+              detail:
+                "Registreret under dit bruger-id, men ingen kvittering på denne enhed (kan stamme fra en anden enhed).",
+            });
+          }
+        }
+      }
     }
 
     setVerifyResults(results);
@@ -328,25 +362,34 @@ function PollResults({ pollId }: PollResultsProps) {
             <thead>
               <tr>
                 <th>Id</th>
+                {isOpen && <th>Bruger</th>}
                 <th>Stemme</th>
                 <th>Hash</th>
               </tr>
             </thead>
             <tbody>
-              {votes.map((vote, i) => (
-                <tr key={i}>
-                  <td>{vote.uuid}</td>
-                  <td>
-                    {isOpen
-                      ? (vote as Extract<
-                        typeof data,
-                        { ballotPrivacy: "open" }
-                      >["votes"][number]).optionText
-                      : "Skjult"}
-                  </td>
-                  <td>{vote.currentHash}</td>
-                </tr>
-              ))}
+              {votes.map((vote, i) => {
+                // For open polls each vote carries username + userId; narrow to
+                // the open variant so those fields are visible to TS.
+                const openVote = isOpen
+                  ? (vote as Extract<
+                    typeof data,
+                    { ballotPrivacy: "open" }
+                  >["votes"][number])
+                  : null;
+                return (
+                  <tr key={i}>
+                    <td>{vote.uuid}</td>
+                    {openVote && (
+                      <td>
+                        {openVote.username} (id: {openVote.userId ?? "—"})
+                      </td>
+                    )}
+                    <td>{openVote ? openVote.optionText : "Skjult"}</td>
+                    <td>{vote.currentHash}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
@@ -359,6 +402,14 @@ function PollResults({ pollId }: PollResultsProps) {
                 gemt lokalt for denne afstemning. Klik for at tjekke at de er
                 korrekt registreret og at hash-kæden er intakt.
               </p>
+              {isOpen && (
+                <p className="rs-verify-note">
+                  Bemærk: verificering bygger på kvitteringer gemt lokalt i
+                  denne browser. Stemmer afgivet fra en anden enhed — eller hvis
+                  browserdata er ryddet — kan ikke verificeres her og markeres
+                  med !.
+                </p>
+              )}
               <button
                 type="button"
                 className="rs-verify-btn"
@@ -371,6 +422,16 @@ function PollResults({ pollId }: PollResultsProps) {
               {verifyResults && (
                 <ul className="rs-verify-list">
                   {verifyResults.map((r, i) => {
+                    if (r.unrecognised) {
+                      return (
+                        <li key={i} className="warn">
+                          <strong>!</strong> {r.detail}
+                          <div className="rs-verify-meta">
+                            UUID: {r.uuidB64.slice(0, 16)}…
+                          </div>
+                        </li>
+                      );
+                    }
                     const allOk = r.found && r.hashOk && r.signatureOk;
                     return (
                       <li key={i} className={allOk ? "ok" : "fail"}>

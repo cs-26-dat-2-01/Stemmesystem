@@ -414,6 +414,12 @@ export function startServer(
     if (!Number.isInteger(pollId)) {
       return c.body("Invalid pollId", 400);
     }
+// TODO STATUSER MISVISENDE DET ER BALLOTPRIVACY... BED IKKR LIGE HVAD JEG TÆNKTE PÅ
+    const pollStatus = await DB.getPollStatus(pollId);
+    if (pollStatus === null){
+	return c.body("BallotPrivacy returned null", 400); 
+    }
+    if (pollStatus === "secret"){
     let body: { uuid?: unknown; signature?: unknown; optionId?: unknown };
     try {
       body = await c.req.json();
@@ -428,11 +434,10 @@ export function startServer(
       return c.body("Invalid vote body", 400);
     }
     const castedVote = await pollManager.castVote(
-      pollId,
-      body.uuid,
-      body.signature,
-      body.optionId as number,
-    );
+      pollId, {ballotPrivacy: pollStatus, 
+	      uuid: body.uuid, 
+	      signature: body.signature, 
+	      optionId:body.optionId as number});
     if (castedVote.success === false) {
       return c.body(
         castedVote.errorMsg ?? "Vote failed",
@@ -462,7 +467,66 @@ export function startServer(
     }
 
     return c.body("Vote cast", 200);
+  }
+  return await hasValidJWT(DB, c, async (payload) => {
+      let body = undefined;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Invalid JSON body", 400);
+      }
+      if (!Array.isArray(body.votes)) {
+        return c.body("Missing or invalid votes array", 400);
+      }
+      const hasValidVotes = body.votes.every((vote: unknown) => {
+        if (typeof vote !== "object" || vote == null) return false;
+        const v = vote as { optionId?: unknown; uuid?: unknown };
+        return Number.isInteger(v.optionId) && typeof v.uuid === "string";
+      });
+
+      if (!hasValidVotes) {
+        return c.body("Invalid vote shape", 400);
+      }
+      const userid = payload.userId as number;
+      const castedVote = await pollManager.castVote(pollId, {
+        ballotPrivacy: "open",
+        userId: userid,
+        votes: body.votes.map((v: { uuid: string; optionId: number }) => ({
+          uuid: v.uuid,
+          optionId: v.optionId,
+        })),
+      });
+      if (castedVote.success === false) {
+        return c.body(castedVote.errorMsg ?? "Vote failed", 400);
+      }
+
+      // Calulate the effect of casting the vote for front end clients and send update signal via websockets for effected clients.
+      const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
+      if (
+        eligibleVotersResult.httpStatusCode !== 200 ||
+        !eligibleVotersResult.voters
+      ) {
+        logger
+          .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
+      }
+      logger.trace`eligibleVotersResult.voters: ${eligibleVotersResult.voters}`;
+      for (const voter of eligibleVotersResult.voters ?? []) {
+        const ws = clientWebsockets.get(voter.userId);
+        logger.trace`ws: ${ws}`;
+        if (ws) {
+          logger
+            .trace`Sending websocket message to userId: ${voter.userId} about new vote cast for pollId: ${pollId}`;
+          ws.send(JSON.stringify({
+            type: callbackTypes.refetchVoteCount,
+            pollId,
+          }));
+        }
+      }
+
+      return c.body("Vote cast", 200);		  
   });
+
+  }); 
 
   /**
    * Issue a blind signature on a client-supplied blinded message
