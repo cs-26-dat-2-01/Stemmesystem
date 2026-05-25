@@ -377,8 +377,8 @@ function PollResults({ pollId }: PollResultsProps) {
               : (
                 <>
                   <p>
-                    {data.nonVoters.length} af {data.eligibleCount} har ikke
-                    stemt:
+                    {data.nonVoters.length} af {data.eligibleCount}{" "}
+                    har ikke stemt:
                   </p>
                   <ul className="rs-nonvoter-list">
                     {data.nonVoters.map((v) => (

@@ -50,7 +50,7 @@ interface getPollFromDBResult {
 export interface AuditLogEntry {
   id: number;
   action: string;
-  timestamp: string; 
+  timestamp: string;
   details: string | null;
 }
 
@@ -630,7 +630,6 @@ export class WebappDatabase {
     }
   }
 
-
   /**
    * Fetches the close artifacts for a finished poll: the close commitment and
   its timestamp query/token, along with the close timestamp.
@@ -786,7 +785,7 @@ export class WebappDatabase {
    */
   public async getLatestHash(pollId: number): Promise<{
     hash: string | null;
-    chainposition: number | null;  
+    chainposition: number | null;
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
   }> {
@@ -802,14 +801,18 @@ export class WebappDatabase {
         return { hash: null, chainposition: null, httpStatusCode: 200 };
       }
 
-      return { hash: sqlResult.currentHash, chainposition: sqlResult.chainPosition, httpStatusCode: 200 };
+      return {
+        hash: sqlResult.currentHash,
+        chainposition: sqlResult.chainPosition,
+        httpStatusCode: 200,
+      };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         hash: null,
-	chainposition: null,
+        chainposition: null,
         errorMsg: "Error fetching latest hash.",
         httpStatusCode: 500,
       };
@@ -933,7 +936,7 @@ export class WebappDatabase {
           id: true,
           pollId: true,
           pollOptionId: true,
-	  userId: true, 
+          userId: true,
           timestamp: true,
           chainPosition: true,
           previousHash: true,
@@ -947,7 +950,7 @@ export class WebappDatabase {
         id: row.id,
         pollId: row.pollId,
         pollOptionId: row.pollOptionId,
-	userId: row.userId, 
+        userId: row.userId,
         timestamp: row.timestamp.toString(),
         chainPosition: row.chainPosition,
         previousHash: row.previousHash,
@@ -967,9 +970,6 @@ export class WebappDatabase {
       };
     }
   }
-
-
-
 
   /**
    * Aggregates the vote counts for each option in a given poll, by grouping the `vote` table on `pollOptionId`.
@@ -1326,7 +1326,9 @@ export class WebappDatabase {
             status: poll.voteStatus as pollStatus,
             createdBy: poll.createdBy,
             createdAt: poll.createdAt.toString(),
-            startsAt: poll.startsAt ? formatLocalDatetime(poll.startsAt) : undefined,
+            startsAt: poll.startsAt
+              ? formatLocalDatetime(poll.startsAt)
+              : undefined,
             endsAt: poll.endsAt ? formatLocalDatetime(poll.endsAt) : undefined,
             pollVisibility: poll.pollVisibility as pollVisibility | null,
             ballotPrivacy: poll.ballotPrivacy as ballotPrivacy | null,
@@ -1384,7 +1386,7 @@ export class WebappDatabase {
    * voters, in a single transaction. The three inserts are atomic: if any
    * step fails, nothing is persisted.
    *
-    * Options and voters are both optional — a poll may be created on its
+   * Options and voters are both optional — a poll may be created on its
    * own and have them added later. Empty or missing `optionTexts` /
    * `voterUserIds` simply skip the corresponding insert.
    *
@@ -1898,13 +1900,12 @@ export class WebappDatabase {
     }
   }
 
+  // ----------------------------------------------
+  // OPEN POLL METHODS
+  // ----------------------------------------------
 
-// ----------------------------------------------
-// OPEN POLL METHODS
-// ----------------------------------------------
-
-/**
-   * Lists all votes for a given poll, ordered by public hash-chain position, without the status is finished (critical difference!). 
+  /**
+   * Lists all votes for a given poll, ordered by public hash-chain position, without the status is finished (critical difference!).
    * The ascending order makes it possible to verify the hash chain from start to finish: each vote's `previousHash` must match the `currentHash` of the preceding vote.
    * Votes are only returned if the poll's `voteStatus` is `"finished"`; otherwise the votes are considered private until voting closes.
    *
@@ -1932,7 +1933,7 @@ export class WebappDatabase {
           id: true,
           pollId: true,
           pollOptionId: true,
-	  userId: true, 
+          userId: true,
           timestamp: true,
           chainPosition: true,
           previousHash: true,
@@ -1943,14 +1944,14 @@ export class WebappDatabase {
       });
 
       const votes: VoteInsert[] = sqlResults.map((row) => ({
-	optionId: row.pollOptionId, 
-	uuid: row.id,
-	userId: row.userId,
-	signature: row.signature, 
-	chainPosition: row.chainPosition,
-	previousHash: row.previousHash, 
-	currentHash: row.currentHash,
-             }));
+        optionId: row.pollOptionId,
+        uuid: row.id,
+        userId: row.userId,
+        signature: row.signature,
+        chainPosition: row.chainPosition,
+        previousHash: row.previousHash,
+        currentHash: row.currentHash,
+      }));
 
       return { votes, httpStatusCode: 200 };
     } catch (err) {
@@ -1974,7 +1975,10 @@ export class WebappDatabase {
    * @param userId the ID of the user whose cast votes are being counted.
    * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
    */
-  public async countCastVotesByUser(pollId: number, userId: number): Promise<number> {
+  public async countCastVotesByUser(
+    pollId: number,
+    userId: number,
+  ): Promise<number> {
     try {
       const count = await this.prisma.vote.count({
         where: { pollId, userId },
@@ -1982,7 +1986,8 @@ export class WebappDatabase {
       return count;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      logger
+        .error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
       return 0;
     }
   }
@@ -2004,15 +2009,13 @@ export class WebappDatabase {
       return count;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
-      logger.error`Error getting number of votes casted for poll ID: ${pollId}. Error: ${errMsg}`;
+      logger
+        .error`Error getting number of votes casted for poll ID: ${pollId}. Error: ${errMsg}`;
       return 0;
     }
   }
 
-
-
-
-/**
+  /**
    * Inserts a batch of votes into the database as a single transaction.
    * The batch is rejected entirely (no partial acceptance) if the user has no voting power for the poll,
    * or if the number of votes in the batch combined with the user's already cast votes exceeds the user's allowed votes for the poll.
@@ -2058,13 +2061,17 @@ export class WebappDatabase {
         }
 
         await tx.vote.createMany({
-    data: votes.map((v) => ({
-      id: v.uuid, pollId, pollOptionId: v.optionId, userId,
-      signature: null, chainPosition: v.chainPosition,
-      previousHash: v.previousHash, currentHash: v.currentHash,
-    })),
-  });
-
+          data: votes.map((v) => ({
+            id: v.uuid,
+            pollId,
+            pollOptionId: v.optionId,
+            userId,
+            signature: null,
+            chainPosition: v.chainPosition,
+            previousHash: v.previousHash,
+            currentHash: v.currentHash,
+          })),
+        });
       });
 
       return { success: true, httpStatusCode: 200 };
@@ -2086,7 +2093,8 @@ export class WebappDatabase {
         };
       }
 
-      logger.error`InsertVoteBatch failed for pollId ${pollId}. Error: ${errMsg}`;
+      logger
+        .error`InsertVoteBatch failed for pollId ${pollId}. Error: ${errMsg}`;
       return {
         success: false,
         errorMsg: "Error while inserting vote",
@@ -2095,48 +2103,48 @@ export class WebappDatabase {
     }
   }
 
- public async setCloseArtifacts(
-	 pollId: number,
-	 closeCommitment: string, 
-	 closeTimestampQuery:Uint8Array<ArrayBufferLike>,
-	 closeTimeStampToken:Uint8Array<ArrayBufferLike>,
-	 closedAt: Date, 
- ): Promise<{
- 	success: boolean; 
-	errorMsg?: string; 
-	httpStatusCode: ContentfulStatusCode;
- }>{
- 	try{
-		await this.prisma.poll.update({
-			where: {id: pollId},
-			data: {
-				voteStatus: "finished",
-				closeCommitment,
-				closeTimestampQuery: new Uint8Array(closeTimestampQuery),
-				closeTimestampToken: new Uint8Array(closeTimeStampToken),
-				closedAt,
-			},
-		});
-		return {success: true, httpStatusCode: 200};
-	} catch(err){
- 	const msg = err instanceof Error ? err.message : String(err);
+  public async setCloseArtifacts(
+    pollId: number,
+    closeCommitment: string,
+    closeTimestampQuery: Uint8Array<ArrayBufferLike>,
+    closeTimeStampToken: Uint8Array<ArrayBufferLike>,
+    closedAt: Date,
+  ): Promise<{
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      await this.prisma.poll.update({
+        where: { id: pollId },
+        data: {
+          voteStatus: "finished",
+          closeCommitment,
+          closeTimestampQuery: new Uint8Array(closeTimestampQuery),
+          closeTimestampToken: new Uint8Array(closeTimeStampToken),
+          closedAt,
+        },
+      });
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger
         .error`finalizePollClose failed for pollId ${pollId}. Error: ${msg}`;
       return {
         success: false,
         errorMsg: "Error while finalizing poll close",
         httpStatusCode: 500,
-	};
- }
- }
+      };
+    }
+  }
 
- public async getUsernamesByIds(ids: number[]): Promise<Map<number, string>>{
-	const row = await this.prisma.user.findMany({
-	where: {id: {in:ids}},
-	select: {id: true, username: true},
-	});
-	return new Map(row.map((r) => [r.id, r.username] as const));
- }
+  public async getUsernamesByIds(ids: number[]): Promise<Map<number, string>> {
+    const row = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, username: true },
+    });
+    return new Map(row.map((r) => [r.id, r.username] as const));
+  }
 
   public async getPollStatus(pollId: number): Promise<string | null> {
     try {
@@ -2151,9 +2159,4 @@ export class WebappDatabase {
       return null;
     }
   }
-
-
-
-
-
 }

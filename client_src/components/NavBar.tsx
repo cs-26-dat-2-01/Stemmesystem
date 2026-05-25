@@ -4,8 +4,8 @@ import { FaUser, FaVoteYea } from "react-icons/fa";
 import { getCookie } from "../WebLib.ts";
 import { Link } from "react-router/internal/react-server-client";
 import {
-  useLocation,
   matchPath,
+  useLocation,
 } from "react-router/internal/react-server-client";
 
 function NavBar() {
@@ -53,7 +53,7 @@ function NavBar() {
     { path: "/poll/:id/vote", title: "Stem på afstemning" },
   ];
   const currentLocation = locationMap.find((item) =>
-    matchPath(item.path, location.pathname),
+    matchPath(item.path, location.pathname)
   );
   return (
     <header className="navbar">

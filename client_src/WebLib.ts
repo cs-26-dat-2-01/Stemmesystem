@@ -77,7 +77,7 @@ export interface Vote {
   timestamp: string;
   chainPosition: number;
   previousHash: string;
-  currentHash: string; 
+  currentHash: string;
   // Base64 RSA-PSS signature on the prepared message (= `id`). Public so
   // anyone can verify each vote was authorized by the poll's signing key.
   // Null for open-poll votes, which bypass blind RSA and carry no signature.
@@ -171,7 +171,7 @@ export type ResultsPayload =
     }[];
     votes: {
       uuid: string;
-      username: string, 
+      username: string;
       userId: number | null;
       optionId: number;
       optionText: string;
@@ -216,7 +216,7 @@ export interface VoteReceipt {
   optionId: number;
   uuidB64: string;
   signatureB64?: string;
-  userId?: number; 
+  userId?: number;
   castAt: string;
 }
 
@@ -273,9 +273,9 @@ export function voteHashMessage(opts: {
   ballotPrivacy: ballotPrivacy | null;
   showTopN: number | null;
 }): string {
-	if (opts.ballotPrivacy === "open"){
-	return `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|UserId:${opts.userId}|pollOptionId:${opts.optionId}|pollid:${opts.pollId}`;
-	}
+  if (opts.ballotPrivacy === "open") {
+    return `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|UserId:${opts.userId}|pollOptionId:${opts.optionId}|pollid:${opts.pollId}`;
+  }
 
   const ultraSecret = opts.ballotPrivacy === "secret" &&
     !!opts.showTopN && opts.showTopN > 0;

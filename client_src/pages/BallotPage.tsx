@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
 import "./BallotPage.css";
-import {calculateTimeRemaining} from "../WebLib.ts";
+import { calculateTimeRemaining } from "../WebLib.ts";
 import type { Poll, PollOption, VoteReceipt } from "../WebLib.ts";
 import { Link } from "react-router/internal/react-server-client";
 import { blind, finalize, generateUuid, prepare } from "../blindRsa.ts";
@@ -26,7 +26,7 @@ function BallotPage({ pollId }: BallotPageProps) {
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [votesRemaining, setVotesRemaining] = useState<number>(0);
-  const [timeleft, setTimeleft] = useState<string>(""); 
+  const [timeleft, setTimeleft] = useState<string>("");
   const [voteAllocations, setVoteAllocations] = useState<
     Record<number, number>
   >({});
@@ -57,7 +57,7 @@ function BallotPage({ pollId }: BallotPageProps) {
         setVotesRemaining(dataOpen.votesRemaining);
         setBlindRsaPublicKey(dataOpen.blindRsaPublicKey);
         setUserId(dataOpen.userId);
-	setTimeleft(calculateTimeRemaining(dataOpen.poll.endsAt));
+        setTimeleft(calculateTimeRemaining(dataOpen.poll.endsAt));
         setViewState("ready");
       } else {
         setErrorMessage("Kunne ikke indlæse afstemning");
@@ -69,14 +69,13 @@ function BallotPage({ pollId }: BallotPageProps) {
   }, [pollId]); // Useeffect runs openPoll again if pollid changes.
 
   useEffect(() => {
-	  if (!poll?.endsAt) return; 
-	  const interval = setInterval( () => {
-		  const timeleft: string = calculateTimeRemaining(poll?.endsAt);
-		  setTimeleft(timeleft)
-	  }, 1000);
- 	return () => clearInterval(interval);
-  }
-  ),[poll?.endsAt];
+    if (!poll?.endsAt) return;
+    const interval = setInterval(() => {
+      const timeleft: string = calculateTimeRemaining(poll?.endsAt);
+      setTimeleft(timeleft);
+    }, 1000);
+    return () => clearInterval(interval);
+  }), [poll?.endsAt];
 
   let allocatedVotes = 0;
   for (const count of Object.values(voteAllocations)) {
@@ -115,13 +114,13 @@ function BallotPage({ pollId }: BallotPageProps) {
             <div className="ballot-meta">
               {poll!.endsAt && <p>Afstemningen lukker: {poll!.endsAt}</p>}
             </div>
-	    <div className="ballot-meta"> 
-	    	<p>Du har {votesRemaining} stemmer i denne afstemning</p>
-	    </div>
+            <div className="ballot-meta">
+              <p>Du har {votesRemaining} stemmer i denne afstemning</p>
+            </div>
 
-	    <div className="ballot-meta">
-	    <p> Tid tilbage: {timeleft} </p>
-	    </div>
+            <div className="ballot-meta">
+              <p>Tid tilbage: {timeleft}</p>
+            </div>
 
             <div className="ballot-options">
               {votesRemaining <= 0
@@ -134,7 +133,8 @@ function BallotPage({ pollId }: BallotPageProps) {
                       <input
                         type="number"
                         min={0}
-                        max={votesRemaining - allocatedVotes + (voteAllocations[option.id] ?? 0)}
+                        max={votesRemaining - allocatedVotes +
+                          (voteAllocations[option.id] ?? 0)}
                         value={voteAllocations[option.id] ?? 0}
                         onChange={(e) => {
                           const nextValue = Number(e.target.value);
@@ -348,7 +348,11 @@ function BallotPage({ pollId }: BallotPageProps) {
       const castRes = await fetch(`/api/poll/${pollId}/vote`, {
         method: "POST",
         credentials: "omit",
-        body: JSON.stringify({ uuid: uuidB64, signature: signatureB64, optionId }),
+        body: JSON.stringify({
+          uuid: uuidB64,
+          signature: signatureB64,
+          optionId,
+        }),
         headers: { "Content-Type": "application/json" },
       });
       if (castRes.status !== 200) {

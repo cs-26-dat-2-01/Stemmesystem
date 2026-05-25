@@ -15,22 +15,22 @@ export async function ensureTsaCertificates(): Promise<void> {
 }
 
 /**
-   * Obtains an timestamp for a poll's close commitment from a Time
-   * Stamping Authority (default: FreeTSA, overridable via `FREETSA_URL`).
-   *
-   * @remarks
-   * The commitment is hashed (SHA-256) into a `.tsq` request via `openssl ts
-   * -query` posted to the TSA, and the returned `.tsr` token bytes are passed back
-   *  along with the original query. Both are stored on the poll so verifiers can later
-   *  re-check the binding between commitment, query and token. Temporary files
-   *  are written under a per-call temp directory which is removed in `finally`.
-   *
-   * Requires the `openssl` binary on `PATH` and a reachable TSA endpoint.
-   *
-   * @param closeCommitment - Hex-encoded close commitment to be timestamped.
-   * @returns The RFC 3161 timestamp query and the TSA-signed timestamp token.
-   * @throws If `openssl ts -query` fails or the TSA returns a non-2xx response.
-   */
+ * Obtains an timestamp for a poll's close commitment from a Time
+ * Stamping Authority (default: FreeTSA, overridable via `FREETSA_URL`).
+ *
+ * @remarks
+ * The commitment is hashed (SHA-256) into a `.tsq` request via `openssl ts
+ * -query` posted to the TSA, and the returned `.tsr` token bytes are passed back
+ *  along with the original query. Both are stored on the poll so verifiers can later
+ *  re-check the binding between commitment, query and token. Temporary files
+ *  are written under a per-call temp directory which is removed in `finally`.
+ *
+ * Requires the `openssl` binary on `PATH` and a reachable TSA endpoint.
+ *
+ * @param closeCommitment - Hex-encoded close commitment to be timestamped.
+ * @returns The RFC 3161 timestamp query and the TSA-signed timestamp token.
+ * @throws If `openssl ts -query` fails or the TSA returns a non-2xx response.
+ */
 export async function timestampCommitment(
   closeCommitment: string,
 ): Promise<{

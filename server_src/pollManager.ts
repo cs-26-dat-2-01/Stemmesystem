@@ -14,11 +14,17 @@ import { VoteBuffer } from "./voteBuffer.ts";
 import { OpenPollManager } from "./openPollManager.ts";
 
 type CastInput =
-    | { ballotPrivacy: "secret"; uuid: string; signature: string; optionId: number
-   }
-    | { ballotPrivacy: "open";   userId: number; votes: { uuid: string; optionId:
-  number }[] };
-
+  | {
+    ballotPrivacy: "secret";
+    uuid: string;
+    signature: string;
+    optionId: number;
+  }
+  | {
+    ballotPrivacy: "open";
+    userId: number;
+    votes: { uuid: string; optionId: number }[];
+  };
 
 /**
  * Validates that a poll has all the fields and invariants required to
@@ -118,7 +124,7 @@ export class PollManager {
     this.DB = db;
     this.secret = new SecretPollManager(db);
     this.voteBuffer = new VoteBuffer(db);
-    this.open = new OpenPollManager(db); 
+    this.open = new OpenPollManager(db);
   }
 
   /**
@@ -137,10 +143,15 @@ export class PollManager {
     httpStatusCode: ContentfulStatusCode;
   }> {
     await this.tickPollStatuses();
-    if (input.ballotPrivacy === "secret"){
-    return this.secret.castVote(pollId, input.uuid, input.signature, input.optionId);
+    if (input.ballotPrivacy === "secret") {
+      return this.secret.castVote(
+        pollId,
+        input.uuid,
+        input.signature,
+        input.optionId,
+      );
     }
-    return this.open.castVoteOpen(pollId, input.userId, input.votes); 
+    return this.open.castVoteOpen(pollId, input.userId, input.votes);
   }
 
   /**
@@ -403,8 +414,9 @@ export class PollManager {
       // Anonymous: the only signal for "hasn't voted" is that the voter never
       // requested a ballot (signaturesIssued === 0). A voter who was issued a
       // ballot but never cast it is indistinguishable, by design.
-      const nonVoterCount =
-        eligibleStatuses.filter((s) => s.signaturesIssued === 0).length;
+      const nonVoterCount = eligibleStatuses.filter((s) =>
+        s.signaturesIssued === 0
+      ).length;
       return {
         result: {
           ballotPrivacy: "secret",
@@ -464,8 +476,10 @@ export class PollManager {
         eligibleCount,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
-	  userId: v.userId, 
-	  username: v.userId !== null ? (usernamesById.get(v.userId) ?? "(unknown)") : "(unknown)",
+          userId: v.userId,
+          username: v.userId !== null
+            ? (usernamesById.get(v.userId) ?? "(unknown)")
+            : "(unknown)",
           optionId: v.pollOptionId,
           optionText: optionTextById.get(v.pollOptionId) ?? "(unknown)",
           previousHash: v.previousHash,
@@ -1070,55 +1084,53 @@ export class PollManager {
     return { result: { poll, options, voters }, httpStatusCode: 200 };
   }
 
-
   private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
-	  const privacy = await this.DB.getPollStatus(pollId); 
-	  if (privacy === "secret"){
-const issued = await this.DB.countIssuedSignatures(pollId);
-    const persisted = await this.DB.countPersistedVotes(pollId);
-    const buffered = this.voteBuffer.countBuffered(pollId);
-    const total = persisted + buffered;
+    const privacy = await this.DB.getPollStatus(pollId);
+    if (privacy === "secret") {
+      const issued = await this.DB.countIssuedSignatures(pollId);
+      const persisted = await this.DB.countPersistedVotes(pollId);
+      const buffered = this.voteBuffer.countBuffered(pollId);
+      const total = persisted + buffered;
 
-    // HARD: more votes than signatures is impossible without fraud or a bug.
-    if (total > issued) {
-      const reason =
-        `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
-      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
-      if (!invalidated.success) {
-        logger
-          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+      // HARD: more votes than signatures is impossible without fraud or a bug.
+      if (total > issued) {
+        const reason =
+          `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
+        const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+        if (!invalidated.success) {
+          logger
+            .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+        }
+        return false;
       }
-      return false;
-    }
 
-    // SOFT: signatures were issued but the corresponding votes were not
-    // persisted. Could be legitimate user abandonment OR server-side vote loss
-    // (e.g. crash before buffer flush). The server cannot distinguish these
-    // cases from its own state, so we surface the gap via the audit log
-    // and let an operator decide whether further investigation is needed.
-    if (total < issued) {
-      this.DB.insertAuditLog(
-        "POLL_INTEGRITY_GAP",
-        `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,
-      );
-      logger
-        .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;
-    }
-
-	  } else {
-    const persisted = await this.DB.countPersistedVotes(pollId);
-    const votesAllowed = await this.DB.countTotalVotesAllowed(pollId); 
-    if (persisted > votesAllowed) {
-      const reason =
-        `more votes than allowed: persisted:${persisted}, votesAllowed:${votesAllowed}`;
-      const invalidated = await this.DB.markPollInvalidated(pollId, reason);
-      if (!invalidated.success) {
+      // SOFT: signatures were issued but the corresponding votes were not
+      // persisted. Could be legitimate user abandonment OR server-side vote loss
+      // (e.g. crash before buffer flush). The server cannot distinguish these
+      // cases from its own state, so we surface the gap via the audit log
+      // and let an operator decide whether further investigation is needed.
+      if (total < issued) {
+        this.DB.insertAuditLog(
+          "POLL_INTEGRITY_GAP",
+          `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,
+        );
         logger
-          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+          .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;
       }
-      return false;
+    } else {
+      const persisted = await this.DB.countPersistedVotes(pollId);
+      const votesAllowed = await this.DB.countTotalVotesAllowed(pollId);
+      if (persisted > votesAllowed) {
+        const reason =
+          `more votes than allowed: persisted:${persisted}, votesAllowed:${votesAllowed}`;
+        const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+        if (!invalidated.success) {
+          logger
+            .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+        }
+        return false;
+      }
     }
-	  }
     return true;
   }
 

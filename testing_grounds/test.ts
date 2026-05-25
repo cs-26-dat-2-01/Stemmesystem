@@ -5303,7 +5303,9 @@ Deno.test({
 
       // The vote belongs to alice (JWT), not bob (body).
       assertEquals(
-        await prisma.vote.count({ where: { pollId: poll.id, userId: alice.id } }),
+        await prisma.vote.count({
+          where: { pollId: poll.id, userId: alice.id },
+        }),
         1,
       );
       assertEquals(
@@ -5456,7 +5458,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Open poll closes by end-time via the open seal path (not secret drain)",
+  name:
+    "Open poll closes by end-time via the open seal path (not secret drain)",
   async fn() {
     const databaseUrl = await createTestDatabaseUrl();
     await pushPrismaSchema(databaseUrl);

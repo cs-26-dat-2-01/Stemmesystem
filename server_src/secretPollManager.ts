@@ -323,7 +323,7 @@ export class SecretPollManager {
         previousHash,
         vote.uuid,
         vote.optionId,
-	null,
+        null,
         pollId,
         pollResult.poll!.ballotPrivacy,
         pollResult.poll!.showTopN,
@@ -404,7 +404,8 @@ export class SecretPollManager {
     // After a poll has been moved to "closing", the RAM buffer should have been
     // drained into pendingVote. If not, the close snapshot is not trustworthy.
     if (bufferedVotes !== 0) {
-      logger.error`Poll ${pollId} still has ${bufferedVotes} buffered vote(s) during integrity check`;
+      logger
+        .error`Poll ${pollId} still has ${bufferedVotes} buffered vote(s) during integrity check`;
       return false;
     }
 
@@ -414,7 +415,8 @@ export class SecretPollManager {
 
       const invalidated = await this.DB.markPollInvalidated(pollId, reason);
       if (!invalidated.success) {
-        logger.error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+        logger
+          .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
       }
       return false;
     }
@@ -429,5 +431,4 @@ export class SecretPollManager {
 
     return true;
   }
-
 }

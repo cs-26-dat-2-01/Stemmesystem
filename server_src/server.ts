@@ -414,61 +414,65 @@ export function startServer(
     if (!Number.isInteger(pollId)) {
       return c.body("Invalid pollId", 400);
     }
-// TODO STATUSER MISVISENDE DET ER BALLOTPRIVACY... BED IKKR LIGE HVAD JEG TÆNKTE PÅ
+    // TODO STATUSER MISVISENDE DET ER BALLOTPRIVACY... BED IKKR LIGE HVAD JEG TÆNKTE PÅ
     const pollStatus = await DB.getPollStatus(pollId);
-    if (pollStatus === null){
-	return c.body("BallotPrivacy returned null", 400); 
+    if (pollStatus === null) {
+      return c.body("BallotPrivacy returned null", 400);
     }
-    if (pollStatus === "secret"){
-    let body: { uuid?: unknown; signature?: unknown; optionId?: unknown };
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.body("Invalid JSON body", 400);
-    }
-    if (
-      typeof body.uuid !== "string" ||
-      typeof body.signature !== "string" ||
-      !Number.isInteger(body.optionId)
-    ) {
-      return c.body("Invalid vote body", 400);
-    }
-    const castedVote = await pollManager.castVote(
-      pollId, {ballotPrivacy: pollStatus, 
-	      uuid: body.uuid, 
-	      signature: body.signature, 
-	      optionId:body.optionId as number});
-    if (castedVote.success === false) {
-      return c.body(
-        castedVote.errorMsg ?? "Vote failed",
-        castedVote.httpStatusCode,
-      );
-    }
-
-    // Notify connected clients to refetch tallies. The lookup uses
-    // eligibleVoters, not anything about the caster, so it does not leak
-    // who cast the vote.
-    const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
-    if (
-      eligibleVotersResult.httpStatusCode !== 200 ||
-      !eligibleVotersResult.voters
-    ) {
-      logger
-        .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
-    }
-    for (const voter of eligibleVotersResult.voters ?? []) {
-      const ws = clientWebsockets.get(voter.userId);
-      if (ws) {
-        ws.send(JSON.stringify({
-          type: callbackTypes.refetchVoteCount,
-          pollId,
-        }));
+    if (pollStatus === "secret") {
+      let body: { uuid?: unknown; signature?: unknown; optionId?: unknown };
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Invalid JSON body", 400);
       }
-    }
+      if (
+        typeof body.uuid !== "string" ||
+        typeof body.signature !== "string" ||
+        !Number.isInteger(body.optionId)
+      ) {
+        return c.body("Invalid vote body", 400);
+      }
+      const castedVote = await pollManager.castVote(
+        pollId,
+        {
+          ballotPrivacy: pollStatus,
+          uuid: body.uuid,
+          signature: body.signature,
+          optionId: body.optionId as number,
+        },
+      );
+      if (castedVote.success === false) {
+        return c.body(
+          castedVote.errorMsg ?? "Vote failed",
+          castedVote.httpStatusCode,
+        );
+      }
 
-    return c.body("Vote cast", 200);
-  }
-  return await hasValidJWT(DB, c, async (payload) => {
+      // Notify connected clients to refetch tallies. The lookup uses
+      // eligibleVoters, not anything about the caster, so it does not leak
+      // who cast the vote.
+      const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
+      if (
+        eligibleVotersResult.httpStatusCode !== 200 ||
+        !eligibleVotersResult.voters
+      ) {
+        logger
+          .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
+      }
+      for (const voter of eligibleVotersResult.voters ?? []) {
+        const ws = clientWebsockets.get(voter.userId);
+        if (ws) {
+          ws.send(JSON.stringify({
+            type: callbackTypes.refetchVoteCount,
+            pollId,
+          }));
+        }
+      }
+
+      return c.body("Vote cast", 200);
+    }
+    return await hasValidJWT(DB, c, async (payload) => {
       let body = undefined;
       try {
         body = await c.req.json();
@@ -523,10 +527,9 @@ export function startServer(
         }
       }
 
-      return c.body("Vote cast", 200);		  
+      return c.body("Vote cast", 200);
+    });
   });
-
-  }); 
 
   /**
    * Issue a blind signature on a client-supplied blinded message
