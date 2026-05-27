@@ -18,11 +18,45 @@ interface VerifyResult {
   found: boolean; // vote with this uuid is present in the tally
   hashOk: boolean; // computed sha256 matches the stored currentHash
   signatureOk: boolean; // signature is valid under the poll's public key
+  unrecognised?: boolean; // for open votes. A vote attributed to MY userId that this device has no receipt of
   detail?: string; // human-readable error when something failed
 }
 
 interface PollResultsProps {
   pollId: number;
+}
+
+/**
+ * Maps the stored TSA name to a display label and the exact `openssl` command a
+ * third party can run to verify the downloaded `.tsr` independently — offline,
+ * without trusting our server or the TSA being online. A `null` name is a
+ * pre-tracking poll; all such tokens were issued by FreeTSA.
+ */
+function tsaDisplay(tsaName: string | null): {
+  label: string;
+  publiclyTrusted: boolean;
+  verifyCommand: (commitment: string, tsrFile: string) => string;
+} {
+  const name = tsaName ?? "freetsa";
+  if (name === "digicert") {
+    return {
+      label: "DigiCert",
+      publiclyTrusted: true,
+      verifyCommand: (commitment, tsrFile) =>
+        `printf '%s' '${commitment}' > commitment.txt\n` +
+        `openssl ts -verify -in ${tsrFile} -data commitment.txt \\\n` +
+        `  -CAfile /etc/ssl/certs/ca-certificates.crt`,
+    };
+  }
+  return {
+    label: name === "freetsa" ? "FreeTSA" : name,
+    publiclyTrusted: false,
+    verifyCommand: (commitment, tsrFile) =>
+      `printf '%s' '${commitment}' > commitment.txt\n` +
+      `# Hent FreeTSA's rod-certifikater (cacert.pem + tsa.crt) fra freetsa.org\n` +
+      `openssl ts -verify -in ${tsrFile} -data commitment.txt \\\n` +
+      `  -CAfile cacert.pem -untrusted tsa.crt`,
+  };
 }
 
 function PollResults({ pollId }: PollResultsProps) {
@@ -65,7 +99,7 @@ function PollResults({ pollId }: PollResultsProps) {
   // receipts stay in storage untouched.
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("unf-vote-receipts");
+      const stored = localStorage.getItem("vote-receipts");
       if (!stored) return;
       const all: VoteReceipt[] = JSON.parse(stored);
       setMyReceipts(all.filter((r) => r.pollId === pollId));
@@ -136,12 +170,13 @@ function PollResults({ pollId }: PollResultsProps) {
         continue;
       }
 
-      // Recompute the chain hash. Format must match server's createVoteHash.
+      // Recompute the chain hash. from receipts.
       const hashMsg = voteHashMessage(
         {
           previousHash: row.previousHash,
           uuid: row.uuid,
           optionId: receipt.optionId,
+          userId: receipt.userId,
           pollId: pollId,
           ballotPrivacy: data.ballotPrivacy,
           showTopN: data.showTopN,
@@ -150,19 +185,17 @@ function PollResults({ pollId }: PollResultsProps) {
       const expectedHash = await sha256Hex(hashMsg);
       const hashOk = expectedHash === row.currentHash;
 
-      // Verify the stored signature under the poll's public key. We pass
-      // the raw prepared-message bytes (decoded from base64) — that's what
-      // the signature is over.
+      // Verify the stored signature under the poll's public key. Only for secret poll
       const preparedBytes = base64Decode(row.uuid);
-      const signatureOk = await verify(
-        data.blindRsaPublicKey,
-        preparedBytes,
-        row.signature,
-      );
+      const signatureOk = isOpen
+        ? true
+        : row.signature !== null && data.blindRsaPublicKey !== null
+        ? await verify(data.blindRsaPublicKey, preparedBytes, row.signature)
+        : false;
 
       const detail = !hashOk
         ? "Hash matcher ikke (ændring i kæden?)"
-        : !signatureOk
+        : !isOpen && !signatureOk
         ? "Signatur er ugyldig"
         : undefined;
 
@@ -175,6 +208,32 @@ function PollResults({ pollId }: PollResultsProps) {
         signatureOk,
         detail,
       });
+    }
+
+    // Reverse (open only): votes attributed to MY userId that this device has
+    // no receipt for. Could be a server-fabricated vote under my identity or
+    // simply one cast from another device / after clearing browser data.
+    // Surfaced as a warning, since this device cannot tell the two apart.
+    if (data.ballotPrivacy === "open") {
+      const myUuids = new Set(myReceipts.map((r) => r.uuidB64));
+      const myUserId = myReceipts[0]?.userId;
+      if (myUserId !== undefined) {
+        for (const v of data.votes) {
+          if (v.userId === myUserId && !myUuids.has(v.uuid)) {
+            results.push({
+              uuidB64: v.uuid,
+              optionId: v.optionId,
+              castAt: "",
+              found: true,
+              hashOk: false,
+              signatureOk: true,
+              unrecognised: true,
+              detail:
+                "Registreret under dit bruger-id, men ingen kvittering på denne enhed (kan stamme fra en anden enhed).",
+            });
+          }
+        }
+      }
     }
 
     setVerifyResults(results);
@@ -235,6 +294,11 @@ function PollResults({ pollId }: PollResultsProps) {
   function FullResultsSidebar({ data }: { data: ResultsPayload }) {
     // Compute max once — counts are guaranteed non-null in full-results mode
     const max = Math.max(...data.counts.map((c) => c.count ?? 0), 1);
+
+    let _openPollNonVoters = 0;
+    if (data.ballotPrivacy === "open") {
+      _openPollNonVoters = data.nonVoters.length + 1;
+    }
     return (
       <>
         <div className="rs-top-title">Resultater</div>
@@ -250,6 +314,19 @@ function PollResults({ pollId }: PollResultsProps) {
             <div className="rs-meta">{item.count} stemmer</div>
           </div>
         ))}
+        {data.ballotPrivacy === "open"
+          ? (
+            <>
+              <div>Ikke afgivet stemmer</div>
+              <div className="rs-meta">{_openPollNonVoters + 1} stemmer</div>
+            </>
+          )
+          : (
+            <>
+              <div>Ikke afgivet stemmer</div>
+              <div className="rs-meta">{data.nonVoterCount} stemmer</div>
+            </>
+          )}
       </>
     );
   }
@@ -278,6 +355,12 @@ function PollResults({ pollId }: PollResultsProps) {
               <span className="rs-close-label">Timestamp token</span>
               <span>{data.hasCloseTimestampToken ? "Present" : "Missing"}</span>
             </div>
+            {data.hasCloseTimestampToken && (
+              <div className="rs-close-row">
+                <span className="rs-close-label">Timestamped by</span>
+                <span>{tsaDisplay(data.closeTsaName).label}</span>
+              </div>
+            )}
             <button
               type="button"
               className="rs-verify-btn"
@@ -312,6 +395,30 @@ function PollResults({ pollId }: PollResultsProps) {
             >
               Download request (.tsq)
             </button>
+            {data.hasCloseTimestampToken && data.closeCommitment && (
+              <details className="rs-verify-howto">
+                <summary>Sådan verificerer du selv</summary>
+                <p className="rs-verify-note">
+                  Tidsstemplet er et selvstændigt bevis og kan verificeres
+                  offline — uden adgang til vores server, og uden at{" "}
+                  {tsaDisplay(data.closeTsaName).label}{" "}
+                  er online. Hent .tsr- og .tsq-filerne ovenfor og kør i samme
+                  mappe:
+                </p>
+                <pre className="rs-verify-cmd">{tsaDisplay(data.closeTsaName)
+                  .verifyCommand(
+                    data.closeCommitment,
+                    `poll-${pollId}.tsr`,
+                  )}</pre>
+                <p className="rs-verify-note">
+                  {tsaDisplay(data.closeTsaName).publiclyTrusted
+                    ? `${
+                      tsaDisplay(data.closeTsaName).label
+                    }s rod-certifikat er offentligt betroet og findes i alle styresystemer og browsere — derfor kan hvem som helst verificere det uafhængigt.`
+                    : "FreeTSA's rod er selvsigneret; hent cacert.pem + tsa.crt fra freetsa.org for at verificere."}
+                </p>
+              </details>
+            )}
             {timestampVerifyState !== "idle" && (
               <div
                 className={`rs-close-status ${
@@ -323,29 +430,69 @@ function PollResults({ pollId }: PollResultsProps) {
             )}
           </div>
 
+          <div className="rs-nonvoters">
+            {data.ballotPrivacy === "secret"
+              ? data.nonVoterCount === 0
+                ? <p>Alle stemmeberettigede har stemt.</p>
+                : (
+                  <>
+                    <p>
+                      {data.nonVoterCount} af {data.eligibleCount}{" "}
+                      stemmeberettigede har ikke anmodet om en stemmeseddel.
+                    </p>
+                    <p className="rs-nonvoter-note">
+                      I anonyme afstemninger er dette det tætteste systemet kan
+                      komme på "har ikke stemt".
+                    </p>
+                  </>
+                )
+              : data.nonVoters.length === 0
+              ? <p>Alle stemmeberettigede har stemt.</p>
+              : (
+                <>
+                  <p>
+                    {data.nonVoters.length} af {data.eligibleCount}{" "}
+                    har ikke stemt:
+                  </p>
+                  <ul className="rs-nonvoter-list">
+                    {data.nonVoters.map((v) => (
+                      <li key={v.userId}>{v.username}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+          </div>
+
           <table className="rs-table">
             <thead>
               <tr>
                 <th>Id</th>
+                {isOpen && <th>Bruger</th>}
                 <th>Stemme</th>
                 <th>Hash</th>
               </tr>
             </thead>
             <tbody>
-              {votes.map((vote, i) => (
-                <tr key={i}>
-                  <td>{vote.uuid}</td>
-                  <td>
-                    {isOpen
-                      ? (vote as Extract<
-                        typeof data,
-                        { ballotPrivacy: "open" }
-                      >["votes"][number]).optionText
-                      : "Skjult"}
-                  </td>
-                  <td>{vote.currentHash}</td>
-                </tr>
-              ))}
+              {votes.map((vote, i) => {
+                const openVote = isOpen
+                  ? (vote as Extract<
+                    typeof data,
+                    { ballotPrivacy: "open" }
+                  >["votes"][number])
+                  : null;
+                return (
+                  <tr key={i}>
+                    <td>{vote.uuid}</td>
+                    {openVote && (
+                      <td>
+                        {openVote.username} (id: {openVote.userId ?? "—"})
+                      </td>
+                    )}
+                    <td>{openVote ? openVote.optionText : "Skjult"}</td>
+                    <td>{vote.currentHash}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
@@ -358,6 +505,14 @@ function PollResults({ pollId }: PollResultsProps) {
                 gemt lokalt for denne afstemning. Klik for at tjekke at de er
                 korrekt registreret og at hash-kæden er intakt.
               </p>
+              {isOpen && (
+                <p className="rs-verify-note">
+                  Bemærk: verificering bygger på kvitteringer gemt lokalt i
+                  denne browser. Stemmer afgivet fra en anden enhed — eller hvis
+                  browserdata er ryddet — kan ikke verificeres her og markeres
+                  med !.
+                </p>
+              )}
               <button
                 type="button"
                 className="rs-verify-btn"
@@ -370,6 +525,16 @@ function PollResults({ pollId }: PollResultsProps) {
               {verifyResults && (
                 <ul className="rs-verify-list">
                   {verifyResults.map((r, i) => {
+                    if (r.unrecognised) {
+                      return (
+                        <li key={i} className="warn">
+                          <strong>!</strong> {r.detail}
+                          <div className="rs-verify-meta">
+                            UUID: {r.uuidB64.slice(0, 16)}…
+                          </div>
+                        </li>
+                      );
+                    }
                     const allOk = r.found && r.hashOk && r.signatureOk;
                     return (
                       <li key={i} className={allOk ? "ok" : "fail"}>

@@ -22,6 +22,7 @@ model User {
 
   createdPolls     Poll[]
   eligibleVoterFor PollEligibleVoter[]
+  votes            Vote[]
 }
 
 model Poll {
@@ -45,10 +46,13 @@ model Poll {
   blindRsaPrivateKey String?
   blindRsaKeyBits    Int     @default(2048)
 
-  // Tamper-evidence at poll-close: commitment over finalChainHash + tally + meta get signed by FreeTSA.
+  // Tamper-evidence at poll-close: commitment over finalChainHash + tally + meta
+  // is signed by an RFC 3161 TSA. `closeTsaName` records which TSA in the
+  // fallback chain actually signed, so verification can pin the matching root.
   closeCommitment     String?
   closeTimestampQuery Bytes?
   closeTimestampToken Bytes?
+  closeTsaName        String?
   closedAt            DateTime?
 
   options        PollOption[]
@@ -89,19 +93,20 @@ model PendingVote {
   uuid         String @unique
   signature    String @unique
 }
-
+// Open polls has userId and voter, but secret polls doesnt use this. Signature is only for secret polls. 
 model Vote {
   id           String     @id
   pollId       Int
   poll         Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
   pollOptionId Int
   option       PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  userId       Int?
+  voter        User?      @relation(fields: [userId], references: [id], onDelete: Restrict)
   timestamp    DateTime   @default(now())
   chainPosition Int
   previousHash String
   currentHash  String     @unique
-  // Blind-signature after Finalize 
-  signature    String
+  signature    String?
 
   @@unique([pollId, chainPosition])
 }

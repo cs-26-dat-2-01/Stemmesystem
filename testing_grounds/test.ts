@@ -203,6 +203,7 @@ async function seedVote(prisma: PrismaClient, input: {
       id: uuid,
       pollId: input.pollId,
       pollOptionId: input.optionId,
+      userId: input.userId ?? null,
       timestamp: input.timestamp,
       chainPosition: input.chainPosition ??
         ((latestVote?.chainPosition ?? 0) + 1),
@@ -343,6 +344,32 @@ async function issueAndCastVote(
     uuidB64: blindRequest.uuidB64,
     signatureB64,
   };
+}
+
+/**
+ * Cast a batch of OPEN-poll votes in ONE request, authenticated by the JWT
+ * cookie (the server derives userId from it — never from the body). Mirrors
+ * the client's `castOpen`: no blind RSA, client-generated uuids, no signature.
+ */
+async function castOpenVotes(
+  pollId: number,
+  optionIds: number[],
+  cookies: string,
+) {
+  const votes = optionIds.map((optionId) => ({
+    uuid: base64Encode(prepare(generateUuid())),
+    optionId,
+  }));
+  const res = await fetch(`http://localhost:8000/api/poll/${pollId}/vote`, {
+    method: "POST",
+    body: JSON.stringify({ votes }),
+    headers: {
+      "Content-Type": "application/json",
+      "Cookie": cookies,
+      "version": CLIENT_VERSION,
+    },
+  });
+  return { status: res.status, text: await res.text(), votes };
 }
 
 async function waitForPollToFinish(
@@ -992,6 +1019,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "open",
         eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
       });
 
@@ -1051,6 +1079,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "draft",
+        ballotPrivacy: "open",
         eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
       });
 
@@ -1066,7 +1095,7 @@ Deno.test({
           body: JSON.stringify({
             votes: [{
               optionId: poll.options[0].id,
-              UUID: crypto.randomUUID(),
+              uuid: crypto.randomUUID(),
             }],
           }),
           headers: {
@@ -1115,6 +1144,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "open",
         eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
       });
 
@@ -1136,7 +1166,7 @@ Deno.test({
           body: JSON.stringify({
             votes: [{
               optionId: otherPoll.options[0].id,
-              UUID: crypto.randomUUID(),
+              uuid: crypto.randomUUID(),
             }],
           }),
           headers: {
@@ -1185,6 +1215,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "open",
         eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
       });
 
@@ -1199,8 +1230,8 @@ Deno.test({
           method: "POST",
           body: JSON.stringify({
             votes: [
-              { optionId: poll.options[0].id, UUID: crypto.randomUUID() },
-              { optionId: poll.options[1].id, UUID: crypto.randomUUID() },
+              { optionId: poll.options[0].id, uuid: crypto.randomUUID() },
+              { optionId: poll.options[1].id, uuid: crypto.randomUUID() },
             ],
           }),
           headers: {
@@ -1249,6 +1280,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "open",
         eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
       });
 
@@ -1269,8 +1301,8 @@ Deno.test({
           method: "POST",
           body: JSON.stringify({
             votes: [
-              { optionId: poll.options[0].id, UUID: crypto.randomUUID() },
-              { optionId: otherPoll.options[0].id, UUID: crypto.randomUUID() },
+              { optionId: poll.options[0].id, uuid: crypto.randomUUID() },
+              { optionId: otherPoll.options[0].id, uuid: crypto.randomUUID() },
             ],
           }),
           headers: {
@@ -1323,6 +1355,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "open",
         eligibleVoters: [{ userId: admin.id, votesAllowed: 2 }],
       });
 
@@ -1338,8 +1371,8 @@ Deno.test({
           method: "POST",
           body: JSON.stringify({
             votes: [
-              { optionId: poll.options[0].id, UUID: duplicateUuid },
-              { optionId: poll.options[1].id, UUID: duplicateUuid },
+              { optionId: poll.options[0].id, uuid: duplicateUuid },
+              { optionId: poll.options[1].id, uuid: duplicateUuid },
             ],
           }),
           headers: {
@@ -4647,6 +4680,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "secret",
         eligibleVoters: [
           { userId: alice.id, votesAllowed: 1 },
           { userId: bob.id, votesAllowed: 1 },
@@ -4679,8 +4713,97 @@ Deno.test({
         await prisma.vote.count({ where: { pollId: poll.id } }),
         2,
       );
+
+      // Secret invariant: every stored vote carries a blind signature and NO
+      // userId — the cast path is anonymous.
+      const storedVotes = await prisma.vote.findMany({
+        where: { pollId: poll.id },
+      });
+      for (const v of storedVotes) {
+        assert(v.signature !== null, "secret vote must carry a signature");
+        assertEquals(v.userId, null, "secret vote must not carry userId");
+      }
+
       assertEquals(await getSignaturesIssued(prisma, poll.id, alice.id), 1);
       assertEquals(await getSignaturesIssued(prisma, poll.id, bob.id), 1);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "two eligible users can each cast an open vote (stored with userId, no signature)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const alice = await seedUser(prisma, "alice", "pw");
+      const bob = await seedUser(prisma, "bob", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "open",
+        eligibleVoters: [
+          { userId: alice.id, votesAllowed: 1 },
+          { userId: bob.id, votesAllowed: 1 },
+        ],
+      });
+
+      const aliceCookies = await fetchUserCredentials("alice", "pw");
+      const bobCookies = await fetchUserCredentials("bob", "pw");
+
+      const aliceResult = await castOpenVotes(
+        poll.id,
+        [poll.options[0].id],
+        aliceCookies,
+      );
+      const bobResult = await castOpenVotes(
+        poll.id,
+        [poll.options[1].id],
+        bobCookies,
+      );
+
+      assertEquals(aliceResult.status, 200, aliceResult.text);
+      assertEquals(bobResult.status, 200, bobResult.text);
+
+      // Both users used up their quota → poll auto-finishes.
+      await waitForPollToFinish(prisma, poll.id);
+
+      assertEquals(
+        await prisma.vote.count({ where: { pollId: poll.id } }),
+        2,
+      );
+
+      // Open invariant: every stored vote carries the voter's userId and NO
+      // blind signature.
+      const aliceVotes = await prisma.vote.findMany({
+        where: { pollId: poll.id, userId: alice.id },
+      });
+      const bobVotes = await prisma.vote.findMany({
+        where: { pollId: poll.id, userId: bob.id },
+      });
+      assertEquals(aliceVotes.length, 1, "alice should have exactly one vote");
+      assertEquals(bobVotes.length, 1, "bob should have exactly one vote");
+      for (const v of [...aliceVotes, ...bobVotes]) {
+        assert(v.userId !== null, "open vote must carry userId");
+        assertEquals(v.signature, null, "open vote must not carry a signature");
+      }
     } finally {
       ac.abort();
       await server;
@@ -4716,6 +4839,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "secret",
         eligibleVoters: users.map((u) => ({
           userId: u.id,
           votesAllowed: 1,
@@ -4746,6 +4870,15 @@ Deno.test({
       );
       for (const user of users) {
         assertEquals(await getSignaturesIssued(prisma, poll.id, user.id), 1);
+      }
+
+      // Secret invariant: every stored vote is signed and carries NO userId.
+      const storedVotes = await prisma.vote.findMany({
+        where: { pollId: poll.id },
+      });
+      for (const v of storedVotes) {
+        assert(v.signature !== null, "secret vote must carry a signature");
+        assertEquals(v.userId, null, "secret vote must not carry userId");
       }
     } finally {
       ac.abort();
@@ -4794,6 +4927,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        ballotPrivacy: "secret",
         eligibleVoters: users.map((u) => ({
           userId: u.user.id,
           votesAllowed: u.votesAllowed,
@@ -4831,6 +4965,15 @@ Deno.test({
         );
       }
 
+      // Secret invariant: every stored vote is signed and carries NO userId.
+      const secretVotes = await prisma.vote.findMany({
+        where: { pollId: poll.id },
+      });
+      for (const v of secretVotes) {
+        assert(v.signature !== null, "secret vote must carry a signature");
+        assertEquals(v.userId, null, "secret vote must not carry userId");
+      }
+
       // Hash chain must still be intact across all 15 votes.
       const votes = await prisma.vote.findMany({
         where: { pollId: poll.id },
@@ -4840,6 +4983,657 @@ Deno.test({
       for (let i = 1; i < votes.length; i++) {
         assertEquals(votes[i].previousHash, votes[i - 1].currentHash);
       }
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "five eligible users can each cast an open vote (stored with userId)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const usernames = ["u1", "u2", "u3", "u4", "u5"];
+      const users = [];
+      for (const username of usernames) {
+        users.push(await seedUser(prisma, username, "pw"));
+      }
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "open",
+        eligibleVoters: users.map((u) => ({
+          userId: u.id,
+          votesAllowed: 1,
+        })),
+      });
+
+      for (let i = 0; i < usernames.length; i++) {
+        const cookies = await fetchUserCredentials(usernames[i], "pw");
+        const option = poll.options[i % poll.options.length];
+        const result = await castOpenVotes(poll.id, [option.id], cookies);
+        assertEquals(
+          result.status,
+          200,
+          `User ${usernames[i]} vote failed: ${result.text}`,
+        );
+      }
+
+      await waitForPollToFinish(prisma, poll.id);
+
+      assertEquals(
+        await prisma.vote.count({ where: { pollId: poll.id } }),
+        5,
+      );
+
+      // Open invariant: every stored vote carries a userId and NO signature,
+      // and each user's vote is attributed to exactly them.
+      const storedVotes = await prisma.vote.findMany({
+        where: { pollId: poll.id },
+      });
+      for (const v of storedVotes) {
+        assert(v.userId !== null, "open vote must carry userId");
+        assertEquals(v.signature, null, "open vote must not carry a signature");
+      }
+      for (const user of users) {
+        assertEquals(
+          await prisma.vote.count({
+            where: { pollId: poll.id, userId: user.id },
+          }),
+          1,
+        );
+      }
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "mixed votesAllowed (open): each user's batch is stored under their userId",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      // 1 + 2 + 3 + 4 + 5 = 15 expected votes.
+      const plan = [
+        { username: "single", votesAllowed: 1 },
+        { username: "double", votesAllowed: 2 },
+        { username: "triple", votesAllowed: 3 },
+        { username: "quadruple", votesAllowed: 4 },
+        { username: "quintuple", votesAllowed: 5 },
+      ];
+      const users = [];
+      for (const p of plan) {
+        users.push({
+          user: await seedUser(prisma, p.username, "pw"),
+          votesAllowed: p.votesAllowed,
+          username: p.username,
+        });
+      }
+      const totalExpected = plan.reduce((s, p) => s + p.votesAllowed, 0);
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "open",
+        eligibleVoters: users.map((u) => ({
+          userId: u.user.id,
+          votesAllowed: u.votesAllowed,
+        })),
+      });
+
+      // Each user sends their WHOLE quota in ONE batch request.
+      for (const u of users) {
+        const cookies = await fetchUserCredentials(u.username, "pw");
+        const optionIds = Array.from(
+          { length: u.votesAllowed },
+          (_, i) => poll.options[i % poll.options.length].id,
+        );
+        const result = await castOpenVotes(poll.id, optionIds, cookies);
+        assertEquals(
+          result.status,
+          200,
+          `User ${u.username} batch failed: ${result.text}`,
+        );
+      }
+
+      await waitForPollToFinish(prisma, poll.id);
+
+      assertEquals(
+        await prisma.vote.count({ where: { pollId: poll.id } }),
+        totalExpected,
+      );
+
+      // Open invariant: each user's full batch is stored under their userId,
+      // with no signatures.
+      for (const u of users) {
+        const userVotes = await prisma.vote.findMany({
+          where: { pollId: poll.id, userId: u.user.id },
+        });
+        assertEquals(
+          userVotes.length,
+          u.votesAllowed,
+          `${u.username} should have ${u.votesAllowed} votes`,
+        );
+        for (const v of userVotes) {
+          assertEquals(
+            v.signature,
+            null,
+            "open vote must not carry a signature",
+          );
+        }
+      }
+
+      // Hash chain must still be intact across all 15 votes.
+      const votes = await prisma.vote.findMany({
+        where: { pollId: poll.id },
+        orderBy: { chainPosition: "asc" },
+      });
+      assertEquals(votes[0].previousHash, "0");
+      for (let i = 1; i < votes.length; i++) {
+        assertEquals(votes[i].previousHash, votes[i - 1].currentHash);
+      }
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Open vs. secret cast-path guards + open results
+// ---------------------------------------------------------------------------
+
+Deno.test({
+  name: "Casting open-style batch to a SECRET poll is rejected",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "secret",
+        eligibleVoters: [{ userId: admin.id, votesAllowed: 1 }],
+      });
+
+      const cookies = await fetchUserCredentials(
+        "admin",
+        env.ADMIN_USER_PASSWORD,
+      );
+
+      // Client wrongly uses the OPEN batch format against a secret poll. The
+      // route branches on the STORED ballotPrivacy → secret expects
+      // { uuid, signature, optionId }, so the batch body is rejected.
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{
+              uuid: base64Encode(prepare(generateUuid())),
+              optionId: poll.options[0].id,
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": cookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+      assertEquals(
+        res.status,
+        400,
+        `Expected open-format batch on secret poll to fail, got
+  ${res.status}: ${text}`,
+      );
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 0);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Open cast attributes the vote to the JWT user, ignoring body userId",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const alice = await seedUser(prisma, "alice", "pw");
+      const bob = await seedUser(prisma, "bob", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "open",
+        eligibleVoters: [
+          { userId: alice.id, votesAllowed: 1 },
+          { userId: bob.id, votesAllowed: 1 },
+        ],
+      });
+
+      const aliceCookies = await fetchUserCredentials("alice", "pw");
+
+      // Alice casts but tries to spoof bob's id in the body. The server must
+      // derive userId from the JWT (alice), never from the body.
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/vote`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            votes: [{
+              uuid: base64Encode(prepare(generateUuid())),
+              optionId: poll.options[0].id,
+              userId: bob.id,
+            }],
+          }),
+          headers: {
+            "Content-Type": "application/json",
+            "Cookie": aliceCookies,
+            "version": CLIENT_VERSION,
+          },
+        },
+      );
+
+      const text = await res.text();
+      assertEquals(res.status, 200, `Expected cast to succeed, got ${text}`);
+
+      // The vote belongs to alice (JWT), not bob (body).
+      assertEquals(
+        await prisma.vote.count({
+          where: { pollId: poll.id, userId: alice.id },
+        }),
+        1,
+      );
+      assertEquals(
+        await prisma.vote.count({ where: { pollId: poll.id, userId: bob.id } }),
+        0,
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Open poll results expose username + userId + null signature per vote",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const alice = await seedUser(prisma, "alice", "pw");
+      const bob = await seedUser(prisma, "bob", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "open",
+        eligibleVoters: [
+          { userId: alice.id, votesAllowed: 1 },
+          { userId: bob.id, votesAllowed: 1 },
+        ],
+      });
+
+      const aliceCookies = await fetchUserCredentials("alice", "pw");
+      const bobCookies = await fetchUserCredentials("bob", "pw");
+
+      // Both cast → quota filled → poll auto-finishes.
+      assertEquals(
+        (await castOpenVotes(poll.id, [poll.options[0].id], aliceCookies))
+          .status,
+        200,
+      );
+      assertEquals(
+        (await castOpenVotes(poll.id, [poll.options[1].id], bobCookies)).status,
+        200,
+      );
+      await waitForPollToFinish(prisma, poll.id);
+
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/results`,
+        {
+          headers: { "Cookie": aliceCookies, "version": CLIENT_VERSION },
+        },
+      );
+      const bodyText = await res.text();
+      assertEquals(res.status, 200, bodyText);
+      const body = JSON.parse(bodyText);
+
+      assertEquals(body.ballotPrivacy, "open");
+      assertEquals(body.votes.length, 2);
+      for (const v of body.votes) {
+        assert(
+          typeof v.username === "string" && v.username.length > 0,
+          "open result vote must carry a username",
+        );
+        assert(v.userId !== null, "open result vote must carry userId");
+        assertEquals(v.signature, null, "open result vote has no signature");
+      }
+      assertEquals(
+        body.votes.map((v: { username: string }) => v.username).sort(),
+        ["alice", "bob"],
+      );
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "runStartupIntegrityCheck does not invalidate an open poll (0 issued sigs)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const pollManager = new PollManager(DB);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const voter = await seedUser(prisma, "voter1", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "open",
+        eligibleVoters: [{ userId: voter.id, votesAllowed: 2 }],
+      });
+
+      // Open polls issue NO blind signatures but persist votes directly. The
+      // secret rule (persisted > issued) would wrongly invalidate this; the
+      // open rule (persisted ≤ votesAllowed) must leave it alone.
+      await seedVote(prisma, {
+        pollId: poll.id,
+        userId: voter.id,
+        optionId: poll.options[0].id,
+      });
+      await seedVote(prisma, {
+        pollId: poll.id,
+        userId: voter.id,
+        optionId: poll.options[1].id,
+      });
+
+      await pollManager.runStartupIntegrityCheck();
+
+      const after = await prisma.poll.findUniqueOrThrow({
+        where: { id: poll.id },
+      });
+      assertEquals(after.voteStatus, "started");
+      assertEquals(
+        await prisma.auditLog.count({
+          where: { action: "POLL_INVALIDATED_VOTE_LOSS" },
+        }),
+        0,
+      );
+    } finally {
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "Open poll closes by end-time via the open seal path (not secret drain)",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const voter = await seedUser(prisma, "voter1", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "started",
+        ballotPrivacy: "open",
+        eligibleVoters: [{ userId: voter.id, votesAllowed: 2 }],
+      });
+
+      const cookies = await fetchUserCredentials("voter1", "pw");
+
+      // Cast only ONE of two allowed votes → no quota-based auto-close.
+      assertEquals(
+        (await castOpenVotes(poll.id, [poll.options[0].id], cookies)).status,
+        200,
+      );
+
+      // Move the poll past its end time, then trigger a tick (any request that
+      // calls tickPollStatuses — /open does). It must close via the open seal,
+      // NOT the secret drain — which would invalidate it (persisted 1 > issued 0).
+      await prisma.poll.update({
+        where: { id: poll.id },
+        data: { endsAt: new Date(Date.now() - 1000) },
+      });
+      const tickRes = await openPollForUser(poll.id, cookies);
+      await tickRes.body?.cancel(); // consume the body so the test doesn't leak
+      await waitForPollToFinish(prisma, poll.id);
+
+      const after = await prisma.poll.findUniqueOrThrow({
+        where: { id: poll.id },
+      });
+      assertEquals(after.voteStatus, "finished");
+      assert(
+        after.closeCommitment !== null,
+        "open end-time close must set a closeCommitment",
+      );
+      // The cast vote survived — the open seal does not drain or shuffle.
+      assertEquals(await prisma.vote.count({ where: { pollId: poll.id } }), 1);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "Secret results report how many eligible voters never requested a ballot",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const alice = await seedUser(prisma, "alice", "pw");
+      const bob = await seedUser(prisma, "bob", "pw");
+      const carol = await seedUser(prisma, "carol", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "finished",
+        ballotPrivacy: "secret",
+        eligibleVoters: [
+          { userId: alice.id, votesAllowed: 1 },
+          { userId: bob.id, votesAllowed: 1 },
+          { userId: carol.id, votesAllowed: 1 },
+        ],
+      });
+
+      // Only alice ever requested a ballot → bob and carol count as non-voters.
+      await prisma.pollEligibleVoter.update({
+        where: { pollId_userId: { pollId: poll.id, userId: alice.id } },
+        data: { signaturesIssued: 1 },
+      });
+
+      const cookies = await fetchUserCredentials("alice", "pw");
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/results`,
+        { headers: { "Cookie": cookies, "version": CLIENT_VERSION } },
+      );
+      const text = await res.text();
+      assertEquals(res.status, 200, text);
+      const body = JSON.parse(text);
+
+      assertEquals(body.ballotPrivacy, "secret");
+      assertEquals(body.eligibleCount, 3);
+      assertEquals(body.nonVoterCount, 2);
+      // Secret never exposes identities.
+      assertEquals("nonVoters" in body, false);
+    } finally {
+      ac.abort();
+      await server;
+      await prisma.$disconnect();
+      await DB.closeDB();
+      await removeSqliteFiles(databaseUrl);
+    }
+  },
+});
+
+Deno.test({
+  name: "Open results list the eligible voters who have not voted, by name",
+  async fn() {
+    const databaseUrl = await createTestDatabaseUrl();
+    await pushPrismaSchema(databaseUrl);
+
+    const DB = await WebappDatabase.initDatabase(databaseUrl);
+    const prisma = createPrismaForTest(databaseUrl);
+    const ac = new AbortController();
+    const server = startServer(DB, ac);
+
+    try {
+      const admin = await prisma.user.findUniqueOrThrow({
+        where: { username: "admin" },
+      });
+      const alice = await seedUser(prisma, "alice", "pw");
+      const bob = await seedUser(prisma, "bob", "pw");
+      const carol = await seedUser(prisma, "carol", "pw");
+
+      const poll = await seedPoll(prisma, {
+        createdBy: admin.id,
+        voteStatus: "finished",
+        ballotPrivacy: "open",
+        eligibleVoters: [
+          { userId: alice.id, votesAllowed: 1 },
+          { userId: bob.id, votesAllowed: 1 },
+          { userId: carol.id, votesAllowed: 1 },
+        ],
+      });
+
+      // Only alice voted → bob and carol are the non-voters.
+      await seedVote(prisma, {
+        pollId: poll.id,
+        userId: alice.id,
+        optionId: poll.options[0].id,
+      });
+
+      const cookies = await fetchUserCredentials("alice", "pw");
+      const res = await fetch(
+        `http://localhost:8000/api/poll/${poll.id}/results`,
+        { headers: { "Cookie": cookies, "version": CLIENT_VERSION } },
+      );
+      const text = await res.text();
+      assertEquals(res.status, 200, text);
+      const body = JSON.parse(text);
+
+      assertEquals(body.ballotPrivacy, "open");
+      assertEquals(body.eligibleCount, 3);
+      assertEquals(
+        body.nonVoters.map((v: { username: string }) => v.username).sort(),
+        ["bob", "carol"],
+      );
     } finally {
       ac.abort();
       await server;

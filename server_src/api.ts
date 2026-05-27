@@ -26,7 +26,7 @@ interface clientInfo {
 /**
  * Check the client version against API and return compatibility level.
  *
- * @param version - object containg the client version.
+ * @param v - object containing the client version.
  */
 export function checkClientVersion(
   v: { x: number; y: number; z: number },

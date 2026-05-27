@@ -16,12 +16,12 @@ interface User {
   username: string;
 }
 
-// De tre mulige visninger/faner i admin-dashboardet
+// The three possible views/tabs in the admin dashboard
 type AdminView = "users" | "add-user" | "delete-user";
 
-// ─── Hjælpekomponent: StatusBesked ───────────────────────────────────────────
-// Viser en grøn succesbesked eller rød fejlbesked afhængigt af type.
-// Bruges efter at have tilføjet eller slettet en bruger.
+// ─── Helper component: StatusMsg ───────────────────────────────────────────
+// Shows a green success message or a red error message depending on type.
+// Used after a user has been added or deleted.
 function StatusMsg({
   msg: msg,
   type,
@@ -36,22 +36,22 @@ function StatusMsg({
   );
 }
 
-// ─── Fane: Brugerliste ────────────────────────────────────────────────────────
-// Henter og viser alle brugere i systemet som en tabel.
-// Bruges til at give admins et overblik over hvem der har adgang.
+// ─── Tab: User list ────────────────────────────────────────────────────────
+// Fetches and shows all users in the system as a table.
+// Gives admins an overview of who has access.
 function UserList() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Hent brugerlisten fra serveren når komponenten vises
+  // Fetch the user list from the server when the component mounts
   useEffect(() => {
     const fetchUsers = async () => {
       setLoading(true);
       setError(null);
       try {
         const res = await fetch("/api/users", {
-          credentials: "include", // Send JWT-cookie med for at serveren ved vi er admin
+          credentials: "include", // Send the JWT cookie so the server knows we are admin
         });
         if (res.status === 401) {
           await fetch("/logout", { method: "POST", credentials: "include" });
@@ -111,9 +111,9 @@ function UserList() {
   );
 }
 
-// ─── Fane: Tilføj bruger ──────────────────────────────────────────────────────
-// Formular til at oprette en ny bruger ved at sende POST /admin/users.
-// Adgangskoden hashes på serveren med argon2 — vi sender den som klartekst over HTTPS.
+// ─── Tab: Add user ──────────────────────────────────────────────────────
+// Form for creating a new user via POST /admin/users.
+// The password is hashed on the server with argon2 — we send it as cleartext over HTTPS.
 function AddUsers() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -127,7 +127,7 @@ function AddUsers() {
   const [loading, setLoading] = useState(false);
 
   async function handleSubmission() {
-    // Valider at adgangskoderne matcher inden vi sender til serveren
+    // Validate that the passwords match before sending to the server
     if (password !== confirmation) {
       setStatus({ msg: "Adgangskoderne matcher ikke.", type: "error" });
       return;
@@ -159,7 +159,7 @@ function AddUsers() {
           msg: `Brugeren "${username}" blev oprettet.`,
           type: "success",
         });
-        // Nulstil formularen efter succesfuld oprettelse
+        // Reset the form after a successful creation
         setUsername("");
         setPassword("");
         setConfirmation("");
@@ -228,9 +228,9 @@ function AddUsers() {
   );
 }
 
-// ─── Fane: Slet bruger ────────────────────────────────────────────────────────
-// Giver admin mulighed for at slette en bruger ved at angive brugernavnet.
-// Der er en bekræftelsesdialog for at undgå utilsigtet sletning.
+// ─── Tab: Delete user ────────────────────────────────────────────────────────
+// Lets an admin delete a user by entering the username.
+// A confirmation step guards against accidental deletion.
 function SletBruger() {
   const [username, setUsername] = useState("");
   const [submission, setSubmission] = useState(false);
@@ -247,7 +247,7 @@ function SletBruger() {
       setStatus({ msg: "Angiv et brugernavn.", type: "error" });
       return;
     }
-    // Beskyt admin-kontoen mod at blive slettet via dashboardet
+    // Protect the admin account from being deleted via the dashboard
     if (username === "admin") {
       setStatus({ msg: "Admin-kontoen kan ikke slettes.", type: "error" });
       return;
@@ -312,7 +312,7 @@ function SletBruger() {
           />
         </div>
 
-        {/* Bekræftelsescheckbox — vises kun når et brugernavn er indtastet */}
+        {/* Confirmation checkbox — only shown once a username has been entered */}
         {username.trim() !== "" && username !== "admin" && (
           <label className="admin-confirm-label">
             <input
@@ -340,9 +340,9 @@ function SletBruger() {
   );
 }
 
-// ─── Hoved-komponent: AdminPage ───────────────────────────────────────────────
-// Admin-dashboardet med tre faner: brugerliste, tilføj bruger og slet bruger.
-// Kun tilgængeligt for indloggede admin-brugere (håndhæves på server-siden).
+// ─── Main component: AdminPage ───────────────────────────────────────────────
+// The admin dashboard with three tabs: user list, add user, and delete user.
+// Only available to logged-in admin users (enforced server-side).
 function AdminPage() {
   const [activePane, setActivePane] = useState<AdminView>("users");
 
@@ -350,7 +350,7 @@ function AdminPage() {
     <>
       <NavBar />
       <div className="admin-layout">
-        {/* Sidebar med fanenavigation */}
+        {/* Sidebar with tab navigation */}
         <aside className="admin-sidebar">
           <h1 className="admin-sidebar-title">Admin</h1>
           <nav className="admin-nav">
@@ -383,13 +383,13 @@ function AdminPage() {
             </button>
           </nav>
 
-          {/* Link tilbage til oversigten */}
+          {/* Link back to the overview */}
           <Link to="/" className="admin-back-link">
             <FaLongArrowAltLeft /> Tilbage til oversigt
           </Link>
         </aside>
 
-        {/* Hovedindhold skifter afhængigt af aktiv fane */}
+        {/* Main content switches depending on the active tab */}
         <main className="admin-main">
           {activePane === "users" && <UserList />}
           {activePane === "add-user" && <AddUsers />}

@@ -14,7 +14,9 @@ import { JWTPayload } from "@panva/jose";
 /**
  * Start the web application.
  *
- * @param A instance of a WebappDatabase.
+ * @param DB - An instance of a WebappDatabase.
+ * @param ac - AbortController whose signal stops the server.
+ * @param pollManager - Poll orchestration layer (defaults to a new PollManager).
  */
 export function startServer(
   DB: WebappDatabase,
@@ -137,8 +139,8 @@ export function startServer(
     });
   });
 
-  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
-  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  // GET /api/polls — returns a list of all polls for the overview page.
+  // Requires a valid JWT so we know who is asking (used for hasVoted and isEligible).
   router.get("/api/polls", async (c) => {
     return await hasValidJWT(DB, c, async (payload) => {
       await pollManager.tickPollStatuses();
@@ -152,7 +154,7 @@ export function startServer(
     });
   });
 
-  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
+  // GET /admin — serves index.html so React can handle the admin page client-side
   router.get("/admin", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -414,54 +416,120 @@ export function startServer(
     if (!Number.isInteger(pollId)) {
       return c.body("Invalid pollId", 400);
     }
-    let body: { uuid?: unknown; signature?: unknown; optionId?: unknown };
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.body("Invalid JSON body", 400);
+    const pollStatus = await DB.getPollPrivacyLabel(pollId);
+    if (pollStatus === null) {
+      return c.body("BallotPrivacy returned null", 400);
     }
-    if (
-      typeof body.uuid !== "string" ||
-      typeof body.signature !== "string" ||
-      !Number.isInteger(body.optionId)
-    ) {
-      return c.body("Invalid vote body", 400);
-    }
-    const castedVote = await pollManager.castVote(
-      pollId,
-      body.uuid,
-      body.signature,
-      body.optionId as number,
-    );
-    if (castedVote.success === false) {
-      return c.body(
-        castedVote.errorMsg ?? "Vote failed",
-        castedVote.httpStatusCode,
-      );
-    }
-
-    // Notify connected clients to refetch tallies. The lookup uses
-    // eligibleVoters, not anything about the caster, so it does not leak
-    // who cast the vote.
-    const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
-    if (
-      eligibleVotersResult.httpStatusCode !== 200 ||
-      !eligibleVotersResult.voters
-    ) {
-      logger
-        .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
-    }
-    for (const voter of eligibleVotersResult.voters ?? []) {
-      const ws = clientWebsockets.get(voter.userId);
-      if (ws) {
-        ws.send(JSON.stringify({
-          type: callbackTypes.refetchVoteCount,
-          pollId,
-        }));
+    if (pollStatus === "secret") {
+      let body: { uuid?: unknown; signature?: unknown; optionId?: unknown };
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Invalid JSON body", 400);
       }
-    }
+      if (
+        typeof body.uuid !== "string" ||
+        typeof body.signature !== "string" ||
+        !Number.isInteger(body.optionId)
+      ) {
+        return c.body("Invalid vote body", 400);
+      }
+      const castedVote = await pollManager.castVote(
+        pollId,
+        {
+          ballotPrivacy: pollStatus,
+          uuid: body.uuid,
+          signature: body.signature,
+          optionId: body.optionId as number,
+        },
+      );
+      if (castedVote.success === false) {
+        return c.body(
+          castedVote.errorMsg ?? "Vote failed",
+          castedVote.httpStatusCode,
+        );
+      }
 
-    return c.body("Vote cast", 200);
+      // Notify connected clients to refetch tallies. The lookup uses
+      // eligibleVoters, not anything about the caster, so it does not leak
+      // who cast the vote.
+      const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
+      if (
+        eligibleVotersResult.httpStatusCode !== 200 ||
+        !eligibleVotersResult.voters
+      ) {
+        logger
+          .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
+      }
+      for (const voter of eligibleVotersResult.voters ?? []) {
+        const ws = clientWebsockets.get(voter.userId);
+        if (ws) {
+          ws.send(JSON.stringify({
+            type: callbackTypes.refetchVoteCount,
+            pollId,
+          }));
+        }
+      }
+
+      return c.body("Vote cast", 200);
+    }
+    return await hasValidJWT(DB, c, async (payload) => {
+      let body = undefined;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Invalid JSON body", 400);
+      }
+      if (!Array.isArray(body.votes)) {
+        return c.body("Missing or invalid votes array", 400);
+      }
+      const hasValidVotes = body.votes.every((vote: unknown) => {
+        if (typeof vote !== "object" || vote == null) return false;
+        const v = vote as { optionId?: unknown; uuid?: unknown };
+        return Number.isInteger(v.optionId) && typeof v.uuid === "string";
+      });
+
+      if (!hasValidVotes) {
+        return c.body("Invalid vote shape", 400);
+      }
+      const userid = payload.userId as number;
+      const castedVote = await pollManager.castVote(pollId, {
+        ballotPrivacy: "open",
+        userId: userid,
+        votes: body.votes.map((v: { uuid: string; optionId: number }) => ({
+          uuid: v.uuid,
+          optionId: v.optionId,
+        })),
+      });
+      if (castedVote.success === false) {
+        return c.body(castedVote.errorMsg ?? "Vote failed", 400);
+      }
+
+      // Calulate the effect of casting the vote for front end clients and send update signal via websockets for effected clients.
+      const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
+      if (
+        eligibleVotersResult.httpStatusCode !== 200 ||
+        !eligibleVotersResult.voters
+      ) {
+        logger
+          .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
+      }
+      logger.trace`eligibleVotersResult.voters: ${eligibleVotersResult.voters}`;
+      for (const voter of eligibleVotersResult.voters ?? []) {
+        const ws = clientWebsockets.get(voter.userId);
+        logger.trace`ws: ${ws}`;
+        if (ws) {
+          logger
+            .trace`Sending websocket message to userId: ${voter.userId} about new vote cast for pollId: ${pollId}`;
+          ws.send(JSON.stringify({
+            type: callbackTypes.refetchVoteCount,
+            pollId,
+          }));
+        }
+      }
+
+      return c.body("Vote cast", 200);
+    });
   });
 
   /**
@@ -630,9 +698,9 @@ export function startServer(
     }
   });
 
-  // POST /api/polls — opret ny afstemning (KLADDE, ALTSÅ DET VIL ALTID VÆRE DRAFT) fra CreatePollPage.
+  // POST /api/polls — create a new poll (a DRAFT — it is ALWAYS a draft) from CreatePollPage.
   // Body: { poll: Poll, voters: Array<{username, votesAllowed}>, choices: string[] }
-  // createdBy hentes fra JWT, ikke fra request body.
+  // createdBy is taken from the JWT, not from the request body.
   router.post("/api/polls", async (c) => {
     return await hasValidJWT(DB, c, async (payload) => {
       let body = undefined;

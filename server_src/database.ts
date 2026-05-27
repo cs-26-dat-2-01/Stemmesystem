@@ -56,11 +56,16 @@ export interface AuditLogEntry {
 
 export interface VoteInsert {
   optionId: number;
-  // Base64 of the prepared message — stored as Vote.id. The UNIQUE constraint
-  // on this column is what enforces single-use of each signature.
   uuid: string;
-  // Base64 of the finalized RSA-PSS signature on `uuid`.
-  signature: string;
+  signature: string | null; // null for open
+  previousHash: string;
+  currentHash: string;
+}
+
+export interface OpenVoteInsert {
+  uuid: string;
+  optionId: number;
+  chainPosition: number;
   previousHash: string;
   currentHash: string;
 }
@@ -83,10 +88,8 @@ export interface PollCreateInput {
   showTopN?: number | null;
   ballotLimit?: number | null;
   useBuffer?: number | null;
-  // Per-poll blind-RSA keypair (PEM). See server_src/blindRsa.ts.
-  // Public key is publishable; private key is server-only.
-  blindRsaPublicKey?: string | null;
-  blindRsaPrivateKey?: string | null;
+  blindRsaPublicKey?: string | null; // publishable
+  blindRsaPrivateKey?: string | null; // server-only!
   optionTexts?: string[];
   voterUserIds?: number[];
 }
@@ -114,7 +117,7 @@ export class WebappDatabase {
   /**
    * Disabled public use of constructor due to async limitation.
    *
-   * @param adminPassword
+   * @param databaseUrl - libSQL/SQLite connection URL (defaults to env.DATABASE_URL).
    */
   private constructor(databaseUrl = env.DATABASE_URL) {
     this.prisma = new PrismaClient({
@@ -163,7 +166,7 @@ export class WebappDatabase {
   /**
    * Initialize the SQLite database for the web application.
    *
-   * @param filePath the path to the database file. If not found a new file will be created.
+   * @param databaseUrl the path/URL to the database file. If not found a new file will be created.
    */
   public static async initDatabase(
     databaseUrl = env.DATABASE_URL,
@@ -311,8 +314,6 @@ export class WebappDatabase {
 
   /**
    * Closes the internal application database.
-   *
-   * @todo tie this in with a proper destructor.
    */
   public closeDB() {
     return this.prisma.$disconnect();
@@ -407,7 +408,7 @@ export class WebappDatabase {
   }
   /** Checks to see if the vote is in vote or pending vote table.
    *
-   * @param the UUID you are searching for
+   * @param uuid The UUID you are searching for
    * @returns Promise< exists: boolean
    */
   public async voteExistsInAnyVoteStore(uuid: string): Promise<{
@@ -488,7 +489,7 @@ export class WebappDatabase {
   }
 
   /** returns all votes specific to a poll in pendingvote table
-   * @param the pollId for the wanted votes
+   * @param pollId the poll the wanted votes belong to
    * @returns Promise with votes: array with all the votes, httpstatuscode: 200 if success, 500 if err together with a err msg.
    */
   public async listPendingVotesForPoll(
@@ -539,6 +540,8 @@ export class WebappDatabase {
   commitment.
    * @param closeTimestampToken - timestamp token bytes returned by the
    TSA.
+   * @param closeTsaName - Name of the TSA that signed the token (e.g.
+   "freetsa", "digicert"), so verification can pin the matching root.
    * @param closedAt - Timestamp marking when the poll was closed.
    * @returns Success flag, optional error message, and HTTP status code.
    */
@@ -548,6 +551,7 @@ export class WebappDatabase {
     closeCommitment: string,
     closeTimestampQuery: Uint8Array<ArrayBufferLike>,
     closeTimestampToken: Uint8Array<ArrayBufferLike>,
+    closeTsaName: string,
     closedAt: Date,
   ): Promise<{
     success: boolean;
@@ -586,6 +590,7 @@ export class WebappDatabase {
             closeCommitment,
             closeTimestampQuery: new Uint8Array(closeTimestampQuery),
             closeTimestampToken: new Uint8Array(closeTimestampToken),
+            closeTsaName,
             closedAt,
           },
         });
@@ -625,16 +630,17 @@ export class WebappDatabase {
 
   /**
    * Fetches the close artifacts for a finished poll: the close commitment and
-  its timestamp query/token, along with the close timestamp.
+  its timestamp query/token, the signing TSA name, along with the close timestamp.
    * @param pollId - ID of the poll to fetch artifacts for.
-   * @returns Close commitment, timestamp query/token bytes, closedAt, and HTTP
-  status code;
+   * @returns Close commitment, timestamp query/token bytes, signing TSA name
+  (or null for legacy tokens), closedAt, and HTTP status code;
    *          fields are null and status is 404 if the poll does not exist.
    */
   public async getPollCloseArtifacts(pollId: number): Promise<{
     closeCommitment: string | null;
     closeTimestampQuery: Uint8Array<ArrayBuffer> | null;
     closeTimestampToken: Uint8Array<ArrayBuffer> | null;
+    closeTsaName: string | null;
     closedAt: string | null;
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
@@ -646,6 +652,7 @@ export class WebappDatabase {
           closeCommitment: true,
           closeTimestampQuery: true,
           closeTimestampToken: true,
+          closeTsaName: true,
           closedAt: true,
         },
       });
@@ -654,6 +661,7 @@ export class WebappDatabase {
           closeCommitment: null,
           closeTimestampQuery: null,
           closeTimestampToken: null,
+          closeTsaName: null,
           closedAt: null,
           errorMsg: "Poll not found",
           httpStatusCode: 404,
@@ -667,6 +675,7 @@ export class WebappDatabase {
         closeTimestampToken: poll.closeTimestampToken
           ? new Uint8Array(poll.closeTimestampToken)
           : null,
+        closeTsaName: poll.closeTsaName,
         closedAt: poll.closedAt ? poll.closedAt.toString() : null,
         httpStatusCode: 200,
       };
@@ -677,6 +686,7 @@ export class WebappDatabase {
         closeCommitment: null,
         closeTimestampQuery: null,
         closeTimestampToken: null,
+        closeTsaName: null,
         closedAt: null,
         errorMsg: "Error fetching poll close artifacts",
         httpStatusCode: 500,
@@ -778,28 +788,34 @@ export class WebappDatabase {
    */
   public async getLatestHash(pollId: number): Promise<{
     hash: string | null;
+    chainposition: number | null;
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
   }> {
     try {
       const sqlResult = await this.prisma.vote.findFirst({
         where: { pollId },
-        select: { currentHash: true },
+        select: { currentHash: true, chainPosition: true },
         orderBy: { chainPosition: "desc" },
       });
 
       if (!sqlResult) {
-        // Ingen stemmer endnu → "genesis" — første stemme i kæden
-        return { hash: null, httpStatusCode: 200 };
+        // No votes yet → "genesis" — the first vote in the chain
+        return { hash: null, chainposition: null, httpStatusCode: 200 };
       }
 
-      return { hash: sqlResult.currentHash, httpStatusCode: 200 };
+      return {
+        hash: sqlResult.currentHash,
+        chainposition: sqlResult.chainPosition,
+        httpStatusCode: 200,
+      };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       logger
         .error`Error fetching latest hash for poll ID: ${pollId}. Error: ${errMsg}`;
       return {
         hash: null,
+        chainposition: null,
         errorMsg: "Error fetching latest hash.",
         httpStatusCode: 500,
       };
@@ -907,13 +923,11 @@ export class WebappDatabase {
         return { votes: [], errorMsg: "Poll not found", httpStatusCode: 404 };
       }
 
-      // Must return forbidden if voteStatus is not finished.
       if (poll.voteStatus !== "finished") {
         return {
           votes: [],
           errorMsg:
             "Polls is not finished - votes are not public until voting closes",
-
           httpStatusCode: 403,
         };
       }
@@ -923,6 +937,7 @@ export class WebappDatabase {
           id: true,
           pollId: true,
           pollOptionId: true,
+          userId: true,
           timestamp: true,
           chainPosition: true,
           previousHash: true,
@@ -936,6 +951,7 @@ export class WebappDatabase {
         id: row.id,
         pollId: row.pollId,
         pollOptionId: row.pollOptionId,
+        userId: row.userId,
         timestamp: row.timestamp.toString(),
         chainPosition: row.chainPosition,
         previousHash: row.previousHash,
@@ -1296,9 +1312,12 @@ export class WebappDatabase {
 
       return await Promise.all(polls.map(async (poll) => {
         const myEligibility = poll.eligibleVoters[0];
-        const hasUsedAllSignatures = myEligibility
-          ? myEligibility.signaturesIssued >= myEligibility.votesAllowed
-          : false;
+        const hasVoted = !myEligibility
+          ? false
+          : poll.ballotPrivacy === "open"
+          ? await this.countCastVotesByUser(poll.id, userId) >=
+            myEligibility.votesAllowed
+          : myEligibility.signaturesIssued >= myEligibility.votesAllowed;
 
         const result: FrontEndPoll = {
           poll: {
@@ -1308,7 +1327,9 @@ export class WebappDatabase {
             status: poll.voteStatus as pollStatus,
             createdBy: poll.createdBy,
             createdAt: poll.createdAt.toString(),
-            startsAt: poll.startsAt ? formatLocalDatetime(poll.startsAt) : undefined,
+            startsAt: poll.startsAt
+              ? formatLocalDatetime(poll.startsAt)
+              : undefined,
             endsAt: poll.endsAt ? formatLocalDatetime(poll.endsAt) : undefined,
             pollVisibility: poll.pollVisibility as pollVisibility | null,
             ballotPrivacy: poll.ballotPrivacy as ballotPrivacy | null,
@@ -1317,7 +1338,7 @@ export class WebappDatabase {
             useBuffer: poll.useBuffer,
           },
           isUserEligibleVoter: myEligibility !== undefined,
-          hasVoted: hasUsedAllSignatures,
+          hasVoted,
           pollProgress: await this.getVoteProgress(poll.id),
           timeLeft: "not initialized",
           pollOwnerUsername: poll.creator.username,
@@ -1690,9 +1711,12 @@ export class WebappDatabase {
     }
   }
   /**
-   * Returns the IDs of all polls that are currently `started` and whose
-  `endsAt`
-   * has passed — i.e. polls ready to be transitioned to `finished`.
+   * Returns the IDs of all polls that have passed `endsAt` and are still in a
+   * closeable lifecycle state.
+   *
+   * Includes both `started` polls that need their first close attempt and
+   * `closing` polls where a previous close attempt failed and should be
+   * retried.
    *
    * @returns Array of poll IDs ready to finish, or an empty array on error.
    */
@@ -1701,7 +1725,7 @@ export class WebappDatabase {
     try {
       const rows = await this.prisma.poll.findMany({
         where: {
-          voteStatus: "started",
+          voteStatus: { in: ["started", "closing"] },
           endsAt: { lte: new Date() },
         },
         select: { id: true },
@@ -1741,7 +1765,7 @@ export class WebappDatabase {
    * from the projection.
    *
    * @returns ' {users, httpStatuscode: 200}' on success. If the table is empty
-   * 	'usersø is '[]' and errorMsg is set to a descriptive message - the status
+   * 	'users' is '[]' and errorMsg is set to a descriptive message - the status
    * 	is still 200 because an empty user list is not an error. On a qury failure, 'users'
    * 	is '[]', and errorMsg is set and the status is now 500.
    */
@@ -1809,6 +1833,28 @@ export class WebappDatabase {
       };
     }
   }
+
+  /**
+   * Returns every eligible voter for a poll with their `signaturesIssued`
+   * count. Used by the results page to derive non-voters: for secret polls
+   * (anonymous) the only available signal is `signaturesIssued === 0`; for
+   * open polls the caller compares `userId` against the `Vote` table.
+   */
+  public async getEligibleVoterStatuses(
+    pollId: number,
+  ): Promise<{ userId: number; signaturesIssued: number }[]> {
+    try {
+      return await this.prisma.pollEligibleVoter.findMany({
+        where: { pollId },
+        select: { userId: true, signaturesIssued: true },
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error fetching eligible voter statuses for pollId ${pollId}: ${errMsg}`;
+      return [];
+    }
+  }
   /**
    * Atomically transitions a poll from `started` to `closing`, guarding against
    * concurrent finishers. Writes a `POLL_STATUS_CLOSING` audit log entry on
@@ -1855,6 +1901,263 @@ export class WebappDatabase {
         httpStatusCode: 500,
         errorMsg: "Error invalidating poll",
       };
+    }
+  }
+
+  // ----------------------------------------------
+  // OPEN POLL METHODS
+  // ----------------------------------------------
+
+  /**
+   * Lists all votes for a given poll, ordered by public hash-chain position, without the status is finished (critical difference!).
+   * The ascending order makes it possible to verify the hash chain from start to finish: each vote's `previousHash` must match the `currentHash` of the preceding vote.
+   * Votes are only returned if the poll's `voteStatus` is `"finished"`; otherwise the votes are considered private until voting closes.
+   *
+   * @param pollId the ID of the poll for which the votes should be listed.
+   * @returns An object containing an array of Vote objects, an HTTP status code, and an optional error message if the operation failed. Returns 200 on success, 404 if the poll does not exist, 403 if the poll is not finished yet, and 500 if an error occurs during fetching. In all non-success cases `votes` is an empty array.
+   */
+  public async listVotesForCommitment(pollId: number): Promise<{
+    votes: VoteInsert[];
+    httpStatusCode: ContentfulStatusCode;
+    errorMsg?: string;
+  }> {
+    try {
+      const poll = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: { voteStatus: true },
+      });
+
+      if (!poll) {
+        return { votes: [], errorMsg: "Poll not found", httpStatusCode: 404 };
+      }
+
+      const sqlResults = await this.prisma.vote.findMany({
+        where: { pollId },
+        select: {
+          id: true,
+          pollId: true,
+          pollOptionId: true,
+          userId: true,
+          timestamp: true,
+          chainPosition: true,
+          previousHash: true,
+          currentHash: true,
+          signature: true,
+        },
+        orderBy: { chainPosition: "asc" },
+      });
+
+      const votes: VoteInsert[] = sqlResults.map((row) => ({
+        optionId: row.pollOptionId,
+        uuid: row.id,
+        userId: row.userId,
+        signature: row.signature,
+        chainPosition: row.chainPosition,
+        previousHash: row.previousHash,
+        currentHash: row.currentHash,
+      }));
+
+      return { votes, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error listing votes for poll ID: ${pollId}. Error: ${errMsg}`;
+      return {
+        votes: [],
+        errorMsg: "Error listing votes",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  /**
+   * Returns the number of votes a given user has already cast in a given poll, by counting the user's entries in the `voteToken` table.
+   * Used together with `getVotesAllowed` to determine how many votes the user has remaining before reaching their quota.
+   *
+   * @param pollId the ID of the poll to count cast votes for.
+   * @param userId the ID of the user whose cast votes are being counted.
+   * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
+   */
+  public async countCastVotesByUser(
+    pollId: number,
+    userId: number,
+  ): Promise<number> {
+    try {
+      const count = await this.prisma.vote.count({
+        where: { pollId, userId },
+      });
+      return count;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error getting number of votes casted for poll ID: ${pollId}, user ID: ${userId}. Error: ${errMsg}`;
+      return 0;
+    }
+  }
+
+  /**
+   * returns the total amount of casted vote for a given poll. 
+   * @param pollId the ID of the poll to count cast votes for.
+   * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
+   */
+  public async countCastVotesTotal(pollId: number): Promise<number> {
+    try {
+      const count = await this.prisma.vote.count({
+        where: { pollId },
+      });
+      return count;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      logger
+        .error`Error getting number of votes casted for poll ID: ${pollId}. Error: ${errMsg}`;
+      return 0;
+    }
+  }
+
+  /**
+   * Inserts a batch of votes into the database as a single transaction.
+   * The batch is rejected entirely (no partial acceptance) if the user has no voting power for the poll,
+   * or if the number of votes in the batch combined with the user's already cast votes exceeds the user's allowed votes for the poll.
+   *
+   * @param pollId the ID of the poll the votes are being cast for.
+   * @param userId the ID of the user casting the votes.
+   * @param votes an array of VoteInsert objects representing the votes to be inserted, each containing a UUID, the ID of the chosen poll option, the previous hash, and the current hash.
+   * @returns An object indicating the success of the operation, an optional error message if the operation failed, and an HTTP status code representing the result of the operation. Returns 200 on success, 403 if the user has no voting power, 400 if the user's quota is exceeded, and 500 for any other error.
+   */
+  public async insertVoteBatch(
+    pollId: number,
+    userId: number,
+    votes: OpenVoteInsert[],
+  ): Promise<{
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const eligibleVoter = await tx.pollEligibleVoter.findUnique({
+          where: {
+            pollId_userId: {
+              pollId,
+              userId,
+            },
+          },
+          select: { votesAllowed: true },
+        });
+
+        const votesAllowed = eligibleVoter?.votesAllowed ?? 0;
+        const alreadyCast = await tx.vote.count({
+          where: { pollId, userId },
+        });
+
+        if (votesAllowed <= 0) {
+          throw new Error("NO_VOTING_POWER");
+        }
+
+        // Does not have partial acceptance. If user tries to cast more votes than allowed, the entire batch is rejected?
+        if (votes.length + alreadyCast > votesAllowed) {
+          throw new Error("QUOTA_EXCEEDED");
+        }
+
+        await tx.vote.createMany({
+          data: votes.map((v) => ({
+            id: v.uuid,
+            pollId,
+            pollOptionId: v.optionId,
+            userId,
+            signature: null,
+            chainPosition: v.chainPosition,
+            previousHash: v.previousHash,
+            currentHash: v.currentHash,
+          })),
+        });
+      });
+
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      if (errMsg === "NO_VOTING_POWER") {
+        return {
+          success: false,
+          errorMsg: "User has no voting power for this poll.",
+          httpStatusCode: 403,
+        };
+      }
+
+      if (errMsg === "QUOTA_EXCEEDED") {
+        return {
+          success: false,
+          errorMsg: "Quota exceeded.",
+          httpStatusCode: 400,
+        };
+      }
+
+      logger
+        .error`InsertVoteBatch failed for pollId ${pollId}. Error: ${errMsg}`;
+      return {
+        success: false,
+        errorMsg: "Error while inserting vote",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  public async setCloseArtifacts(
+    pollId: number,
+    closeCommitment: string,
+    closeTimestampQuery: Uint8Array<ArrayBufferLike>,
+    closeTimeStampToken: Uint8Array<ArrayBufferLike>,
+    closeTsaName: string,
+    closedAt: Date,
+  ): Promise<{
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    try {
+      await this.prisma.poll.update({
+        where: { id: pollId },
+        data: {
+          voteStatus: "finished",
+          closeCommitment,
+          closeTimestampQuery: new Uint8Array(closeTimestampQuery),
+          closeTimestampToken: new Uint8Array(closeTimeStampToken),
+          closeTsaName,
+          closedAt,
+        },
+      });
+      return { success: true, httpStatusCode: 200 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger
+        .error`finalizePollClose failed for pollId ${pollId}. Error: ${msg}`;
+      return {
+        success: false,
+        errorMsg: "Error while finalizing poll close",
+        httpStatusCode: 500,
+      };
+    }
+  }
+
+  public async getUsernamesByIds(ids: number[]): Promise<Map<number, string>> {
+    const row = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, username: true },
+    });
+    return new Map(row.map((r) => [r.id, r.username] as const));
+  }
+
+  public async getPollPrivacyLabel(pollId: number): Promise<string | null> {
+    try {
+      const result = await this.prisma.poll.findUnique({
+        where: { id: pollId },
+        select: { ballotPrivacy: true },
+      });
+      return result?.ballotPrivacy ?? null;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      logger.error`Error fetching public key for pollId ${pollId}: ${msg}`;
+      return null;
     }
   }
 }

@@ -74,15 +74,26 @@ The following optional environment variables can also be set:
 
 ```
 FREETSA_URL="https://freetsa.org/tsr"
+TSA_TIMEOUT_MS="4000"
+TSA_SYSTEM_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 VOTE_BUFFER_BATCH_SIZE="5"
 VOTE_BUFFER_FLUSH_MS="30000"
 ```
 
-`FREETSA_URL` overrides the default RFC 3161 timestamping endpoint used when a
-poll is closed and timestamped. `VOTE_BUFFER_BATCH_SIZE` controls how many
-received votes are mixed in RAM before they are flushed to `PendingVote`, and
-`VOTE_BUFFER_FLUSH_MS` controls the maximum time in milliseconds before a
-partial batch is flushed anyway.
+When a poll is closed it is timestamped via an RFC 3161 Time Stamping Authority.
+The server tries a fallback chain of TSAs in order and records which one signed
+(on `Poll.closeTsaName`) so verification can pin the matching root: first
+freetsa (its root is bundled under `server_certs/`), then DigiCert as a fallback
+(verified against the system CA bundle). `FREETSA_URL` overrides the primary
+(freetsa) endpoint. `TSA_TIMEOUT_MS` (default `4000`) is how long each TSA may
+take before the next one is tried — note that while freetsa is unreachable,
+every close waits this long before DigiCert answers. `TSA_SYSTEM_CA_BUNDLE`
+overrides the path to the OS trusted-root bundle used for public-CA TSAs, if it
+is not at one of the usual locations.
+
+`VOTE_BUFFER_BATCH_SIZE` controls how many received votes are mixed in RAM
+before they are flushed to `PendingVote`, and `VOTE_BUFFER_FLUSH_MS` controls
+the maximum time in milliseconds before a partial batch is flushed anyway.
 
 It is also important that the timezone of the server running the application is
 set accordingly.

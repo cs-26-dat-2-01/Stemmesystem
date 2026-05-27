@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "../components/NavBar.tsx";
 import "./BallotPage.css";
-import {calculateTimeRemaining} from "../WebLib.ts";
+import { calculateTimeRemaining } from "../WebLib.ts";
 import type { Poll, PollOption, VoteReceipt } from "../WebLib.ts";
 import { Link } from "react-router/internal/react-server-client";
 import { blind, finalize, generateUuid, prepare } from "../blindRsa.ts";
@@ -26,12 +26,13 @@ function BallotPage({ pollId }: BallotPageProps) {
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [votesRemaining, setVotesRemaining] = useState<number>(0);
-  const [timeleft, setTimeleft] = useState<string>(""); 
+  const [timeleft, setTimeleft] = useState<string>("");
   const [voteAllocations, setVoteAllocations] = useState<
     Record<number, number>
   >({});
   // PEM public key for this poll — needed for blind/finalize on the client.
   const [blindRsaPublicKey, setBlindRsaPublicKey] = useState<string>("");
+  const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
     async function openPoll() {
@@ -53,7 +54,8 @@ function BallotPage({ pollId }: BallotPageProps) {
         setOptions(dataOpen.options);
         setVotesRemaining(dataOpen.votesRemaining);
         setBlindRsaPublicKey(dataOpen.blindRsaPublicKey);
-	setTimeleft(calculateTimeRemaining(dataOpen.poll.endsAt));
+        setUserId(dataOpen.userId);
+        setTimeleft(calculateTimeRemaining(dataOpen.poll.endsAt));
         setViewState("ready");
       } else {
         setErrorMessage("Kunne ikke indlæse afstemning");
@@ -65,14 +67,13 @@ function BallotPage({ pollId }: BallotPageProps) {
   }, [pollId]); // Useeffect runs openPoll again if pollid changes.
 
   useEffect(() => {
-	  if (!poll?.endsAt) return; 
-	  const interval = setInterval( () => {
-		  const timeleft: string = calculateTimeRemaining(poll?.endsAt);
-		  setTimeleft(timeleft)
-	  }, 1000);
- 	return () => clearInterval(interval);
-  }
-  ),[poll?.endsAt];
+    if (!poll?.endsAt) return;
+    const interval = setInterval(() => {
+      const timeleft: string = calculateTimeRemaining(poll?.endsAt);
+      setTimeleft(timeleft);
+    }, 1000);
+    return () => clearInterval(interval);
+  }), [poll?.endsAt];
 
   let allocatedVotes = 0;
   for (const count of Object.values(voteAllocations)) {
@@ -111,13 +112,13 @@ function BallotPage({ pollId }: BallotPageProps) {
             <div className="ballot-meta">
               {poll!.endsAt && <p>Afstemningen lukker: {poll!.endsAt}</p>}
             </div>
-	    <div className="ballot-meta"> 
-	    	<p>Du har {votesRemaining} stemmer i denne afstemning</p>
-	    </div>
+            <div className="ballot-meta">
+              <p>Du har {votesRemaining} stemmer i denne afstemning</p>
+            </div>
 
-	    <div className="ballot-meta">
-	    <p> Tid tilbage: {timeleft} </p>
-	    </div>
+            <div className="ballot-meta">
+              <p>Tid tilbage: {timeleft}</p>
+            </div>
 
             <div className="ballot-options">
               {votesRemaining <= 0
@@ -130,7 +131,8 @@ function BallotPage({ pollId }: BallotPageProps) {
                       <input
                         type="number"
                         min={0}
-                        max={votesRemaining - allocatedVotes + (voteAllocations[option.id] ?? 0)}
+                        max={votesRemaining - allocatedVotes +
+                          (voteAllocations[option.id] ?? 0)}
                         value={voteAllocations[option.id] ?? 0}
                         onChange={(e) => {
                           const nextValue = Number(e.target.value);
@@ -280,9 +282,6 @@ function BallotPage({ pollId }: BallotPageProps) {
   async function submitVote() {
     setViewState("submitting");
 
-    // Flatten the user's selection into one optionId per vote to cast.
-    // For single-vote polls there's exactly one entry; for multi-vote polls
-    // we have N entries, each representing one independent vote.
     const optionIds: number[] = hasMultipleVotes
       ? Object.entries(voteAllocations).flatMap(([optionId, count]) =>
         Array.from({ length: count }, () => Number(optionId))
@@ -291,87 +290,99 @@ function BallotPage({ pollId }: BallotPageProps) {
       ? []
       : [selectedOption];
 
-    const newReceipts: VoteReceipt[] = [];
-
-    // Late issuance: for each vote, do blind → issue → finalize → cast in
-    // sequence. If any step fails, we stop — already-cast votes stay cast,
-    // and the user can refresh to see updated state and retry the rest.
-    // The cast step deliberately sends `credentials: "omit"` so no JWT
-    // cookie travels with the request — the cast endpoint is anonymous
-    // by design.
-    for (const optionId of optionIds) {
-      try {
-        // 1. Fresh random UUID + prepare (Randomized suite prepends 32 bytes)
-        const msg = generateUuid();
-        const preparedMessage = prepare(msg);
-
-        // 2. Blind for transmission
-        const { blindedMessageB64, invB64 } = await blind(
-          blindRsaPublicKey,
-          preparedMessage,
-        );
-
-        // 3. Issue: server sees only the blinded message
-        const issueRes = await fetch(`/api/poll/${pollId}/blindsign`, {
-          method: "POST",
-          credentials: "include", // JWT cookie required for issuance
-          body: JSON.stringify({ blinded: blindedMessageB64 }),
-          headers: { "Content-Type": "application/json" },
-        });
-        if (issueRes.status !== 200) {
-          const errText = await issueRes.text();
-          setErrorMessage(`Issuance failed: ${errText}`);
-          setViewState("error");
-          return;
-        }
-        const { blindSig } = await issueRes.json();
-
-        // 4. Unblind into a normal RSA-PSS signature
-        const signatureB64 = await finalize(
-          blindRsaPublicKey,
-          preparedMessage,
-          blindSig,
-          invB64,
-        );
-
-        // 5. Cast: ANONYMOUS — `credentials: "omit"` strips the JWT cookie
-        // so the network request carries nothing tying user ↔ UUID.
-        const uuidB64 = base64Encode(preparedMessage);
-        const castRes = await fetch(`/api/poll/${pollId}/vote`, {
-          method: "POST",
-          credentials: "omit",
-          body: JSON.stringify({
-            uuid: uuidB64,
-            signature: signatureB64,
-            optionId,
-          }),
-          headers: { "Content-Type": "application/json" },
-        });
-        if (castRes.status !== 200) {
-          const errText = await castRes.text();
-          setErrorMessage(`Cast failed: ${errText}`);
-          setViewState("error");
-          return;
-        }
-
-        // 6. Keep a local receipt so the user can later verify their vote
-        //    on the results page. The server has no copy of this link.
-        newReceipts.push({
-          pollId,
-          optionId,
-          uuidB64,
-          signatureB64,
-          castAt: new Date().toISOString(),
-        });
-      } catch (err) {
-        setErrorMessage(err instanceof Error ? err.message : "Unknown error");
-        setViewState("error");
-        return;
-      }
+    // Branch on the poll's stored privacy: open = identified batch cast in one cast 
+    try {
+      const newReceipts = poll?.ballotPrivacy === "open"
+        ? await castOpen(optionIds)
+        : await castSecret(optionIds);
+      saveReceipts(newReceipts);
+      setViewState("done");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Unknown error");
+      setViewState("error");
     }
+  }
 
-    saveReceipts(newReceipts);
-    setViewState("done");
+  // Secret: per-vote blind → issue → finalize → ANONYMOUS cast.
+  async function castSecret(optionIds: number[]): Promise<VoteReceipt[]> {
+    const newReceipts: VoteReceipt[] = [];
+    for (const optionId of optionIds) {
+      const preparedMessage = prepare(generateUuid());
+      const { blindedMessageB64, invB64 } = await blind(
+        blindRsaPublicKey,
+        preparedMessage,
+      );
+      const issueRes = await fetch(`/api/poll/${pollId}/blindsign`, {
+        method: "POST",
+        credentials: "include", // JWT cookie required for issuance
+        body: JSON.stringify({ blinded: blindedMessageB64 }),
+        headers: { "Content-Type": "application/json" },
+      });
+      if (issueRes.status !== 200) {
+        throw new Error(`Issuance failed: ${await issueRes.text()}`);
+      }
+      const { blindSig } = await issueRes.json();
+      const signatureB64 = await finalize(
+        blindRsaPublicKey,
+        preparedMessage,
+        blindSig,
+        invB64,
+      );
+      const uuidB64 = base64Encode(preparedMessage);
+      const castRes = await fetch(`/api/poll/${pollId}/vote`, {
+        method: "POST",
+        credentials: "omit",
+        body: JSON.stringify({
+          uuid: uuidB64,
+          signature: signatureB64,
+          optionId,
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      if (castRes.status !== 200) {
+        throw new Error(`Cast failed: ${await castRes.text()}`);
+      }
+
+      newReceipts.push({
+        pollId,
+        optionId,
+        uuidB64,
+        signatureB64,
+        castAt: new Date().toISOString(),
+      });
+    }
+    return newReceipts;
+  }
+
+  // Open: no blind RSA. Generate a uuid per vote (same format as secret so it
+  // matches Vote.id + the hash), then send the whole batch in ONE request WITH
+  // the JWT cookie — the server derives userId from it. Receipts carry userId
+  // (for self-verify) and no signature.
+  async function castOpen(optionIds: number[]): Promise<VoteReceipt[]> {
+    const castAt = new Date().toISOString();
+    const receipts: VoteReceipt[] = [];
+    const votes = optionIds.map((optionId) => {
+      const uuidB64 = base64Encode(prepare(generateUuid()));
+      receipts.push({
+        pollId,
+        optionId,
+        uuidB64,
+        userId: userId ?? undefined,
+        castAt,
+      });
+      return { uuid: uuidB64, optionId };
+    });
+
+    const castRes = await fetch(`/api/poll/${pollId}/vote`, {
+      method: "POST",
+      credentials: "include", // JWT needed — server derives userId from it
+      body: JSON.stringify({ votes }),
+      headers: { "Content-Type": "application/json" },
+    });
+    if (castRes.status !== 200) {
+      throw new Error(`Cast failed: ${await castRes.text()}`);
+    }
+    return receipts;
   }
 }
 
@@ -384,7 +395,7 @@ function base64Encode(bytes: Uint8Array): string {
 
 /** Append the given receipts to the persistent list in localStorage. */
 function saveReceipts(newReceipts: VoteReceipt[]): void {
-  const key = "unf-vote-receipts";
+  const key = "vote-receipts";
   try {
     const stored = localStorage.getItem(key);
     const existing: VoteReceipt[] = stored ? JSON.parse(stored) : [];

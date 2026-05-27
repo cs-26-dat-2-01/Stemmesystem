@@ -30,6 +30,7 @@
     "npm:globals@^17.6.0": "17.6.0",
     "npm:jose@5.9.6": "5.9.6",
     "npm:prisma@*": "7.8.0_typescript@5.9.3_react@19.2.6_react-dom@19.2.6__react@19.2.6",
+    "npm:prisma@7.8.0": "7.8.0_typescript@5.9.3_react@19.2.6_react-dom@19.2.6__react@19.2.6",
     "npm:prisma@^4.5.0": "4.16.2",
     "npm:prisma@^7.8.0": "7.8.0_typescript@5.9.3_react@19.2.6_react-dom@19.2.6__react@19.2.6",
     "npm:react-dom@^19.2.6": "19.2.6_react@19.2.6",
@@ -37,6 +38,7 @@
     "npm:react-router@^7.15.1": "7.15.1_react@19.2.6_react-dom@19.2.6__react@19.2.6",
     "npm:react@^19.2.6": "19.2.6",
     "npm:typescript-eslint@^8.59.3": "8.59.3_eslint@9.39.4_typescript@5.9.3",
+    "npm:typescript@*": "5.9.3",
     "npm:typescript@~5.9.3": "5.9.3",
     "npm:vite@^8.0.13": "8.0.13_@types+node@25.8.0"
   },

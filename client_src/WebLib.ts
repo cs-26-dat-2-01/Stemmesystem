@@ -54,12 +54,12 @@ export type pollId = number;
 export type pollVisibility = "public" | "private";
 export type ballotPrivacy = "secret" | "open";
 export type pollStatus =
-  | "draft" // Ongoing editing by poll creator.
-  | "not started" // Poll have been published and will start at the given start time.
-  | "started" // Poll is started and eligible voters can cast their ballot.
-  | "closing" // the poll is doing the mixing, and calculating the hash, in between we dont accept votes.
-  | "finished" // Poll is finished and users with correct access rights can see the poll results.
-  | "invalidated"; // Poll had integrity loss and must be re-run.
+  | "draft"
+  | "not started"
+  | "started"
+  | "closing" // intermediate state to handle proper closing of poll
+  | "finished"
+  | "invalidated";
 
 export interface PollOption {
   id: pollOptionId;
@@ -72,14 +72,12 @@ export interface Vote {
   id: string;
   pollId: pollId;
   pollOptionId: pollOptionId;
-  // Publication/drain time, not the original cast time.
-  timestamp: string;
+  userId: number | null;
+  timestamp: string; // publication/drain time not the original cast time for "secret poll"
   chainPosition: number;
   previousHash: string;
   currentHash: string;
-  // Base64 RSA-PSS signature on the prepared message (= `id`). Public so
-  // anyone can verify each vote was authorized by the poll's signing key.
-  signature: string;
+  signature: string | null; // RSA signature on the prepared message (id)
 }
 
 /**
@@ -110,17 +108,14 @@ export interface OpenpollResult {
   options: PollOption[];
   votesAllowed: number;
   votesRemaining: number;
-  // PEM-encoded blind-RSA public key for this poll. Used client-side to
-  // blind the message and finalize the signature.
-  blindRsaPublicKey: string;
+  userId: number;
+  blindRsaPublicKey: string; // PEM-encoded blind-RSA
 }
 
 export interface VoteInput {
   optionId: number;
-  // Base64 of the prepared message (Randomized suite output). Becomes Vote.id.
   uuid: string;
-  // Base64 of the finalized RSA-PSS signature on `uuid`.
-  signature: string;
+  signature: string; // Base64 of the finalized RSA-PSS signature on `uuid`.
 }
 
 export type ResultsPayload =
@@ -131,6 +126,7 @@ export type ResultsPayload =
     closedAt: string | null;
     hasCloseTimestampQuery: boolean;
     hasCloseTimestampToken: boolean;
+    closeTsaName: string | null;
     counts: {
       optionId: number;
       optionText: string;
@@ -141,10 +137,12 @@ export type ResultsPayload =
       uuid: string;
       previousHash: string;
       currentHash: string;
-      signature: string;
+      signature: string | null;
     }[];
-    // PEM public key needed for client-side self-verification.
-    blindRsaPublicKey: string;
+    // folowwing is for reporting how many have not voted (nonvoter since anon)
+    nonVoterCount: number;
+    eligibleCount: number;
+    blindRsaPublicKey: string; //PEM-encoded
   }
   | {
     ballotPrivacy: "open";
@@ -153,6 +151,7 @@ export type ResultsPayload =
     closedAt: string | null;
     hasCloseTimestampQuery: boolean;
     hasCloseTimestampToken: boolean;
+    closeTsaName: string | null;
     counts: {
       optionId: number;
       optionText: string;
@@ -161,13 +160,17 @@ export type ResultsPayload =
     }[];
     votes: {
       uuid: string;
+      username: string;
+      userId: number | null;
       optionId: number;
       optionText: string;
       previousHash: string;
       currentHash: string;
-      signature: string;
+      signature: string | null;
     }[];
-    blindRsaPublicKey: string;
+    nonVoters: { userId: number; username: string }[];
+    eligibleCount: number;
+    blindRsaPublicKey: string | null;
   };
 
 /**
@@ -200,13 +203,14 @@ export interface VoteReceipt {
   pollId: number;
   optionId: number;
   uuidB64: string;
-  signatureB64: string;
+  signatureB64?: string;
+  userId?: number;
   castAt: string;
 }
 
 /**
  * Calculate the time remaining until the deadline is reached for a poll.
- * @param poll - The poll object to calculate for.
+ * @param pollEndsAt - ISO end timestamp of the poll, or undefined if it has no deadline.
  * @param now - Optional reference timestamp used for derived rendering.
  */
 export function calculateTimeRemaining(
@@ -227,7 +231,7 @@ export function calculateTimeRemaining(
   return timeLeft;
 }
 
-// Formaterer millisekunder til HH:MM:SS streng.
+// Formats milliseconds into an HH:MM:SS string.
 export function formatTime(ms: number): string {
   const hours = Math.floor(ms / 3_600_000);
   const mins = Math.floor((ms % 3_600_000) / 60_000);
@@ -252,10 +256,15 @@ export function voteHashMessage(opts: {
   previousHash: string;
   uuid: string;
   optionId: number;
+  userId?: number | null;
   pollId: number;
   ballotPrivacy: ballotPrivacy | null;
   showTopN: number | null;
 }): string {
+  if (opts.ballotPrivacy === "open") {
+    return `PreviousHash:${opts.previousHash}|UUID:${opts.uuid}|UserId:${opts.userId}|pollOptionId:${opts.optionId}|pollid:${opts.pollId}`;
+  }
+
   const ultraSecret = opts.ballotPrivacy === "secret" &&
     !!opts.showTopN && opts.showTopN > 0;
   return ultraSecret
