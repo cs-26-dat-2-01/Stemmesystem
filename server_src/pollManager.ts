@@ -409,6 +409,7 @@ export class PollManager {
     }
 
     const eligibleCount = eligibleStatuses.length;
+    const totalVotesAllowed = await this.DB.countTotalVotesAllowed(pollId);
 
     if (poll.ballotPrivacy === "secret") {
       // Anonymous: the only signal for "hasn't voted" is that the voter never
@@ -429,6 +430,7 @@ export class PollManager {
           counts: countsWithText,
           nonVoterCount,
           eligibleCount,
+          totalVotesAllowed,
           // previousHash + currentHash enable hash-chain verification.
           // signature lets anyone verify (under the public key) that each
           // vote was authorized — universal verifiability without
@@ -476,6 +478,7 @@ export class PollManager {
         counts: countsWithText,
         nonVoters,
         eligibleCount,
+        totalVotesAllowed,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
           userId: v.userId,
