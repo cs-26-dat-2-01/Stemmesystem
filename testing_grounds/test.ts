@@ -128,6 +128,7 @@ async function seedPoll(prisma: PrismaClient, input: {
   voteStatus?: "draft" | "saved" | "not started" | "started" | "finished";
   eligibleVoters?: { userId: number; votesAllowed: number }[];
   ballotPrivacy?: "secret" | "open";
+  pollVisibility?: "public" | "private";
   showTopN?: number;
 }) {
   const { publicKeyPem, privateKeyPem } = await keygen();
@@ -137,7 +138,7 @@ async function seedPoll(prisma: PrismaClient, input: {
       description: "En testpoll",
       voteStatus: input.voteStatus ?? "started",
       createdBy: input.createdBy,
-      pollVisibility: "public",
+      pollVisibility: input.pollVisibility ?? "public",
       ballotPrivacy: input.ballotPrivacy ?? "secret",
       showTopN: input.showTopN ?? 0,
       blindRsaPublicKey: publicKeyPem,
@@ -3942,6 +3943,7 @@ Deno.test({
       const poll = await seedPoll(prisma, {
         createdBy: admin.id,
         voteStatus: "started",
+        pollVisibility: "private",
       });
 
       const cookies = await fetchUserCredentials("outsider", "pw");
