@@ -15,6 +15,11 @@ function PollOverviewPage({ pollId }: { pollId: number }) {
       const res = await fetch(`/api/polls/${pollId}/overview`, {
         credentials: "include",
       });
+      if (res.status === 401) {
+        await fetch("/logout", { method: "POST", credentials: "include" });
+        globalThis.location.href = "/";
+        return;
+      }
       if (!res.ok) return;
       const data = await res.json();
       setPollData(data.poll);

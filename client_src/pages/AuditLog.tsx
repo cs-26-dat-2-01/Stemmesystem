@@ -134,6 +134,11 @@ function AuditLog() {
     async function fetchAuditLog() {
       try {
         const response = await fetch("/api/auditlog");
+        if (response.status === 401) {
+          await fetch("/logout", { method: "POST", credentials: "include" });
+          globalThis.location.href = "/";
+          return;
+        }
         const data = await response.json();
 
         setEntries(data.logs);

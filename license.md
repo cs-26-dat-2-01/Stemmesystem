@@ -595,7 +595,7 @@ information on this, and how to apply and follow the GNU AGPL, see
 
 # 
 
-Steffen - Stemmesystem udviklet til brug i Ungdommens Naturfaglige Forening
+Stemmesystem udviklet til brug i ungdoms foreninger
 
 Copyright (C) 2026 Xander Raaen
 

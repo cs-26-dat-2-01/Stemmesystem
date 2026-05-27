@@ -20,77 +20,95 @@ model User {
   username     String @unique
   passwordHash String
 
-  createdPolls         Poll[]
-  eligibleVoterFor     PollEligibleVoter[]
-  voteTokens           VoteToken[]
+  createdPolls     Poll[]
+  eligibleVoterFor PollEligibleVoter[]
+  votes            Vote[]
 }
 
 model Poll {
-  id              Int     @id @default(autoincrement())
-  title           String?
-  description     String?
-  voteStatus      String  @default("draft")
-  createdBy       Int
-  creator         User    @relation(fields: [createdBy], references: [id])
-  createdAt       DateTime @default(now())
-  startsAt        DateTime?
-  endsAt          DateTime?
-  pollVisibility  String?
-  ballotPrivacy   String?
-  showTopN        Int?
-  ballotLimit     Int?
-  useBuffer       Int?
+  id             Int       @id @default(autoincrement())
+  title          String?
+  description    String?
+  voteStatus     String    @default("draft")
+  createdBy      Int
+  creator        User      @relation(fields: [createdBy], references: [id])
+  createdAt      DateTime  @default(now())
+  startsAt       DateTime?
+  endsAt         DateTime?
+  pollVisibility String?
+  ballotPrivacy  String?
+  showTopN       Int?
+  ballotLimit    Int?
+  useBuffer      Int?
 
-  options          PollOption[]
-  eligibleVoters   PollEligibleVoter[]
-  voteTokens       VoteToken[]
-  votes            Vote[]
-  auditLogs        AuditLog[]
+  // Per-poll RSA-keypair for blind signing (RFC 9474).
+  blindRsaPublicKey  String?
+  blindRsaPrivateKey String?
+  blindRsaKeyBits    Int     @default(2048)
+
+  // Tamper-evidence at poll-close: commitment over finalChainHash + tally + meta
+  // is signed by an RFC 3161 TSA. `closeTsaName` records which TSA in the
+  // fallback chain actually signed, so verification can pin the matching root.
+  closeCommitment     String?
+  closeTimestampQuery Bytes?
+  closeTimestampToken Bytes?
+  closeTsaName        String?
+  closedAt            DateTime?
+
+  options        PollOption[]
+  eligibleVoters PollEligibleVoter[]
+  votes          Vote[]
+  pendingVotes   PendingVote[]
+  auditLogs      AuditLog[]
 }
 
 model PollEligibleVoter {
   pollId       Int
-  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  poll         Poll @relation(fields: [pollId], references: [id], onDelete: Cascade)
   userId       Int
-  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
   votesAllowed Int
+  signaturesIssued Int @default(0)
 
   @@id([pollId, userId])
 }
 
 model PollOption {
-  id           Int    @id @default(autoincrement())
+  id           Int     @id @default(autoincrement())
   pollId       Int
-  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  poll         Poll    @relation(fields: [pollId], references: [id], onDelete: Cascade)
   optionText   String?
-  displayOrder Int    @default(0)
+  displayOrder Int     @default(0)
 
   votes Vote[]
+  pendingVotes PendingVote[]
 }
 
-model VoteToken {
-  id        Int    @id @default(autoincrement())
-  pollId    Int
-  poll      Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
-  userId    Int
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  uuid      String @unique
-  createdAt DateTime @default(now())
-  used      Int    @default(0)
-
-  vote Vote?
+model PendingVote {
+  id           String @id
+  pollId       Int
+  poll         Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollOptionId Int
+  option       PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  uuid         String @unique
+  signature    String @unique
 }
-
+// Open polls has userId and voter, but secret polls doesnt use this. Signature is only for secret polls. 
 model Vote {
-  id            String @id
-  voteToken     VoteToken @relation(fields: [id], references: [uuid])
-  pollId        Int
-  poll          Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
-  pollOptionId  Int
-  option        PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
-  timestamp     DateTime @default(now())
-  previousHash  String
-  currentHash   String @unique
+  id           String     @id
+  pollId       Int
+  poll         Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollOptionId Int
+  option       PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  userId       Int?
+  voter        User?      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  timestamp    DateTime   @default(now())
+  chainPosition Int
+  previousHash String
+  currentHash  String     @unique
+  signature    String?
+
+  @@unique([pollId, chainPosition])
 }
 
 model AuditLog {
@@ -100,4 +118,4 @@ model AuditLog {
   details   String?
 
   polls Poll[]
-} 
+}

@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import "./NavBar.css";
-import { FaUser } from "react-icons/fa";
+import { FaUser, FaVoteYea } from "react-icons/fa";
 import { getCookie } from "../WebLib.ts";
 import { Link } from "react-router/internal/react-server-client";
+import {
+  matchPath,
+  useLocation,
+} from "react-router/internal/react-server-client";
 
 function NavBar() {
   const [userName] = useState(getCookie("user", document.cookie));
@@ -37,11 +41,27 @@ function NavBar() {
       })
       .catch(() => setIsAdmin(false));
   }, []);
+  // Nav title:
+  const location = useLocation();
+  const locationMap = [
+    { path: "/", title: "Stemmesystem" },
+    { path: "/admin/*", title: "Admin panel" },
+    { path: "/auditlog/*", title: "Audit log" },
+    { path: "/createpoll/*", title: "Opret afstemning" },
+    { path: "/poll/:id/overview", title: "Se afstemning" },
+    { path: "/poll/:id/results", title: "Resultat af afstemning" },
+    { path: "/poll/:id/vote", title: "Stem på afstemning" },
+  ];
+  const currentLocation = locationMap.find((item) =>
+    matchPath(item.path, location.pathname)
+  );
   return (
     <header className="navbar">
       <div className="nav-left">
-        <div className="nav-logo">LOGO</div>
-        <span className="title">Se Afstemning</span>
+        <div className="nav-logo">
+          <FaVoteYea />
+        </div>
+        <span className="title">{currentLocation?.title || "Ukendt side"}</span>
       </div>
 
       <div className="nav-right-group">
@@ -50,6 +70,9 @@ function NavBar() {
         </div>
         <div className="nav-center">
           {isAdmin && <Link to="/admin">Admin</Link>}
+        </div>
+        <div className="nav-center">
+          <Link to="/auditlog">Auditlog</Link>
         </div>
 
         <div className="vertical-divider"></div>

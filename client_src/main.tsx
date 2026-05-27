@@ -31,13 +31,11 @@ function LoginGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/* To-do: clean up the wrapper components */
+// Wrapper supplies onExit via useNavigate so CreatePollPage stays decoupled from the router.
 const BallotPageWrapper = () => {
   const { id } = useParams();
-  // We parse it here so BallotPage just gets a clean number
   return <BallotPage pollId={parseInt(id ?? "0", 10) || 0} />;
 };
-// Wrapper supplies onExit via useNavigate so CreatePollPage stays decoupled from the router.
 const CreatePollPageWrapper = () => {
   const navigate = useNavigate();
   const { pollId } = useParams();
@@ -48,7 +46,6 @@ const CreatePollPageWrapper = () => {
 
 const PollResultsWrapper = () => {
   const { id } = useParams();
-  // We parse it here so BallotPage just gets a clean number
   return <PollResults pollId={parseInt(id ?? "0", 10) || 0} />;
 };
 

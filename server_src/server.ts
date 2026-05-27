@@ -14,12 +14,17 @@ import { JWTPayload } from "@panva/jose";
 /**
  * Start the web application.
  *
- * @param A instance of a WebappDatabase.
+ * @param DB - An instance of a WebappDatabase.
+ * @param ac - AbortController whose signal stops the server.
+ * @param pollManager - Poll orchestration layer (defaults to a new PollManager).
  */
-export function startServer(DB: WebappDatabase, ac: AbortController) {
+export function startServer(
+  DB: WebappDatabase,
+  ac: AbortController,
+  pollManager = new PollManager(DB),
+) {
   const { signal } = ac;
   const router = new Hono();
-  const pollManager = new PollManager(DB);
 
   // Create a JWT if a user provide a username and password which exists in the users database.
   router.post("/login", async (c) => {
@@ -121,32 +126,35 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     the correct version for communicating correctly with the API.
   */
   router.get("/api/version", async (c) => {
-    return await hasValidJWT(c, () => {
+    return await hasValidJWT(DB, c, () => {
       const result = assertClientVersion(c);
       return c.json(result);
     });
   });
 
   router.get("/api/auditlog", async (c) => {
-    const result = await DB.getAuditLog();
-    return c.json(result, result.httpStatusCode);
+    return await hasValidJWT(DB, c, async () => {
+      const result = await DB.getAuditLog();
+      return c.json(result, result.httpStatusCode);
+    });
   });
 
-  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
-  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  // GET /api/polls — returns a list of all polls for the overview page.
+  // Requires a valid JWT so we know who is asking (used for hasVoted and isEligible).
   router.get("/api/polls", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       await pollManager.tickPollStatuses();
       const userResult = await DB.getUserFromDB(payload.username as string);
       if (userResult.httpStatusCode !== 200 || !userResult.user) {
         return c.body("401 Unauthorized", 401);
       }
-      const polls = await DB.getFrontEndPollObj(userResult.user.id);
+      const isAdmin = payload.username === "admin";
+      const polls = await DB.getFrontEndPollObj(userResult.user.id, isAdmin);
       return c.json(polls, 200);
     });
   });
 
-  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
+  // GET /admin — serves index.html so React can handle the admin page client-side
   router.get("/admin", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -157,7 +165,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   });
 
   router.post("/api/admin/add-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload: JWTPayload) => {
+    return await hasValidJWT(DB, c, async (verifiedPayload: JWTPayload) => {
       if (verifiedPayload.username !== "admin") {
         // To-do: Create better authentication for this.
         logger.trace`Failed authenication atempt on admin API route.`;
@@ -171,7 +179,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   });
 
   router.delete("/api/admin/delete-user", async (c) => {
-    return await hasValidJWT(c, async (verifiedPayload: JWTPayload) => {
+    return await hasValidJWT(DB, c, async (verifiedPayload: JWTPayload) => {
       if (verifiedPayload.username !== "admin") {
         // To-do: Create better authentication for this.
         logger.trace`Failed authenication atempt on admin API route.`;
@@ -190,7 +198,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    Validates the JWT and returns the current user's username and admin status.
  */
   router.get("/api/me", async (c) => {
-    return await hasValidJWT(c, (payload: JWTPayload) => {
+    return await hasValidJWT(DB, c, (payload: JWTPayload) => {
       return c.json({
         username: payload.username,
         isAdmin: payload.username === "admin",
@@ -359,7 +367,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    * @param c - Hono request context. Expects `:pollId`as a URL parameter and a valid `JWT`cookie
    */
   router.post("/api/poll/:pollId/open", (c) => {
-    return hasValidJWT(c, async (payload) => {
+    return hasValidJWT(DB, c, async (payload) => {
       const parsePollIdFromURL = c.req.param("pollId");
       const pollId = Number(parsePollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -398,12 +406,74 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    * `200` means it was succesfull, `400` there was an error, and the string is an error message.
    */
   router.post("/api/poll/:pollId/vote", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
-      const pollIdFromURL = c.req.param("pollId");
-      const pollId = Number(pollIdFromURL);
-      if (!Number.isInteger(pollId)) {
-        return c.body("Invalid pollId", 400);
+    // INTENTIONAL: no `hasValidJWT` wrapper. The cast endpoint is anonymous
+    // by design — authorization comes from the blind signature, not the
+    // session. If you ever feel tempted to add auth here, see the threat
+    // model in the implementation plan: it collapses the entire privacy
+    // guarantee.
+    const pollIdFromURL = c.req.param("pollId");
+    const pollId = Number(pollIdFromURL);
+    if (!Number.isInteger(pollId)) {
+      return c.body("Invalid pollId", 400);
+    }
+    const pollStatus = await DB.getPollPrivacyLabel(pollId);
+    if (pollStatus === null) {
+      return c.body("BallotPrivacy returned null", 400);
+    }
+    if (pollStatus === "secret") {
+      let body: { uuid?: unknown; signature?: unknown; optionId?: unknown };
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Invalid JSON body", 400);
       }
+      if (
+        typeof body.uuid !== "string" ||
+        typeof body.signature !== "string" ||
+        !Number.isInteger(body.optionId)
+      ) {
+        return c.body("Invalid vote body", 400);
+      }
+      const castedVote = await pollManager.castVote(
+        pollId,
+        {
+          ballotPrivacy: pollStatus,
+          uuid: body.uuid,
+          signature: body.signature,
+          optionId: body.optionId as number,
+        },
+      );
+      if (castedVote.success === false) {
+        return c.body(
+          castedVote.errorMsg ?? "Vote failed",
+          castedVote.httpStatusCode,
+        );
+      }
+
+      // Notify connected clients to refetch tallies. The lookup uses
+      // eligibleVoters, not anything about the caster, so it does not leak
+      // who cast the vote.
+      const eligibleVotersResult = await DB.getAllEligibleVotersForPoll(pollId);
+      if (
+        eligibleVotersResult.httpStatusCode !== 200 ||
+        !eligibleVotersResult.voters
+      ) {
+        logger
+          .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
+      }
+      for (const voter of eligibleVotersResult.voters ?? []) {
+        const ws = clientWebsockets.get(voter.userId);
+        if (ws) {
+          ws.send(JSON.stringify({
+            type: callbackTypes.refetchVoteCount,
+            pollId,
+          }));
+        }
+      }
+
+      return c.body("Vote cast", 200);
+    }
+    return await hasValidJWT(DB, c, async (payload) => {
       let body = undefined;
       try {
         body = await c.req.json();
@@ -415,15 +485,22 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       }
       const hasValidVotes = body.votes.every((vote: unknown) => {
         if (typeof vote !== "object" || vote == null) return false;
-        const v = vote as { optionId?: unknown; UUID?: unknown };
-        return Number.isInteger(v.optionId) && typeof v.UUID === "string";
+        const v = vote as { optionId?: unknown; uuid?: unknown };
+        return Number.isInteger(v.optionId) && typeof v.uuid === "string";
       });
 
       if (!hasValidVotes) {
         return c.body("Invalid vote shape", 400);
       }
       const userid = payload.userId as number;
-      const castedVote = await pollManager.castVote(pollId, userid, body.votes);
+      const castedVote = await pollManager.castVote(pollId, {
+        ballotPrivacy: "open",
+        userId: userid,
+        votes: body.votes.map((v: { uuid: string; optionId: number }) => ({
+          uuid: v.uuid,
+          optionId: v.optionId,
+        })),
+      });
       if (castedVote.success === false) {
         return c.body(castedVote.errorMsg ?? "Vote failed", 400);
       }
@@ -438,7 +515,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
           .error`Failed to retrieve eligible voters for pollId: ${pollId} after casting vote. Error message: ${eligibleVotersResult.errorMsg}`;
       }
       logger.trace`eligibleVotersResult.voters: ${eligibleVotersResult.voters}`;
-      for (const voter of eligibleVotersResult.voters) {
+      for (const voter of eligibleVotersResult.voters ?? []) {
         const ws = clientWebsockets.get(voter.userId);
         logger.trace`ws: ${ws}`;
         if (ws) {
@@ -452,6 +529,59 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
       }
 
       return c.body("Vote cast", 200);
+    });
+  });
+
+  /**
+   * Issue a blind signature on a client-supplied blinded message
+   * (RFC 9474 §4.3). This is the issuance half of the secret-vote
+   * protocol — the server checks the user's quota under JWT auth, signs
+   * the blinded bytes, increments the per-(poll,user) counter, and
+   * returns the blind signature. The server never sees the unblinded
+   * UUID.
+   *
+   * @param c - Hono context. Expects:
+   * - URL parameter `:pollId` (integer)
+   * - Cookie `JWT` (signed token whose payload supplies `userId`).
+   * - JSON body `{ blinded: string }` — base64 of the blinded message.
+   *
+   * @returns
+   * `200` with JSON `{ blindSig: string }` on success.
+   * `400` if `:pollId` or body is malformed.
+   * `403` if the user is not eligible, the poll is not open, or the
+   * signature quota is exhausted.
+   * `404` if the poll does not exist.
+   * `500` on DB / signing error.
+   */
+  router.post("/api/poll/:pollId/blindsign", async (c) => {
+    return await hasValidJWT(DB, c, async (payload) => {
+      const pollIdFromURL = c.req.param("pollId");
+      const pollId = Number(pollIdFromURL);
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      let body = undefined;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.body("Invalid JSON body", 400);
+      }
+      if (typeof body.blinded !== "string" || body.blinded.length === 0) {
+        return c.body("Missing or invalid 'blinded' field", 400);
+      }
+      const userId = payload.userId as number;
+      const result = await pollManager.issueBlindSignature(
+        pollId,
+        userId,
+        body.blinded,
+      );
+      if (result.errorMsg || !result.blindSignatureB64) {
+        return c.body(
+          result.errorMsg ?? "Blind signature failed",
+          result.httpStatusCode,
+        );
+      }
+      return c.json({ blindSig: result.blindSignatureB64 });
     });
   });
 
@@ -476,7 +606,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    * `500` on DB error. The body is the error message in all non-200 cases.
    */
   router.get("/api/poll/:pollId/results", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -493,6 +623,72 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     });
   });
 
+  router.post("/api/poll/:pollId/verify-timestamp", async (c) => {
+    return await hasValidJWT(DB, c, async () => {
+      const pollIdFromURL = c.req.param("pollId");
+      const pollId = Number(pollIdFromURL);
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+      const result = await pollManager.verifyResultsTimestamp(pollId);
+      if (result.verified === undefined) {
+        return c.body(
+          result.errorMsg ?? "Failed to verify timestamp",
+          result.httpStatusCode,
+        );
+      }
+      return c.json({ verified: result.verified }, 200);
+    });
+  });
+
+  router.get("/api/poll/:pollId/timestamp-token", async (c) => {
+    return await hasValidJWT(DB, c, async () => {
+      const pollId = Number(c.req.param("pollId"));
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+
+      const result = await DB.getPollTimestampToken(pollId);
+      if (!result.timestampToken) {
+        return c.body(
+          result.errorMsg ?? "Timestamp token not found",
+          result.httpStatusCode,
+        );
+      }
+
+      return c.body(result.timestampToken, {
+        headers: {
+          "Content-Type": "application/timestamp-reply",
+          "Content-Disposition": `attachment; filename="poll-${pollId}.tsr"`,
+        },
+      });
+    });
+  });
+
+  router.get("/api/poll/:pollId/timestamp-query", async (c) => {
+    return await hasValidJWT(DB, c, async () => {
+      const pollId = Number(c.req.param("pollId"));
+      if (!Number.isInteger(pollId)) {
+        return c.body("Invalid pollId", 400);
+      }
+
+      const result = await DB.getPollTimestampQuery(pollId);
+      if (!result.timestampQuery) {
+        return c.body(
+          result.errorMsg ?? "Timestamp query not found",
+          result.httpStatusCode,
+        );
+      }
+
+      return c.body(result.timestampQuery, {
+        headers: {
+          "Content-Type": "application/timestamp-query",
+          "Content-Disposition": `attachment; filename="poll-${pollId}.tsq"`,
+        },
+      });
+    });
+  });
+
   router.get("/poll/:pollId/results", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -502,11 +698,11 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
     }
   });
 
-  // POST /api/polls — opret ny afstemning (KLADDE, ALTSÅ DET VIL ALTID VÆRE DRAFT) fra CreatePollPage.
+  // POST /api/polls — create a new poll (a DRAFT — it is ALWAYS a draft) from CreatePollPage.
   // Body: { poll: Poll, voters: Array<{username, votesAllowed}>, choices: string[] }
-  // createdBy hentes fra JWT, ikke fra request body.
+  // createdBy is taken from the JWT, not from the request body.
   router.post("/api/polls", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       let body = undefined;
       try {
         body = await c.req.json();
@@ -568,7 +764,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    */
 
   router.patch("/api/polls/:pollId", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -662,7 +858,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    *   the manager's `errorMsg` as the body.
    */
   router.post("/api/polls/:pollId/publish", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollIdFromURL = c.req.param("pollId");
       const pollId = Number(pollIdFromURL);
       if (!Number.isInteger(pollId)) {
@@ -737,7 +933,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    *   body.
    */
   router.delete("/api/polls/:pollId", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
 
@@ -779,7 +975,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    *   returned `200`.
    */
   router.get("/api/polls/:pollId", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
 
@@ -819,7 +1015,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    *   returned `200`.
    */
   router.get("/api/polls/:pollId/overview", async (c) => {
-    return await hasValidJWT(c, async (payload) => {
+    return await hasValidJWT(DB, c, async (payload) => {
       const pollId = Number(c.req.param("pollId"));
       if (!Number.isInteger(pollId)) return c.body("Invalid pollId", 400);
 
@@ -860,7 +1056,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
    * assuming the body is a bare array.
    */
   router.get("/api/users", async (c) => {
-    return await hasValidJWT(c, async () => {
+    return await hasValidJWT(DB, c, async () => {
       const results = await DB.getAllUsersFromDB();
       return c.json(results, results.httpStatusCode);
     });
@@ -876,7 +1072,7 @@ export function startServer(DB: WebappDatabase, ac: AbortController) {
   router.get(
     "/api/websocket",
     async (c) => {
-      return await hasValidJWT(c, async (payload) => {
+      return await hasValidJWT(DB, c, async (payload) => {
         const response = await upgradeWebSocket(() => {
           return {
             onOpen(_event, ws) {

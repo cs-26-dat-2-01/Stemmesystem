@@ -2,14 +2,29 @@ import {
   OpenpollResult,
   Poll,
   PollOption,
-  pollStatus,
   ResultsPayload,
-  VoteInput,
 } from "../client_src/WebLib.ts";
-import { VoteInsert, WebappDatabase } from "./database.ts";
+import { WebappDatabase } from "./database.ts";
 import { logger } from "./main_lib.ts";
-import { createHash } from "node:crypto";
 import { ContentfulStatusCode } from "@hono/hono/utils/http-status";
+import { keygen } from "./blindRsa.ts";
+import { SecretPollManager } from "./secretPollManager.ts";
+import { verifyTimestampCommitment } from "./timestamping.ts";
+import { VoteBuffer } from "./voteBuffer.ts";
+import { OpenPollManager } from "./openPollManager.ts";
+
+type CastInput =
+  | {
+    ballotPrivacy: "secret";
+    uuid: string;
+    signature: string;
+    optionId: number;
+  }
+  | {
+    ballotPrivacy: "open";
+    userId: number;
+    votes: { uuid: string; optionId: number }[];
+  };
 
 /**
  * Validates that a poll has all the fields and invariants required to
@@ -90,7 +105,7 @@ function validateForPublish(
  * - Enforcing poll-state preconditions (poll exists, is open for voting).
  * - Enforcing user-level constraints (eligibility, vote quota, batch limits).
  * - Building tamper-evident audit records by chaining vote hashes
- *   	(see {@link PollManager.createVoteHash})
+ *   	(see `createVoteHash` in `voteIntegrity.ts`)
  * Layering:
  * - `server.ts` route handlers -> parse HTTP input, return HTTP responses
  * - `PollManager`-> logic rules, and orchestration.
@@ -101,155 +116,61 @@ function validateForPublish(
  */
 export class PollManager {
   private DB: WebappDatabase;
+  private secret: SecretPollManager;
+  private voteBuffer: VoteBuffer;
+  private open: OpenPollManager;
 
   constructor(db: WebappDatabase) {
     this.DB = db;
+    this.secret = new SecretPollManager(db);
+    this.voteBuffer = new VoteBuffer(db);
+    this.open = new OpenPollManager(db);
   }
 
   /**
-   * Computes a SHA-256 hash that chains this vote to the previous one in the votes table.
-   * If the hash is for the first vote casted, the previousHash is 0.
-   * The purpose is to produce a tamper-evident record.
-   *
-   * @remarks
-   * Each vote's hash is computed over the *previous* vote's hash plus this
-   * vote's identifying fields. Modifying any earlier vote breaks the chain
-   * for every subsequent vote, so the integrity of the entire vote can be
-   * verified by recomputing the chain from a known starting point.
-   *
-   * Pipe-separated key:value format is used to avoid ambiguity if any field
-   * happens to contain the delimiter - keep this format stable: changing it
-   * would invalidate all previously stored hashes.
+   * Public facade for the anonymous (secret) cast. Advances poll statuses,
+   * then delegates to {@link SecretPollManager.castVote}, which is where the
+   * blind-signature verification and privacy invariants live. Kept on
+   * `PollManager` so `server.ts` has a single entry point.
    */
-  private createVoteHash(
-    previoushHash: string,
-    UUID: string,
-    optionId: number,
-    pollId: number,
-  ): string {
-    const hashMsg =
-      `PreviousHash:${previoushHash}|UUID:${UUID}|pollOptionId:${optionId}|pollId:${pollId}`;
-    return createHash("sha256").update(hashMsg, "utf8").digest("hex");
-  }
 
-  /**
-   * Validates and atomically persits a batch of votes for a single user,
-   * extending the poll's tamper-evident hash-chain.
-   *
-   * @remarks
-   * Called from `POST /api/poll/:/pollId/vote`. The route handler is
-   * responsible for shape-validating the request (votes is a non-empty array of `{optionId, UUID}`)
-   * This method enforces all the logic rules:
-   * - Poll exists and has `voteStatus === "started"
-   * - User is on the eligible-voters list and has remaining vote(s) to cast.
-   * - Every UUID is unique within the batch, and every `optionId`belongs to this poll.
-   *
-   * Each vote in the batch is hashed over the previous vote's hash
-   * (see {@link PollManager.createVoteHash}), and the entire batch is
-   * inserted in a single DB transaction - partial acceptance is not allowed,
-   * so any failure rolls back all votes in the batch.
-   *
-   * Security: `userId` MUST come from a verified JWT payload, never from the request
-   * body, otherwise a client could vote on behalf of another user.
-   *
-   * @param pollId- the poll being voted on.
-   * @param userId - the voting user (must originate from a verified JWT).
-   * @ param votes - The votes to cast. Each vote's UUID must be uniqie across the entire DB;
-   * 			the underlying `VoteToken.uuid`UNIQUE constraint guarantees no replay or collision.
-   *
-   * @returns `{success:true}`on full insert; `{success:false, errorMsg}`if any logic rule fails or the DB rejects the batch.
-   */
   public async castVote(
     pollId: number,
-    userId: number,
-    votes: VoteInput[],
-  ): Promise<{ success: boolean; errorMsg?: string }> {
-    this.tickPollStatuses();
-    if (votes.length === 0) {
-      return { success: false, errorMsg: "No valid input" };
-    }
-
-    const pollResult = await this.DB.getPollFromDB(pollId);
-    if (pollResult.httpStatusCode !== 200 || !pollResult.poll) {
-      return { success: false, errorMsg: "Poll not found." };
-    }
-    if (pollResult.poll?.status !== "started") {
-      return { success: false, errorMsg: "Voting is not open for this poll." };
-    }
-
-    const eligible = await this.DB.isUserEligible(pollId, userId);
-    if (eligible === false) {
-      return { success: false, errorMsg: "User not eliglbe" };
-    }
-    const votesAllowed = await this.DB.getVotesAllowed(pollId, userId);
-    const alreadyCast = await this.DB.countCastVotes(pollId, userId);
-    if (votes.length + alreadyCast > votesAllowed) {
-      return { success: false, errorMsg: "Too many votes casted already" };
-    }
-
-    const isUUIDSeenBefore = new Set<string>();
-    const validOptionIds = new Set(
-      (await this.DB.getPollOptionsFromDB(pollId)).map((o) => o.id),
-    );
-    for (const v of votes) {
-      if (typeof v.UUID !== "string" || v.UUID.length === 0) {
-        return { success: false, errorMsg: "Invalid UUID in votes." };
-      }
-      if (isUUIDSeenBefore.has(v.UUID)) {
-        return { success: false, errorMsg: "Duplicate UUID in batch" };
-      }
-      if (!validOptionIds.has(v.optionId)) {
-        return {
-          success: false,
-          errorMsg: `Option ${v.optionId} does not belong to poll ${pollId}.`,
-        };
-      }
-      isUUIDSeenBefore.add(v.UUID);
-    }
-
-    const latesthashFromDB = await this.DB.getLatestHash(pollId);
-    if (latesthashFromDB.httpStatusCode !== 200) {
-      return { success: false, errorMsg: "Could not retrieve latest hash" };
-    }
-    let previousHash = latesthashFromDB.hash ?? "0";
-
-    const votesToInsert: VoteInsert[] = [];
-    for (const vote of votes) {
-      const currentHash = this.createVoteHash(
-        previousHash,
-        vote.UUID,
-        vote.optionId,
+    input: CastInput,
+  ): Promise<{
+    success: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    await this.tickPollStatuses();
+    if (input.ballotPrivacy === "secret") {
+      return this.secret.castVote(
         pollId,
+        input.uuid,
+        input.signature,
+        input.optionId,
       );
-      votesToInsert.push({
-        optionId: vote.optionId,
-        UUID: vote.UUID,
-        previousHash,
-        currentHash,
-      });
-      previousHash = currentHash;
     }
-
-    const insertResult = await this.DB.insertVoteBatch(
-      pollId,
-      userId,
-      votesToInsert,
-    );
-
-    if (!insertResult.success) {
-      return {
-        success: false,
-        errorMsg: insertResult.errorMsg ?? "Error while inserting votes",
-      };
-    }
-
-    this.DB.insertAuditLog(
-      "VOTES_CAST",
-      `pollId:${pollId}, userId:${userId}, voteCount:${votes.length}`,
-    );
-
-    return { success: true };
+    return this.open.castVoteOpen(pollId, input.userId, input.votes);
   }
+
+  /**
+   * Public facade for blind-signature issuance. Advances poll statuses, then
+   * delegates to {@link SecretPollManager.issueBlindSignature}.
+   */
+  public async issueBlindSignature(
+    pollId: number,
+    userId: number,
+    blindedMessageB64: string,
+  ): Promise<{
+    blindSignatureB64?: string;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    await this.tickPollStatuses();
+    return this.secret.issueBlindSignature(pollId, userId, blindedMessageB64);
+  }
+
   /**
    * Returns the data needed to render the ballot page for a specific user and poll.
    * No vote records are created or modified.
@@ -285,7 +206,7 @@ export class PollManager {
     pollId: number,
     userId: number,
   ): Promise<{ result?: OpenpollResult; errorMsg?: string }> {
-    this.tickPollStatuses();
+    await this.tickPollStatuses();
     const isUserEligible = await this.DB.isUserEligible(pollId, userId);
     if (!isUserEligible) {
       logger.warn(`User ${userId} is not eligible for poll ${pollId}.`);
@@ -320,12 +241,22 @@ export class PollManager {
       return { errorMsg: "VotesAllowed is 0" };
     }
 
-    const alreadyCast = await this.DB.countCastVotes(pollId, userId);
+    // "Already cast" is now derived from signaturesIssued — after the
+    // blind-RSA redesign, the server cannot observe which Vote rows belong
+    // to which user, so we count issuance instead. With Late Issuance on
+    // the client, the two are equivalent.
+    const alreadyCast = await this.DB.countSignaturesIssued(pollId, userId);
     const votesRemaining = votesAllowed - alreadyCast;
 
     if (votesRemaining < 0) {
       logger.warn`Negative votesRemaining for poll ${pollId}, user ${userId}`;
       return { errorMsg: "Votes remaining is negative" };
+    }
+
+    const blindRsaPublicKey = await this.DB.getPollPublicKey(pollId);
+    if (!blindRsaPublicKey) {
+      logger.error`Poll ${pollId} has no blindRsaPublicKey`;
+      return { errorMsg: "Poll has no signing key" };
     }
 
     this.DB.insertAuditLog(
@@ -339,6 +270,8 @@ export class PollManager {
         options,
         votesAllowed,
         votesRemaining,
+        userId,
+        blindRsaPublicKey,
       },
     };
   }
@@ -375,7 +308,7 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    this.tickPollStatuses();
+    await this.tickPollStatuses();
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (!pollResult.poll) {
       return {
@@ -393,11 +326,23 @@ export class PollManager {
       };
     }
 
-    const [options, votesResult, counts] = await Promise.all([
-      this.DB.getPollOptionsFromDB(pollId),
-      this.DB.listVotesForPoll(pollId),
-      this.DB.getPollResultCounts(pollId),
-    ]);
+    const [
+      options,
+      votesResult,
+      counts,
+      blindRsaPublicKey,
+      closeArtifacts,
+      eligibleStatuses,
+    ] = await Promise.all(
+      [
+        this.DB.getPollOptionsFromDB(pollId),
+        this.DB.listVotesForPoll(pollId),
+        this.DB.getPollResultCounts(pollId),
+        this.DB.getPollPublicKey(pollId),
+        this.DB.getPollCloseArtifacts(pollId),
+        this.DB.getEligibleVoterStatuses(pollId),
+      ],
+    );
 
     if (votesResult.errorMsg) {
       return {
@@ -405,41 +350,198 @@ export class PollManager {
         httpStatusCode: votesResult.httpStatusCode,
       };
     }
+    if (!blindRsaPublicKey) {
+      return {
+        errorMsg: "Poll has no signing key",
+        httpStatusCode: 500,
+      };
+    }
+    if (closeArtifacts.httpStatusCode !== 200) {
+      return {
+        errorMsg: closeArtifacts.errorMsg ?? "Could not fetch close artifacts",
+        httpStatusCode: closeArtifacts.httpStatusCode,
+      };
+    }
 
     const optionTextById = new Map(options.map((o) => [o.id, o.optionText]));
     const countByOptionId = new Map(counts.map((c) => [c.optionId, c.count]));
+    const useTopN = !!poll.showTopN && poll.showTopN > 0;
 
-    const countsWithText = options.map((o) => ({
+    const fullCounts = options.map((o) => ({
       optionId: o.id,
       optionText: o.optionText ?? "",
-      count: countByOptionId.get(o.id) ?? 0, // .get returns undefined if no votes so we default it to 0.
+      count: countByOptionId.get(o.id) ?? 0,
     }));
 
+    let countsWithText: {
+      optionId: number;
+      optionText: string;
+      count: number | null;
+    }[];
+
+    if (useTopN) {
+      // we need to check to see if there is tie between the topN and topN+1, if there are we want to include them.
+      const sorted = [...fullCounts].sort((a, b) => b.count - a.count);
+
+      // We will use standard competition ranking (this will also show us if there are ties!.
+      let currentRank = 0;
+      let lastCount = Infinity;
+      const ranked = sorted.map((c, i) => {
+        if (c.count !== lastCount) {
+          currentRank = i + 1;
+          lastCount = c.count;
+        }
+        return { ...c, rank: currentRank };
+      });
+
+      // We will inklude all that are tied with showTopN place
+      const threshold = ranked[poll.showTopN! - 1]?.count ?? 0;
+      const inTop = ranked.filter((r) => r.count >= threshold);
+
+      countsWithText = inTop.map((c) => ({
+        optionId: c.optionId,
+        optionText: c.optionText,
+        count: null,
+        rank: c.rank,
+      }));
+    } else { // full-results gets everything (not rank!), sorted most votes first
+      countsWithText = [...fullCounts].sort((a, b) => b.count - a.count);
+    }
+
+    const eligibleCount = eligibleStatuses.length;
+    const totalVotesAllowed = await this.DB.countTotalVotesAllowed(pollId);
+
     if (poll.ballotPrivacy === "secret") {
+      // Anonymous: the only signal for "hasn't voted" is that the voter never
+      // requested a ballot (signaturesIssued === 0). A voter who was issued a
+      // ballot but never cast it is indistinguishable, by design.
+      const nonVoterCount = eligibleStatuses.filter((s) =>
+        s.signaturesIssued === 0
+      ).length;
       return {
         result: {
           ballotPrivacy: "secret",
           showTopN: poll.showTopN ?? 0,
+          closeCommitment: closeArtifacts.closeCommitment,
+          closedAt: closeArtifacts.closedAt,
+          hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
+          hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
+          closeTsaName: closeArtifacts.closeTsaName,
           counts: countsWithText,
-          votes: votesResult.votes.map((v) => ({ uuid: v.id })),
+          nonVoterCount,
+          eligibleCount,
+          totalVotesAllowed,
+          // previousHash + currentHash enable hash-chain verification.
+          // signature lets anyone verify (under the public key) that each
+          // vote was authorized — universal verifiability without
+          // de-anonymizing voters.
+          votes: votesResult.votes.map((v) => ({
+            uuid: v.id,
+            previousHash: v.previousHash,
+            currentHash: v.currentHash,
+            signature: v.signature,
+          })),
+          blindRsaPublicKey,
         },
         httpStatusCode: 200,
       };
     }
 
+    const voterIds = votesResult.votes
+      .map((v) => v.userId)
+      .filter((id): id is number => id !== null);
+    const votedUserIds = new Set(voterIds);
+
+    // One lookup for both voters (results table) and the eligible voters who
+    // did NOT vote (the "har ikke stemt" list).
+    const usernamesById = await this.DB.getUsernamesByIds([
+      ...new Set([...voterIds, ...eligibleStatuses.map((s) => s.userId)]),
+    ]);
+
+    // Open polls carry userId, so non-voters are exact: eligible minus voted.
+    const nonVoters = eligibleStatuses
+      .filter((s) => !votedUserIds.has(s.userId))
+      .map((s) => ({
+        userId: s.userId,
+        username: usernamesById.get(s.userId) ?? "(unknown)",
+      }));
+
     return {
       result: {
         ballotPrivacy: "open",
         showTopN: poll.showTopN ?? 0,
+        closeCommitment: closeArtifacts.closeCommitment,
+        closedAt: closeArtifacts.closedAt,
+        hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
+        hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
+        closeTsaName: closeArtifacts.closeTsaName,
         counts: countsWithText,
+        nonVoters,
+        eligibleCount,
+        totalVotesAllowed,
         votes: votesResult.votes.map((v) => ({
           uuid: v.id,
+          userId: v.userId,
+          username: v.userId !== null
+            ? (usernamesById.get(v.userId) ?? "(unknown)")
+            : "(unknown)",
           optionId: v.pollOptionId,
           optionText: optionTextById.get(v.pollOptionId) ?? "(unknown)",
+          previousHash: v.previousHash,
+          currentHash: v.currentHash,
+          signature: v.signature,
         })),
+        blindRsaPublicKey,
       },
       httpStatusCode: 200,
     };
+  }
+
+  public async verifyResultsTimestamp(
+    pollId: number,
+  ): Promise<{
+    verified?: boolean;
+    errorMsg?: string;
+    httpStatusCode: ContentfulStatusCode;
+  }> {
+    await this.tickPollStatuses();
+
+    const pollResult = await this.DB.getPollFromDB(pollId);
+    if (!pollResult.poll) {
+      return {
+        errorMsg: pollResult.errorMsg ?? "Poll not found",
+        httpStatusCode: pollResult.httpStatusCode,
+      };
+    }
+    if (pollResult.poll.status !== "finished") {
+      return {
+        errorMsg: "Poll is not finished",
+        httpStatusCode: 403,
+      };
+    }
+
+    const closeArtifacts = await this.DB.getPollCloseArtifacts(pollId);
+    if (closeArtifacts.httpStatusCode !== 200) {
+      return {
+        errorMsg: closeArtifacts.errorMsg ?? "Could not fetch close artifacts",
+        httpStatusCode: closeArtifacts.httpStatusCode,
+      };
+    }
+    if (
+      !closeArtifacts.closeCommitment || !closeArtifacts.closeTimestampToken
+    ) {
+      return {
+        errorMsg: "Poll has no timestamp data",
+        httpStatusCode: 404,
+      };
+    }
+
+    const verified = await verifyTimestampCommitment(
+      closeArtifacts.closeCommitment,
+      closeArtifacts.closeTimestampToken,
+      closeArtifacts.closeTsaName,
+    );
+    return { verified, httpStatusCode: 200 };
   }
 
   /**
@@ -472,6 +574,8 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
+    const keypair = await keygen();
+
     const result = await this.DB.createPoll({
       title: input.poll.title,
       description: input.poll.description,
@@ -484,6 +588,8 @@ export class PollManager {
       showTopN: input.poll.showTopN,
       ballotLimit: input.poll.ballotLimit,
       useBuffer: input.poll.useBuffer,
+      blindRsaPublicKey: keypair.publicKeyPem,
+      blindRsaPrivateKey: keypair.privateKeyPem,
     });
 
     if (result.httpStatusCode !== 201) {
@@ -492,6 +598,13 @@ export class PollManager {
         httpStatusCode: result.httpStatusCode,
       };
     }
+
+    // Audit-log only references the pollId — never the private key material.
+    this.DB.insertAuditLog(
+      "BLIND_RSA_KEY_GENERATED",
+      `pollId:${result.pollId}, bits:2048`,
+    );
+
     return { pollId: result.pollId, httpStatusCode: 200 };
   }
 
@@ -502,7 +615,7 @@ export class PollManager {
    * draft via this method, and `publishPoll` later promotes it out of
    * draft.
    *
-   * Authorization is delegated to `loadEditableDraft`: the caller must
+   * Authorization is delegated to `loadEditablePoll`: the caller must
    * be the poll's creator and the poll must still be in `"draft"`.
    *
    * Pre-processing on `input.voters` (when provided): usernames are
@@ -530,7 +643,7 @@ export class PollManager {
    *   replacement of the corresponding rows when present.
    * @returns `{ httpStatusCode: 200 }` on success;
    *   `{ errorMsg, httpStatusCode }` on failure — `400` for unknown
-   *   voters, or whatever status `loadEditableDraft` / `DB.updatePoll`
+   *   voters, or whatever status `loadEditablePoll` / `DB.updatePoll`
    *   propagate (`403` / `404` / `409` / `500`).
    */
   public async updatePoll(
@@ -542,7 +655,7 @@ export class PollManager {
       optionTexts?: string[];
     },
   ): Promise<{ errorMsg?: string; httpStatusCode: ContentfulStatusCode }> {
-    const draft = await this.loadEditableDraft(userId, pollId);
+    const draft = await this.loadEditablePoll(userId, pollId);
     if (!draft.ok) {
       return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
@@ -610,7 +723,7 @@ export class PollManager {
    *
    * Pipeline (each step short-circuits on failure):
    * 1. Load the draft and verify the caller is allowed to edit it via
-   *    `loadEditableDraft`.
+   *    `loadEditablePoll`.
    * 2. Trim option texts and drop empty entries.
    * 3. Trim voter usernames, drop empty entries, and deduplicate by
    *    username (last entry per name wins).
@@ -624,14 +737,14 @@ export class PollManager {
    *
    * @param userId the id of the authenticated caller. Must come from a
    *   verified JWT, never from the request body. Used both for
-   *   authorization (via `loadEditableDraft`) and for the audit log.
+   *   authorization (via `loadEditablePoll`) and for the audit log.
    * @param pollId the id of the draft poll to publish.
    * @param input the final state to publish: poll fields, eligible
    *   voters with per-voter `votesAllowed`, and option texts.
    * @returns `{ pollId, httpStatusCode: 200 }` on success;
    *   `{ errorMsg, httpStatusCode }` on failure — `400` for unknown
    *   voters or validation failures, or whatever status
-   *   `loadEditableDraft` / `DB.updatePoll` propagate (e.g. `403`,
+   *   `loadEditablePoll` / `DB.updatePoll` propagate (e.g. `403`,
    *   `404`, `500`).
    *
    * @remarks
@@ -652,10 +765,11 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    const draft = await this.loadEditableDraft(userId, pollId);
+    const draft = await this.loadEditablePoll(userId, pollId);
     if (!draft.ok) {
       return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
+    const wasAlreadyPublished = draft.poll.status === "not started";
 
     const optionTexts = input.optionTexts
       .map((c) => c.trim())
@@ -719,7 +833,7 @@ export class PollManager {
     }
 
     this.DB.insertAuditLog(
-      "POLL_PUBLISHED",
+      wasAlreadyPublished ? "POLL_EDITED" : "POLL_PUBLISHED",
       `pollId:${pollId}, createdBy:${userId}, options:${optionTexts.length}, voters:${resolvedVoters.length}`,
     );
 
@@ -732,17 +846,23 @@ export class PollManager {
    * `getDraft` so the same rules apply across all edit-related paths
    * (delete uses its own slightly looser rule).
    *
+   * Editing is permitted in two lifecycle phases:
+   * - `"draft"` — the poll has never been published.
+   * - `"not started"` — the poll has been published but its `startsAt`
+   *   is still in the future. Once `startsAt` elapses, the scheduled
+   *   tick flips it to `"started"` and edits are refused.
+   *
    * Returns a discriminated union: `{ ok: true, poll }` when editing is
    * permitted; otherwise `{ ok: false, errorMsg, httpStatusCode }` with
    * the appropriate status — `404` if the poll does not exist, `500` on
    * a database error, `403` if the caller is not the poll's creator, or
-   * `409` if the poll has left draft state and is no longer editable.
+   * `409` if the poll is past the editable phase.
    *
    * @param userId the id of the authenticated caller (from a verified
    *   JWT).
    * @param pollId the id of the poll to load.
    */
-  private async loadEditableDraft(
+  private async loadEditablePoll(
     userId: number,
     pollId: number,
   ): Promise<
@@ -763,14 +883,27 @@ export class PollManager {
     if (result.poll.createdBy !== userId) {
       return { ok: false, errorMsg: "Forbidden", httpStatusCode: 403 };
     }
-    if (result.poll.status !== "draft") {
-      return {
-        ok: false,
-        errorMsg: "Only drafts can be edited",
-        httpStatusCode: 409,
-      };
+    if (result.poll.status === "draft") {
+      return { ok: true, poll: result.poll };
     }
-    return { ok: true, poll: result.poll };
+    if (result.poll.status === "not started") {
+      const startsAt = result.poll.startsAt
+        ? new Date(result.poll.startsAt).getTime()
+        : 0;
+      if (startsAt <= Date.now()) {
+        return {
+          ok: false,
+          errorMsg: "Poll has already started and can no longer be edited",
+          httpStatusCode: 409,
+        };
+      }
+      return { ok: true, poll: result.poll };
+    }
+    return {
+      ok: false,
+      errorMsg: "Poll is past the editable phase",
+      httpStatusCode: 409,
+    };
   }
 
   /**
@@ -783,7 +916,7 @@ export class PollManager {
    * Authorization checks, in order:
    * 1. Poll must exist (`404` otherwise; `500` on database error).
    * 2. Caller must be the poll's creator (`403` otherwise).
-   * 3. Poll must be in `"draft"` or `"saved"` state (`403` otherwise).
+   * 3. Poll must be in `"draft"` or `"not started"` state (`403` otherwise).
    *
    * On success, writes a `POLL_DELETED` audit log entry. The audit-log
    * write is fire-and-forget and does not affect the response.
@@ -819,10 +952,10 @@ export class PollManager {
 
     if (
       statusofVote.poll.status !== "draft" &&
-      statusofVote.poll.status !== "saved"
+      statusofVote.poll.status !== "not started"
     ) {
       return {
-        errorMsg: "Only drafts and saved polls can be deleted",
+        errorMsg: "Only drafts and not-started polls can be deleted",
         httpStatusCode: 403,
       };
     }
@@ -863,7 +996,7 @@ export class PollManager {
     errorMsg?: string;
     httpStatusCode: ContentfulStatusCode;
   }> {
-    const draft = await this.loadEditableDraft(userId, pollId);
+    const draft = await this.loadEditablePoll(userId, pollId);
     if (!draft.ok) {
       return { errorMsg: draft.errorMsg, httpStatusCode: draft.httpStatusCode };
     }
@@ -892,8 +1025,21 @@ export class PollManager {
     if (started > 0) {
       this.DB.insertAuditLog("POLL_AUTO_STARTED", `count:${started}`);
     }
-    if (finished > 0) {
-      this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finished}`);
+
+    const pollsReadyToFinish = await this.DB.getPollIdsReadyToFinish();
+    const finishResults = await Promise.all(
+      pollsReadyToFinish.map(async (pollId) => {
+        // Branch on the STORED ballotPrivacy: open polls seal in place (votes
+        // are already live), secret polls drain buffer/pending and shuffle.
+        const ballotPrivacy = await this.DB.getPollPrivacyLabel(pollId);
+        return ballotPrivacy === "open"
+          ? this.open.sealOpenPollClose(pollId)
+          : this.secret.finishPollWithVoteDrain(pollId);
+      }),
+    );
+    const finishedCount = finishResults.filter(Boolean).length + finished;
+    if (finishedCount > 0) {
+      this.DB.insertAuditLog("POLL_AUTO_FINISHED", `count:${finishedCount}`);
     }
   }
 
@@ -942,5 +1088,66 @@ export class PollManager {
     const options = await this.DB.getPollOptionsFromDB(pollId);
     const voters = await this.DB.getEligibleVoters(pollId);
     return { result: { poll, options, voters }, httpStatusCode: 200 };
+  }
+
+  private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
+    const privacy = await this.DB.getPollPrivacyLabel(pollId);
+    if (privacy === "secret") {
+      const issued = await this.DB.countIssuedSignatures(pollId);
+      const persisted = await this.DB.countPersistedVotes(pollId);
+      const buffered = this.voteBuffer.countBuffered(pollId);
+      const total = persisted + buffered;
+
+      // HARD: more votes than signatures is impossible without fraud or a bug.
+      if (total > issued) {
+        const reason =
+          `more votes than signatures: issued:${issued}, persisted:${persisted}, buffered:${buffered}`;
+        const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+        if (!invalidated.success) {
+          logger
+            .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+        }
+        return false;
+      }
+
+      // SOFT: signatures were issued but the corresponding votes were not
+      // persisted. Could be legitimate user abandonment OR server-side vote loss
+      // (e.g. crash before buffer flush). The server cannot distinguish these
+      // cases from its own state, so we surface the gap via the audit log
+      // and let an operator decide whether further investigation is needed.
+      if (total < issued) {
+        this.DB.insertAuditLog(
+          "POLL_INTEGRITY_GAP",
+          `pollId:${pollId}, issued:${issued}, persisted:${persisted}, buffered:${buffered}`,
+        );
+        logger
+          .warn`Poll ${pollId} integrity gap: issued ${issued}, recorded ${total} (could be user abandonment or vote loss)`;
+      }
+    } else {
+      const persisted = await this.DB.countPersistedVotes(pollId);
+      const votesAllowed = await this.DB.countTotalVotesAllowed(pollId);
+      if (persisted > votesAllowed) {
+        const reason =
+          `more votes than allowed: persisted:${persisted}, votesAllowed:${votesAllowed}`;
+        const invalidated = await this.DB.markPollInvalidated(pollId, reason);
+        if (!invalidated.success) {
+          logger
+            .error`Failed to invalidate poll ${pollId}: ${invalidated.errorMsg}`;
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public async runStartupIntegrityCheck(): Promise<void> {
+    const startedPollIds = await this.DB.listStartedPollIds();
+
+    for (const pollId of startedPollIds) {
+      const integrityOk = await this.verifyPollIntegrityAtStartUp(pollId);
+      if (!integrityOk) {
+        logger.error`Startup integrity check failed for poll ${pollId}`;
+      }
+    }
   }
 }
