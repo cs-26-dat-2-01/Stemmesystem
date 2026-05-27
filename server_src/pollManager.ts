@@ -404,8 +404,8 @@ export class PollManager {
         count: null,
         rank: c.rank,
       }));
-    } else { // full-results gets  everything (not rank!)
-      countsWithText = fullCounts;
+    } else { // full-results gets everything (not rank!), sorted most votes first
+      countsWithText = [...fullCounts].sort((a, b) => b.count - a.count);
     }
 
     const eligibleCount = eligibleStatuses.length;
