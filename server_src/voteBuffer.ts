@@ -19,7 +19,7 @@ interface BufferedPollVote extends BufferedVote {
 export class VoteBuffer {
   private buffers = new Map<number, BufferedPollVote[]>();
   private queuedUuids = new Set<string>();
-  private timers = new Map<number, number>(); // timers is a map which keep track of the polldId and the timeoutId for when votes need to be flushed to pending table even if the buffer is not up to the batch size.
+  private timers = new Map<number, ReturnType<typeof setTimeout>>(); // timers is a map which keep track of the polldId and the timeoutId for when votes need to be flushed to pending table even if the buffer is not up to the batch size.
   private flushing = new Map<number, Promise<FlushResult>>(); // map that functions as a flush is already happining for this poll, we use the promise to see if a flush is happening.
 
   constructor(
