@@ -295,10 +295,8 @@ function PollResults({ pollId }: PollResultsProps) {
     // Compute max once — counts are guaranteed non-null in full-results mode
     const max = Math.max(...data.counts.map((c) => c.count ?? 0), 1);
 
-    let _openPollNonVoters = 0;
-    if (data.ballotPrivacy === "open") {
-      _openPollNonVoters = data.nonVoters.length;
-    }
+    const totalNonCastVotes = data.totalVotesAllowed - data.votes.length;
+
     return (
       <>
         <div className="rs-top-title">Resultater</div>
@@ -318,13 +316,13 @@ function PollResults({ pollId }: PollResultsProps) {
           ? (
             <>
               <div>Ikke afgivet stemmer</div>
-              <div className="rs-meta">{_openPollNonVoters} stemmer</div>
+              <div className="rs-meta">{totalNonCastVotes} stemmer</div>
             </>
           )
           : (
             <>
               <div>Ikke afgivet stemmer</div>
-              <div className="rs-meta">{data.nonVoterCount} stemmer</div>
+              <div className="rs-meta">{totalNonCastVotes} stemmer</div>
             </>
           )}
       </>

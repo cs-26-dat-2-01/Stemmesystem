@@ -142,6 +142,7 @@ export type ResultsPayload =
     // folowwing is for reporting how many have not voted (nonvoter since anon)
     nonVoterCount: number;
     eligibleCount: number;
+    totalVotesAllowed: number;
     blindRsaPublicKey: string; //PEM-encoded
   }
   | {
@@ -170,6 +171,7 @@ export type ResultsPayload =
     }[];
     nonVoters: { userId: number; username: string }[];
     eligibleCount: number;
+    totalVotesAllowed: number;
     blindRsaPublicKey: string | null;
   };
 
