@@ -210,7 +210,7 @@ export interface VoteReceipt {
 
 /**
  * Calculate the time remaining until the deadline is reached for a poll.
- * @param poll - The poll object to calculate for.
+ * @param pollEndsAt - ISO end timestamp of the poll, or undefined if it has no deadline.
  * @param now - Optional reference timestamp used for derived rendering.
  */
 export function calculateTimeRemaining(

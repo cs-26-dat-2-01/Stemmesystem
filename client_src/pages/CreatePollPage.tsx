@@ -174,7 +174,7 @@ function CreatePollPage({
    * call is a no-go.
    *
    * @param payload - the draft data to save.
-   * @param poyload.poll - Partial poll fields to create or update
+   * @param payload.poll - Partial poll fields to create or update
    * @param payload.voters - Optional list of voter identifiers. Only sent on PATCH
    * @param payload.choices - optional list of poll choices. Only sent on PATCH
    *

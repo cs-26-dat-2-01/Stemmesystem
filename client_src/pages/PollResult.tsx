@@ -99,7 +99,7 @@ function PollResults({ pollId }: PollResultsProps) {
   // receipts stay in storage untouched.
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("unf-vote-receipts");
+      const stored = localStorage.getItem("vote-receipts");
       if (!stored) return;
       const all: VoteReceipt[] = JSON.parse(stored);
       setMyReceipts(all.filter((r) => r.pollId === pollId));

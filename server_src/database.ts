@@ -117,7 +117,7 @@ export class WebappDatabase {
   /**
    * Disabled public use of constructor due to async limitation.
    *
-   * @param adminPassword
+   * @param databaseUrl - libSQL/SQLite connection URL (defaults to env.DATABASE_URL).
    */
   private constructor(databaseUrl = env.DATABASE_URL) {
     this.prisma = new PrismaClient({
@@ -166,7 +166,7 @@ export class WebappDatabase {
   /**
    * Initialize the SQLite database for the web application.
    *
-   * @param filePath the path to the database file. If not found a new file will be created.
+   * @param databaseUrl the path/URL to the database file. If not found a new file will be created.
    */
   public static async initDatabase(
     databaseUrl = env.DATABASE_URL,
@@ -408,7 +408,7 @@ export class WebappDatabase {
   }
   /** Checks to see if the vote is in vote or pending vote table.
    *
-   * @param the UUID you are searching for
+   * @param uuid The UUID you are searching for
    * @returns Promise< exists: boolean
    */
   public async voteExistsInAnyVoteStore(uuid: string): Promise<{
@@ -489,7 +489,7 @@ export class WebappDatabase {
   }
 
   /** returns all votes specific to a poll in pendingvote table
-   * @param the pollId for the wanted votes
+   * @param pollId the poll the wanted votes belong to
    * @returns Promise with votes: array with all the votes, httpstatuscode: 200 if success, 500 if err together with a err msg.
    */
   public async listPendingVotesForPoll(
@@ -1995,13 +1995,9 @@ export class WebappDatabase {
     }
   }
 
-  // tjek om vi får brug for denne!!!!!!
   /**
-   * Returns the number of votes a given user has already cast in a given poll, by counting the user's entries in the `voteToken` table.
-   * Used together with `getVotesAllowed` to determine how many votes the user has remaining before reaching their quota.
-   *
+   * returns the total amount of casted vote for a given poll. 
    * @param pollId the ID of the poll to count cast votes for.
-   * @param userId the ID of the user whose cast votes are being counted.
    * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
    */
   public async countCastVotesTotal(pollId: number): Promise<number> {

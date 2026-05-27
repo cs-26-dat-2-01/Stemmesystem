@@ -14,7 +14,9 @@ import { JWTPayload } from "@panva/jose";
 /**
  * Start the web application.
  *
- * @param A instance of a WebappDatabase.
+ * @param DB - An instance of a WebappDatabase.
+ * @param ac - AbortController whose signal stops the server.
+ * @param pollManager - Poll orchestration layer (defaults to a new PollManager).
  */
 export function startServer(
   DB: WebappDatabase,

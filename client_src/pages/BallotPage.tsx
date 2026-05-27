@@ -395,7 +395,7 @@ function base64Encode(bytes: Uint8Array): string {
 
 /** Append the given receipts to the persistent list in localStorage. */
 function saveReceipts(newReceipts: VoteReceipt[]): void {
-  const key = "unf-vote-receipts";
+  const key = "vote-receipts";
   try {
     const stored = localStorage.getItem(key);
     const existing: VoteReceipt[] = stored ? JSON.parse(stored) : [];
