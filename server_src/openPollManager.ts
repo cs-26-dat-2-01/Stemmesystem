@@ -28,13 +28,35 @@ export class OpenPollManager {
     return result;
   }
 
-  public async sealOpenPollClose(pollId: number): Promise<boolean> {
+  private async ensurePollCanBeClosed(pollId: number): Promise<boolean> {
+    const pollResult = await this.DB.getPollFromDB(pollId);
+    if (!pollResult.poll) {
+      logger.error`Cannot finish poll ${pollId}: poll not found`;
+      return false;
+    }
+
+    if (pollResult.poll.status === "closing") {
+      return true;
+    }
+
+    if (pollResult.poll.status !== "started") {
+      logger.error`Cannot finish poll ${pollId}: poll is ${pollResult.poll.status}`;
+      return false;
+    }
+
     const pollSatToClosing = await this.DB.markPollClosing(pollId);
     if (pollSatToClosing.httpStatusCode !== 200) {
       logger
         .error`Cannot set poll to closing, ${pollId}, err:${pollSatToClosing.errorMsg}`;
       return false;
     }
+
+    return true;
+  }
+
+  public async sealOpenPollClose(pollId: number): Promise<boolean> {
+    const canClose = await this.ensurePollCanBeClosed(pollId);
+    if (!canClose) return false;
 
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (!pollResult.poll) {

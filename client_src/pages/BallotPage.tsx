@@ -32,8 +32,6 @@ function BallotPage({ pollId }: BallotPageProps) {
   >({});
   // PEM public key for this poll — needed for blind/finalize on the client.
   const [blindRsaPublicKey, setBlindRsaPublicKey] = useState<string>("");
-  // The viewing user's own id (from /open). Stored in open-poll receipts so
-  // self-verify can recompute the hash from the voter's own copy of userId.
   const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -284,8 +282,6 @@ function BallotPage({ pollId }: BallotPageProps) {
   async function submitVote() {
     setViewState("submitting");
 
-    // Flatten the user's selection into one optionId per vote. Single-vote
-    // polls yield one entry; multi-vote polls yield N independent votes.
     const optionIds: number[] = hasMultipleVotes
       ? Object.entries(voteAllocations).flatMap(([optionId, count]) =>
         Array.from({ length: count }, () => Number(optionId))
@@ -294,8 +290,7 @@ function BallotPage({ pollId }: BallotPageProps) {
       ? []
       : [selectedOption];
 
-    // Branch on the poll's stored privacy: open = identified batch cast in one
-    // request; secret = anonymous per-vote blind-RSA flow.
+    // Branch on the poll's stored privacy: open = identified batch cast in one cast 
     try {
       const newReceipts = poll?.ballotPrivacy === "open"
         ? await castOpen(optionIds)
@@ -308,22 +303,15 @@ function BallotPage({ pollId }: BallotPageProps) {
     }
   }
 
-  // Secret: per-vote blind → issue → finalize → ANONYMOUS cast. The cast
-  // request sends `credentials: "omit"` so no JWT ties user ↔ UUID. Throws on
-  // the first failed step; already-cast votes stay cast.
+  // Secret: per-vote blind → issue → finalize → ANONYMOUS cast.
   async function castSecret(optionIds: number[]): Promise<VoteReceipt[]> {
     const newReceipts: VoteReceipt[] = [];
     for (const optionId of optionIds) {
-      // Fresh random UUID + prepare (Randomized suite prepends 32 bytes).
       const preparedMessage = prepare(generateUuid());
-
-      // Blind for transmission.
       const { blindedMessageB64, invB64 } = await blind(
         blindRsaPublicKey,
         preparedMessage,
       );
-
-      // Issue: server sees only the blinded message.
       const issueRes = await fetch(`/api/poll/${pollId}/blindsign`, {
         method: "POST",
         credentials: "include", // JWT cookie required for issuance
@@ -334,16 +322,12 @@ function BallotPage({ pollId }: BallotPageProps) {
         throw new Error(`Issuance failed: ${await issueRes.text()}`);
       }
       const { blindSig } = await issueRes.json();
-
-      // Unblind into a normal RSA-PSS signature.
       const signatureB64 = await finalize(
         blindRsaPublicKey,
         preparedMessage,
         blindSig,
         invB64,
       );
-
-      // Cast ANONYMOUSLY — `credentials: "omit"` strips the JWT cookie.
       const uuidB64 = base64Encode(preparedMessage);
       const castRes = await fetch(`/api/poll/${pollId}/vote`, {
         method: "POST",

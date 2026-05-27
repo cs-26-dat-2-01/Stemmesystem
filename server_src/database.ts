@@ -1710,9 +1710,12 @@ export class WebappDatabase {
     }
   }
   /**
-   * Returns the IDs of all polls that are currently `started` and whose
-  `endsAt`
-   * has passed — i.e. polls ready to be transitioned to `finished`.
+   * Returns the IDs of all polls that have passed `endsAt` and are still in a
+   * closeable lifecycle state.
+   *
+   * Includes both `started` polls that need their first close attempt and
+   * `closing` polls where a previous close attempt failed and should be
+   * retried.
    *
    * @returns Array of poll IDs ready to finish, or an empty array on error.
    */
@@ -1721,7 +1724,7 @@ export class WebappDatabase {
     try {
       const rows = await this.prisma.poll.findMany({
         where: {
-          voteStatus: "started",
+          voteStatus: { in: ["started", "closing"] },
           endsAt: { lte: new Date() },
         },
         select: { id: true },

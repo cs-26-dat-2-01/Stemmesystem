@@ -39,8 +39,7 @@ function calculateTimeLeft(p: FrontEndPoll) {
 }
 
 // ─── Helper: statusLabel ──────────────────────────────────────────────────────
-// Oversætter poll.status til en læsbar dansk tekst i Status-kolonnen.
-// For aktive afstemninger vises stemmefremdriften (f.eks. "3/14") i stedet.
+// Danish translation
 function statusLabel(poll: FrontEndPoll): string {
   const statusMap: Record<pollStatus, string> = {
     "draft": "Kladde",
@@ -53,25 +52,7 @@ function statusLabel(poll: FrontEndPoll): string {
 
   const status = poll.poll.status;
 
-  // If the status exists in our map, return the translation.
-  // Otherwise, default to the progress string.
   return statusMap[status] ?? poll.pollProgress;
-}
-
-// ─── Helper: buildFolders ─────────────────────────────────────────────────────
-// Grupperer afstemninger efter mappe-felt til sidebares mappetræ.
-type FolderMap = Record<string, FrontEndPoll[]>;
-
-function buildFolders(polls: FrontEndPoll[]): FolderMap {
-  const map: FolderMap = {};
-  polls.forEach((p) => {
-    const key = p.folder ?? "";
-    if (key) {
-      if (!map[key]) map[key] = [];
-      map[key].push(p);
-    }
-  });
-  return map;
 }
 
 function useIsMobile(breakpoint: number) {
@@ -87,29 +68,16 @@ function useIsMobile(breakpoint: number) {
 }
 
 // ─── Sidebar-komponent ────────────────────────────────────────────────────────
-// Sidebaren indeholder:
-//   1. "Opret Afstemning"-knap
-//   2. Filterknapper der styrer hvilke afstemninger der vises
-// Mapper er kommenteret ud indtil mapper-funktionalitet er implementeret.
+// Sidebar has two things: button for creating poll and buttons for filtering. 
 interface SidebarProps {
   activeFilter: FilterType;
   onFilterChange: (f: FilterType) => void;
-  folderMap: FolderMap;
-  activeFolderFilter: string | null;
-  onFolderClick: (folder: string | null) => void;
 }
 
 function Sidebar({
   activeFilter,
   onFilterChange,
-  // folderMap, — kommenteret ud indtil mapper er implementeret
-  activeFolderFilter,
-  onFolderClick,
 }: SidebarProps) {
-  // const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
-  // function toggleFolder(name: string) {
-  //   setOpenFolders((prev) => ({ ...prev, [name]: !prev[name] }));
-  // }
   const navigate = useNavigate();
 
   return (
@@ -125,13 +93,12 @@ function Sidebar({
         <button
           type="button"
           className={`ov-filter-btn ${
-            activeFilter === "all" && !activeFolderFilter
+            activeFilter === "all"
               ? "ov-filter-btn--active"
               : ""
           }`}
           onClick={() => {
             onFilterChange("all");
-            onFolderClick(null);
           }}
         >
           Alle afstemninger
@@ -139,13 +106,12 @@ function Sidebar({
         <button
           type="button"
           className={`ov-filter-btn ${
-            activeFilter === "eligible" && !activeFolderFilter
+            activeFilter === "eligible"
               ? "ov-filter-btn--active"
               : ""
           }`}
           onClick={() => {
             onFilterChange("eligible");
-            onFolderClick(null);
           }}
         >
           Afstemninger du er stemmeberettigede til
@@ -153,67 +119,17 @@ function Sidebar({
         <button
           type="button"
           className={`ov-filter-btn ${
-            activeFilter === "drafts" && !activeFolderFilter
+            activeFilter === "drafts"
               ? "ov-filter-btn--active"
               : ""
           }`}
           onClick={() => {
             onFilterChange("drafts");
-            onFolderClick(null);
           }}
         >
           Dine igangværende afstemninger
         </button>
       </nav>
-
-      {
-        /* Mapper — kommenteret ud indtil mapper-funktionalitet er implementeret
-      <div className="ov-folders-header">
-        <span className="ov-folders-title">Mapper</span>
-        <button
-          type="button"
-          className="ov-folder-add"
-          title="Opret mappe"
-          aria-label="Opret mappe"
-        >
-          ＋
-        </button>
-      </div>
-      <nav className="ov-folder-nav">
-        {Object.keys(folderMap).sort().map((name) => {
-          const isOpen = !!openFolders[name];
-          return (
-            <div key={name} className="ov-folder">
-              <button
-                type="button"
-                className="ov-folder-btn"
-                onClick={() => toggleFolder(name)}
-                aria-expanded={isOpen}
-              >
-                <span className="ov-folder-arrow">{isOpen ? "∨" : "›"}</span>
-                {name}
-              </button>
-              {isOpen && (
-                <div className="ov-folder-children">
-                  {folderMap[name].map((poll) => (
-                    <a
-                      key={poll.poll.id}
-                      href={`/poll/${poll.poll.id}`}
-                      className={`ov-folder-item ${
-                        activeFolderFilter === name ? "ov-folder-item--active" : ""
-                      }`}
-                    >
-                      {poll.poll.title}
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-      */
-      }
     </aside>
   );
 }
@@ -232,7 +148,6 @@ function PollTable(
   const navigate = useNavigate();
   const isMobile = useIsMobile(900);
   // poll can only editted by the owner, and only while in draft or not started.
-  // Pollen kan redigeres af ejeren mens den enten er kladde eller publiceret
   function canOwnerEdit(poll: FrontEndPoll): boolean {
     if (poll.pollOwnerUsername !== currentUsername) return false;
     if (poll.poll.status === "draft") return true;
@@ -240,6 +155,12 @@ function PollTable(
       return new Date(poll.poll.startsAt).getTime() > Date.now();
     }
     return false;
+  }
+
+  function canCurrentUserVote(poll: FrontEndPoll): boolean {
+    return poll.isUserEligibleVoter &&
+      !poll.hasVoted &&
+      poll.poll.status === "started";
   }
 
   return (
@@ -288,7 +209,7 @@ function PollTable(
                           Du har stemt <FaCheck />
                         </span>
                       )
-                      : poll.poll.status === "started"
+                      : canCurrentUserVote(poll)
                       ? (
                         <Link
                           to={`/poll/${poll.poll.id}/vote`}
@@ -385,7 +306,7 @@ function PollTable(
                         Du har stemt <FaCheck />
                       </span>
                     )
-                    : poll.poll.status === "started"
+                    : canCurrentUserVote(poll)
                     ? (
                       <button
                         type="button"
@@ -431,23 +352,15 @@ function PollTable(
 }
 
 // ─── OverviewPage ─────────────────────────────────────────────────────────────
-// Hoved-komponenten for oversigts-siden (figur 4.2).
-// Henter afstemninger én gang og opdaterer derefter timere hvert sekund
-// via setInterval uden at re-fetche fra serveren.
+// Main component for overviewpage (wireframe figure 4.2). 
 function OverviewPage() {
-  // This array is unbounded, as it fetches ALL polls from the database,
-  // this will lead to performance issues as the application scales.
   const [polls, setPolls] = useState<FrontEndPoll[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
-  const [activeFolderFilter, setActiveFolderFilter] = useState<string | null>(
-    null,
-  );
   const [searchQuery, setSearchQuery] = useState("");
   const [serverCallback, setServerCallback] = useState(callbackTypes.nil);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
 
-  // fetches their own username so owners kan know their own polls.
   useEffect(() => {
     fetch("/api/me", { credentials: "include" })
       .then((res) => res.json())
@@ -460,20 +373,15 @@ function OverviewPage() {
   if (ws) {
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      // console.log("Received WebSocket message:", message);
       if (message.type === callbackTypes.refetchVoteCount) {
         console.log("ws: recived refreshVoteCount");
         setServerCallback(message.type);
       }
     };
   }
-
-  // rawPollsRef gemmer rådata så timer-intervallet kan genberegne
-  // tid uden at trigge et nyt fetch fra serveren.
+  // Saves the fetched polls so timers can update without re-fetching.
   const rawPollsRef = useRef<FrontEndPoll[]>([]);
 
-  // Hent afstemninger fra serveren når siden indlæses.
-  // credentials: "include" sender JWT-cookien med, så serveren ved hvem der spørger.
   useEffect(() => {
     const fetchPolls = async () => {
       setLoading(true);
@@ -490,7 +398,6 @@ function OverviewPage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: FrontEndPoll[] = await res.json();
 
-        // Beregn initial tid for hver afstemning
         data.forEach((p) => {
           p.timeLeft = calculateTimeLeft(p);
         });
@@ -506,8 +413,6 @@ function OverviewPage() {
     fetchPolls();
   }, [serverCallback]);
 
-  // Opdater timere hvert sekund uden at re-fetche fra serveren.
-  // Rydder intervallet når komponenten unmountes for at undgå memory leaks.
   useEffect(() => {
     const interval = setInterval(() => {
       if (rawPollsRef.current.length === 0) return;
@@ -516,27 +421,35 @@ function OverviewPage() {
         const timeLeft: string = calculateTimeLeft(p);
         return { ...p, timeLeft };
       });
-
       rawPollsRef.current = updated;
       setPolls([...updated]);
     }, 1000);
-
     return () => clearInterval(interval);
   }, []);
 
-  const folderMap = buildFolders(polls);
+  function isEligiblePoll(poll: FrontEndPoll): boolean {
+    return poll.isUserEligibleVoter;
+  }
+
+  function isCurrentPoll(
+    poll: FrontEndPoll,
+    username: string | null,
+  ): boolean {
+    const isStarted = poll.poll.status === "started";
+    const isOwner = poll.pollOwnerUsername === username && isStarted;
+    const canVoteNow = poll.isUserEligibleVoter &&
+      isStarted;
+
+    return isOwner || canVoteNow;
+  }
 
   const filteredPolls = polls
     .filter((poll) => {
-      if (activeFolderFilter) return (poll.folder ?? "") === activeFolderFilter;
       switch (activeFilter) {
         case "eligible":
-          return (
-            (!poll.hasVoted && poll.poll.status === "not started") ||
-            poll.poll.status === "started"
-          );
+          return isEligiblePoll(poll);
         case "drafts":
-          return poll.poll.status === "started";
+          return isCurrentPoll(poll, currentUsername);
         default:
           return true;
       }
@@ -549,7 +462,7 @@ function OverviewPage() {
         poll.poll.createdBy
           .toString()
           .toLowerCase()
-          .includes(searchQuery.toLowerCase()), // To-do: Change to fetch username for the poll
+          .includes(searchQuery.toLowerCase()),
     );
 
   const displayedPolls = filteredPolls.map((poll) => {
@@ -565,9 +478,6 @@ function OverviewPage() {
         <Sidebar
           activeFilter={activeFilter}
           onFilterChange={setActiveFilter}
-          folderMap={folderMap}
-          activeFolderFilter={activeFolderFilter}
-          onFolderClick={setActiveFolderFilter}
         />
         <main className="ov-main">
           <div className="ov-search-row">

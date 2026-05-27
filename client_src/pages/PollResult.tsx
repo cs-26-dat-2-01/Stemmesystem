@@ -18,10 +18,7 @@ interface VerifyResult {
   found: boolean; // vote with this uuid is present in the tally
   hashOk: boolean; // computed sha256 matches the stored currentHash
   signatureOk: boolean; // signature is valid under the poll's public key
-  // Open only: a vote attributed to MY userId that this device has no receipt
-  // for. A warning, not a hard failure — it may simply have been cast from
-  // another device / after clearing browser data.
-  unrecognised?: boolean;
+  unrecognised?: boolean; // for open votes. A vote attributed to MY userId that this device has no receipt of 
   detail?: string; // human-readable error when something failed
 }
 
@@ -140,10 +137,7 @@ function PollResults({ pollId }: PollResultsProps) {
         continue;
       }
 
-      // Recompute the chain hash. Format must match the server's
-      // createVoteHash. For open polls the hash includes userId — and we use
-      // the receipt's OWN copy (receipt.userId), so a server that swapped the
-      // user on this row is detectable.
+      // Recompute the chain hash. from receipts.
       const hashMsg = voteHashMessage(
         {
           previousHash: row.previousHash,
@@ -158,10 +152,7 @@ function PollResults({ pollId }: PollResultsProps) {
       const expectedHash = await sha256Hex(hashMsg);
       const hashOk = expectedHash === row.currentHash;
 
-      // Verify the stored signature under the poll's public key (raw
-      // prepared-message bytes). Open-poll votes carry no blind signature, so
-      // signature verification is N/A — the live hash chain is the integrity
-      // check. Secret-poll votes always have a signature.
+      // Verify the stored signature under the poll's public key. Only for secret poll 
       const preparedBytes = base64Decode(row.uuid);
       const signatureOk = isOpen
         ? true
@@ -187,7 +178,7 @@ function PollResults({ pollId }: PollResultsProps) {
     }
 
     // Reverse (open only): votes attributed to MY userId that this device has
-    // no receipt for. Could be a server-fabricated vote under my identity — or
+    // no receipt for. Could be a server-fabricated vote under my identity or
     // simply one cast from another device / after clearing browser data.
     // Surfaced as a warning, since this device cannot tell the two apart.
     if (data.ballotPrivacy === "open") {
@@ -400,8 +391,6 @@ function PollResults({ pollId }: PollResultsProps) {
             </thead>
             <tbody>
               {votes.map((vote, i) => {
-                // For open polls each vote carries username + userId; narrow to
-                // the open variant so those fields are visible to TS.
                 const openVote = isOpen
                   ? (vote as Extract<
                     typeof data,

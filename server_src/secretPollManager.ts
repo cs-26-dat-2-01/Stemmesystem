@@ -28,6 +28,32 @@ export class SecretPollManager {
     this.voteBuffer = new VoteBuffer(db);
   }
 
+  private async ensurePollCanBeClosed(pollId: number): Promise<boolean> {
+    const pollResult = await this.DB.getPollFromDB(pollId);
+    if (!pollResult.poll) {
+      logger.error`Cannot finish poll ${pollId}: poll not found`;
+      return false;
+    }
+
+    if (pollResult.poll.status === "closing") {
+      return true;
+    }
+
+    if (pollResult.poll.status !== "started") {
+      logger.error`Cannot finish poll ${pollId}: poll is ${pollResult.poll.status}`;
+      return false;
+    }
+
+    const pollSatToClosing = await this.DB.markPollClosing(pollId);
+    if (pollSatToClosing.httpStatusCode !== 200) {
+      logger
+        .error`Cannot set poll to closing, ${pollId}, err:${pollSatToClosing.errorMsg}`;
+      return false;
+    }
+
+    return true;
+  }
+
   /**
    * Casts an anonymous vote. Reached via `PollManager.castVote`, which is
    * called from `POST /api/poll/:pollId/vote` and advances poll statuses
@@ -262,12 +288,8 @@ export class SecretPollManager {
    *   step failed (the poll is left for a later retry, or invalidated).
    */
   public async finishPollWithVoteDrain(pollId: number): Promise<boolean> {
-    const pollSatToClosing = await this.DB.markPollClosing(pollId);
-    if (pollSatToClosing.httpStatusCode !== 200) {
-      logger
-        .error`Cannot set poll to closing, ${pollId}, err:${pollSatToClosing.errorMsg}`;
-      return false;
-    }
+    const canClose = await this.ensurePollCanBeClosed(pollId);
+    if (!canClose) return false;
 
     const pollResult = await this.DB.getPollFromDB(pollId);
     if (!pollResult.poll) {

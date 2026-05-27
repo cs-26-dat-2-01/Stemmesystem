@@ -54,12 +54,12 @@ export type pollId = number;
 export type pollVisibility = "public" | "private";
 export type ballotPrivacy = "secret" | "open";
 export type pollStatus =
-  | "draft" // Ongoing editing by poll creator.
-  | "not started" // Poll have been published and will start at the given start time.
-  | "started" // Poll is started and eligible voters can cast their ballot.
-  | "closing" // the poll is doing the mixing, and calculating the hash, in between we dont accept votes.
-  | "finished" // Poll is finished and users with correct access rights can see the poll results.
-  | "invalidated"; // Poll had integrity loss and must be re-run.
+  | "draft" 
+  | "not started" 
+  | "started" 
+  | "closing" // intermediate state to handle proper closing of poll 
+  | "finished" 
+  | "invalidated"; 
 
 export interface PollOption {
   id: pollOptionId;
@@ -72,16 +72,12 @@ export interface Vote {
   id: string;
   pollId: pollId;
   pollOptionId: pollOptionId;
-  // Publication/drain time, not the original cast time.
   userId: number | null;
-  timestamp: string;
+  timestamp: string; // publication/drain time not the original cast time for "secret poll"
   chainPosition: number;
   previousHash: string;
   currentHash: string;
-  // Base64 RSA-PSS signature on the prepared message (= `id`). Public so
-  // anyone can verify each vote was authorized by the poll's signing key.
-  // Null for open-poll votes, which bypass blind RSA and carry no signature.
-  signature: string | null;
+  signature: string | null; // RSA signature on the prepared message (id)
 }
 
 /**
@@ -112,22 +108,15 @@ export interface OpenpollResult {
   options: PollOption[];
   votesAllowed: number;
   votesRemaining: number;
-  // The viewing user's own id (from the verified JWT). The open-poll client
-  // stores it in the vote receipt so self-verify can recompute the hash from
-  // the voter's independent copy of userId.
   userId: number;
-  // PEM-encoded blind-RSA public key for this poll. Used client-side to
-  // blind the message and finalize the signature.
-  blindRsaPublicKey: string;
+  blindRsaPublicKey: string; // PEM-encoded blind-RSA 
 }
 
 export interface VoteInput {
   optionId: number;
-  // Base64 of the prepared message (Randomized suite output). Becomes Vote.id.
   uuid: string;
-  // Base64 of the finalized RSA-PSS signature on `uuid`.
-  signature: string;
-}
+  signature: string; // Base64 of the finalized RSA-PSS signature on `uuid`.
+} 
 
 export type ResultsPayload =
   | {
@@ -149,12 +138,10 @@ export type ResultsPayload =
       currentHash: string;
       signature: string | null;
     }[];
-    // Non-voters for a secret poll: anonymity means we can only report how
-    // many eligible voters never requested a ballot (a count, no identities).
+    // folowwing is for reporting how many have not voted (nonvoter since anon)
     nonVoterCount: number;
     eligibleCount: number;
-    // PEM public key needed for client-side self-verification.
-    blindRsaPublicKey: string;
+    blindRsaPublicKey: string; //PEM-encoded
   }
   | {
     ballotPrivacy: "open";
@@ -179,7 +166,6 @@ export type ResultsPayload =
       currentHash: string;
       signature: string | null;
     }[];
-    // Non-voters for an open poll: exact, since votes carry userId.
     nonVoters: { userId: number; username: string }[];
     eligibleCount: number;
     blindRsaPublicKey: string | null;
