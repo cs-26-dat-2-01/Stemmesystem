@@ -294,6 +294,11 @@ function PollResults({ pollId }: PollResultsProps) {
   function FullResultsSidebar({ data }: { data: ResultsPayload }) {
     // Compute max once — counts are guaranteed non-null in full-results mode
     const max = Math.max(...data.counts.map((c) => c.count ?? 0), 1);
+
+    let _openPollNonVoters = 0;
+    if (data.ballotPrivacy === "open") {
+      _openPollNonVoters = data.nonVoters.length + 1;
+    }
     return (
       <>
         <div className="rs-top-title">Resultater</div>
@@ -309,6 +314,19 @@ function PollResults({ pollId }: PollResultsProps) {
             <div className="rs-meta">{item.count} stemmer</div>
           </div>
         ))}
+        {data.ballotPrivacy === "open"
+          ? (
+            <>
+              <div>Ikke afgivet stemmer</div>
+              <div className="rs-meta">{_openPollNonVoters + 1} stemmer</div>
+            </>
+          )
+          : (
+            <>
+              <div>Ikke afgivet stemmer</div>
+              <div className="rs-meta">{data.nonVoterCount} stemmer</div>
+            </>
+          )}
       </>
     );
   }
@@ -414,18 +432,20 @@ function PollResults({ pollId }: PollResultsProps) {
 
           <div className="rs-nonvoters">
             {data.ballotPrivacy === "secret"
-              ? (
-                <>
-                  <p>
-                    {data.nonVoterCount} af {data.eligibleCount}{" "}
-                    stemmeberettigede har ikke anmodet om en stemmeseddel.
-                  </p>
-                  <p className="rs-nonvoter-note">
-                    I anonyme afstemninger er dette det tætteste systemet kan
-                    komme på "har ikke stemt".
-                  </p>
-                </>
-              )
+              ? data.nonVoterCount === 0
+                ? <p>Alle stemmeberettigede har stemt.</p>
+                : (
+                  <>
+                    <p>
+                      {data.nonVoterCount} af {data.eligibleCount}{" "}
+                      stemmeberettigede har ikke anmodet om en stemmeseddel.
+                    </p>
+                    <p className="rs-nonvoter-note">
+                      I anonyme afstemninger er dette det tætteste systemet kan
+                      komme på "har ikke stemt".
+                    </p>
+                  </>
+                )
               : data.nonVoters.length === 0
               ? <p>Alle stemmeberettigede har stemt.</p>
               : (
