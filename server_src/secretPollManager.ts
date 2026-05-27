@@ -40,7 +40,8 @@ export class SecretPollManager {
     }
 
     if (pollResult.poll.status !== "started") {
-      logger.error`Cannot finish poll ${pollId}: poll is ${pollResult.poll.status}`;
+      logger
+        .error`Cannot finish poll ${pollId}: poll is ${pollResult.poll.status}`;
       return false;
     }
 
@@ -370,10 +371,12 @@ export class SecretPollManager {
 
     let closeTimestampQuery: Uint8Array;
     let closeTimestampToken: Uint8Array;
+    let closeTsaName: string;
     try {
       const timestampArtifacts = await timestampCommitment(closeCommitment);
       closeTimestampQuery = timestampArtifacts.timestampQuery;
       closeTimestampToken = timestampArtifacts.timestampToken;
+      closeTsaName = timestampArtifacts.tsaName;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error`Cannot timestamp poll ${pollId}: ${msg}`;
@@ -386,6 +389,7 @@ export class SecretPollManager {
       closeCommitment,
       closeTimestampQuery,
       closeTimestampToken,
+      closeTsaName,
       closedAt,
     );
     if (!finalizeResult.success) {

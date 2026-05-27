@@ -425,6 +425,7 @@ export class PollManager {
           closedAt: closeArtifacts.closedAt,
           hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
           hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
+          closeTsaName: closeArtifacts.closeTsaName,
           counts: countsWithText,
           nonVoterCount,
           eligibleCount,
@@ -471,6 +472,7 @@ export class PollManager {
         closedAt: closeArtifacts.closedAt,
         hasCloseTimestampQuery: closeArtifacts.closeTimestampQuery !== null,
         hasCloseTimestampToken: closeArtifacts.closeTimestampToken !== null,
+        closeTsaName: closeArtifacts.closeTsaName,
         counts: countsWithText,
         nonVoters,
         eligibleCount,
@@ -534,6 +536,7 @@ export class PollManager {
     const verified = await verifyTimestampCommitment(
       closeArtifacts.closeCommitment,
       closeArtifacts.closeTimestampToken,
+      closeArtifacts.closeTsaName,
     );
     return { verified, httpStatusCode: 200 };
   }
@@ -1025,7 +1028,7 @@ export class PollManager {
       pollsReadyToFinish.map(async (pollId) => {
         // Branch on the STORED ballotPrivacy: open polls seal in place (votes
         // are already live), secret polls drain buffer/pending and shuffle.
-        const ballotPrivacy = await this.DB.getPollStatus(pollId);
+        const ballotPrivacy = await this.DB.getPollPrivacyLabel(pollId);
         return ballotPrivacy === "open"
           ? this.open.sealOpenPollClose(pollId)
           : this.secret.finishPollWithVoteDrain(pollId);
@@ -1085,7 +1088,7 @@ export class PollManager {
   }
 
   private async verifyPollIntegrityAtStartUp(pollId: number): Promise<boolean> {
-    const privacy = await this.DB.getPollStatus(pollId);
+    const privacy = await this.DB.getPollPrivacyLabel(pollId);
     if (privacy === "secret") {
       const issued = await this.DB.countIssuedSignatures(pollId);
       const persisted = await this.DB.countPersistedVotes(pollId);

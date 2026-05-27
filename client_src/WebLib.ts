@@ -54,12 +54,12 @@ export type pollId = number;
 export type pollVisibility = "public" | "private";
 export type ballotPrivacy = "secret" | "open";
 export type pollStatus =
-  | "draft" 
-  | "not started" 
-  | "started" 
-  | "closing" // intermediate state to handle proper closing of poll 
-  | "finished" 
-  | "invalidated"; 
+  | "draft"
+  | "not started"
+  | "started"
+  | "closing" // intermediate state to handle proper closing of poll
+  | "finished"
+  | "invalidated";
 
 export interface PollOption {
   id: pollOptionId;
@@ -109,14 +109,14 @@ export interface OpenpollResult {
   votesAllowed: number;
   votesRemaining: number;
   userId: number;
-  blindRsaPublicKey: string; // PEM-encoded blind-RSA 
+  blindRsaPublicKey: string; // PEM-encoded blind-RSA
 }
 
 export interface VoteInput {
   optionId: number;
   uuid: string;
   signature: string; // Base64 of the finalized RSA-PSS signature on `uuid`.
-} 
+}
 
 export type ResultsPayload =
   | {
@@ -126,6 +126,7 @@ export type ResultsPayload =
     closedAt: string | null;
     hasCloseTimestampQuery: boolean;
     hasCloseTimestampToken: boolean;
+    closeTsaName: string | null;
     counts: {
       optionId: number;
       optionText: string;
@@ -150,6 +151,7 @@ export type ResultsPayload =
     closedAt: string | null;
     hasCloseTimestampQuery: boolean;
     hasCloseTimestampToken: boolean;
+    closeTsaName: string | null;
     counts: {
       optionId: number;
       optionText: string;
@@ -229,7 +231,7 @@ export function calculateTimeRemaining(
   return timeLeft;
 }
 
-// Formaterer millisekunder til HH:MM:SS streng.
+// Formats milliseconds into an HH:MM:SS string.
 export function formatTime(ms: number): string {
   const hours = Math.floor(ms / 3_600_000);
   const mins = Math.floor((ms % 3_600_000) / 60_000);

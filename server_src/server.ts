@@ -414,8 +414,7 @@ export function startServer(
     if (!Number.isInteger(pollId)) {
       return c.body("Invalid pollId", 400);
     }
-    // TODO STATUSER MISVISENDE DET ER BALLOTPRIVACY... BED IKKR LIGE HVAD JEG TÆNKTE PÅ
-    const pollStatus = await DB.getPollStatus(pollId);
+    const pollStatus = await DB.getPollPrivacyLabel(pollId);
     if (pollStatus === null) {
       return c.body("BallotPrivacy returned null", 400);
     }

@@ -18,12 +18,45 @@ interface VerifyResult {
   found: boolean; // vote with this uuid is present in the tally
   hashOk: boolean; // computed sha256 matches the stored currentHash
   signatureOk: boolean; // signature is valid under the poll's public key
-  unrecognised?: boolean; // for open votes. A vote attributed to MY userId that this device has no receipt of 
+  unrecognised?: boolean; // for open votes. A vote attributed to MY userId that this device has no receipt of
   detail?: string; // human-readable error when something failed
 }
 
 interface PollResultsProps {
   pollId: number;
+}
+
+/**
+ * Maps the stored TSA name to a display label and the exact `openssl` command a
+ * third party can run to verify the downloaded `.tsr` independently — offline,
+ * without trusting our server or the TSA being online. A `null` name is a
+ * pre-tracking poll; all such tokens were issued by FreeTSA.
+ */
+function tsaDisplay(tsaName: string | null): {
+  label: string;
+  publiclyTrusted: boolean;
+  verifyCommand: (commitment: string, tsrFile: string) => string;
+} {
+  const name = tsaName ?? "freetsa";
+  if (name === "digicert") {
+    return {
+      label: "DigiCert",
+      publiclyTrusted: true,
+      verifyCommand: (commitment, tsrFile) =>
+        `printf '%s' '${commitment}' > commitment.txt\n` +
+        `openssl ts -verify -in ${tsrFile} -data commitment.txt \\\n` +
+        `  -CAfile /etc/ssl/certs/ca-certificates.crt`,
+    };
+  }
+  return {
+    label: name === "freetsa" ? "FreeTSA" : name,
+    publiclyTrusted: false,
+    verifyCommand: (commitment, tsrFile) =>
+      `printf '%s' '${commitment}' > commitment.txt\n` +
+      `# Hent FreeTSA's rod-certifikater (cacert.pem + tsa.crt) fra freetsa.org\n` +
+      `openssl ts -verify -in ${tsrFile} -data commitment.txt \\\n` +
+      `  -CAfile cacert.pem -untrusted tsa.crt`,
+  };
 }
 
 function PollResults({ pollId }: PollResultsProps) {
@@ -152,7 +185,7 @@ function PollResults({ pollId }: PollResultsProps) {
       const expectedHash = await sha256Hex(hashMsg);
       const hashOk = expectedHash === row.currentHash;
 
-      // Verify the stored signature under the poll's public key. Only for secret poll 
+      // Verify the stored signature under the poll's public key. Only for secret poll
       const preparedBytes = base64Decode(row.uuid);
       const signatureOk = isOpen
         ? true
@@ -304,6 +337,12 @@ function PollResults({ pollId }: PollResultsProps) {
               <span className="rs-close-label">Timestamp token</span>
               <span>{data.hasCloseTimestampToken ? "Present" : "Missing"}</span>
             </div>
+            {data.hasCloseTimestampToken && (
+              <div className="rs-close-row">
+                <span className="rs-close-label">Timestamped by</span>
+                <span>{tsaDisplay(data.closeTsaName).label}</span>
+              </div>
+            )}
             <button
               type="button"
               className="rs-verify-btn"
@@ -338,6 +377,30 @@ function PollResults({ pollId }: PollResultsProps) {
             >
               Download request (.tsq)
             </button>
+            {data.hasCloseTimestampToken && data.closeCommitment && (
+              <details className="rs-verify-howto">
+                <summary>Sådan verificerer du selv</summary>
+                <p className="rs-verify-note">
+                  Tidsstemplet er et selvstændigt bevis og kan verificeres
+                  offline — uden adgang til vores server, og uden at{" "}
+                  {tsaDisplay(data.closeTsaName).label}{" "}
+                  er online. Hent .tsr- og .tsq-filerne ovenfor og kør i samme
+                  mappe:
+                </p>
+                <pre className="rs-verify-cmd">{tsaDisplay(data.closeTsaName)
+                  .verifyCommand(
+                    data.closeCommitment,
+                    `poll-${pollId}.tsr`,
+                  )}</pre>
+                <p className="rs-verify-note">
+                  {tsaDisplay(data.closeTsaName).publiclyTrusted
+                    ? `${
+                      tsaDisplay(data.closeTsaName).label
+                    }s rod-certifikat er offentligt betroet og findes i alle styresystemer og browsere — derfor kan hvem som helst verificere det uafhængigt.`
+                    : "FreeTSA's rod er selvsigneret; hent cacert.pem + tsa.crt fra freetsa.org for at verificere."}
+                </p>
+              </details>
+            )}
             {timestampVerifyState !== "idle" && (
               <div
                 className={`rs-close-status ${

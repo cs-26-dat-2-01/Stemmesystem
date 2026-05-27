@@ -62,8 +62,6 @@ export interface VoteInsert {
   currentHash: string;
 }
 
-// Open-batch insert: positionen er PRÆKÆDET i OpenPollManager (modsat secret,
-// hvor finalizePollClose selv beregner chainPosition via startPosition + index).
 export interface OpenVoteInsert {
   uuid: string;
   optionId: number;
@@ -90,10 +88,8 @@ export interface PollCreateInput {
   showTopN?: number | null;
   ballotLimit?: number | null;
   useBuffer?: number | null;
-  // Per-poll blind-RSA keypair (PEM). See server_src/blindRsa.ts.
-  // Public key is publishable; private key is server-only.
-  blindRsaPublicKey?: string | null;
-  blindRsaPrivateKey?: string | null;
+  blindRsaPublicKey?: string | null; // publishable
+  blindRsaPrivateKey?: string | null; // server-only!
   optionTexts?: string[];
   voterUserIds?: number[];
 }
@@ -318,8 +314,6 @@ export class WebappDatabase {
 
   /**
    * Closes the internal application database.
-   *
-   * @todo tie this in with a proper destructor.
    */
   public closeDB() {
     return this.prisma.$disconnect();
@@ -546,6 +540,8 @@ export class WebappDatabase {
   commitment.
    * @param closeTimestampToken - timestamp token bytes returned by the
    TSA.
+   * @param closeTsaName - Name of the TSA that signed the token (e.g.
+   "freetsa", "digicert"), so verification can pin the matching root.
    * @param closedAt - Timestamp marking when the poll was closed.
    * @returns Success flag, optional error message, and HTTP status code.
    */
@@ -555,6 +551,7 @@ export class WebappDatabase {
     closeCommitment: string,
     closeTimestampQuery: Uint8Array<ArrayBufferLike>,
     closeTimestampToken: Uint8Array<ArrayBufferLike>,
+    closeTsaName: string,
     closedAt: Date,
   ): Promise<{
     success: boolean;
@@ -593,6 +590,7 @@ export class WebappDatabase {
             closeCommitment,
             closeTimestampQuery: new Uint8Array(closeTimestampQuery),
             closeTimestampToken: new Uint8Array(closeTimestampToken),
+            closeTsaName,
             closedAt,
           },
         });
@@ -632,16 +630,17 @@ export class WebappDatabase {
 
   /**
    * Fetches the close artifacts for a finished poll: the close commitment and
-  its timestamp query/token, along with the close timestamp.
+  its timestamp query/token, the signing TSA name, along with the close timestamp.
    * @param pollId - ID of the poll to fetch artifacts for.
-   * @returns Close commitment, timestamp query/token bytes, closedAt, and HTTP
-  status code;
+   * @returns Close commitment, timestamp query/token bytes, signing TSA name
+  (or null for legacy tokens), closedAt, and HTTP status code;
    *          fields are null and status is 404 if the poll does not exist.
    */
   public async getPollCloseArtifacts(pollId: number): Promise<{
     closeCommitment: string | null;
     closeTimestampQuery: Uint8Array<ArrayBuffer> | null;
     closeTimestampToken: Uint8Array<ArrayBuffer> | null;
+    closeTsaName: string | null;
     closedAt: string | null;
     httpStatusCode: ContentfulStatusCode;
     errorMsg?: string;
@@ -653,6 +652,7 @@ export class WebappDatabase {
           closeCommitment: true,
           closeTimestampQuery: true,
           closeTimestampToken: true,
+          closeTsaName: true,
           closedAt: true,
         },
       });
@@ -661,6 +661,7 @@ export class WebappDatabase {
           closeCommitment: null,
           closeTimestampQuery: null,
           closeTimestampToken: null,
+          closeTsaName: null,
           closedAt: null,
           errorMsg: "Poll not found",
           httpStatusCode: 404,
@@ -674,6 +675,7 @@ export class WebappDatabase {
         closeTimestampToken: poll.closeTimestampToken
           ? new Uint8Array(poll.closeTimestampToken)
           : null,
+        closeTsaName: poll.closeTsaName,
         closedAt: poll.closedAt ? poll.closedAt.toString() : null,
         httpStatusCode: 200,
       };
@@ -684,6 +686,7 @@ export class WebappDatabase {
         closeCommitment: null,
         closeTimestampQuery: null,
         closeTimestampToken: null,
+        closeTsaName: null,
         closedAt: null,
         errorMsg: "Error fetching poll close artifacts",
         httpStatusCode: 500,
@@ -920,13 +923,11 @@ export class WebappDatabase {
         return { votes: [], errorMsg: "Poll not found", httpStatusCode: 404 };
       }
 
-      // Must return forbidden if voteStatus is not finished.
       if (poll.voteStatus !== "finished") {
         return {
           votes: [],
           errorMsg:
             "Polls is not finished - votes are not public until voting closes",
-
           httpStatusCode: 403,
         };
       }
@@ -2111,6 +2112,7 @@ export class WebappDatabase {
     closeCommitment: string,
     closeTimestampQuery: Uint8Array<ArrayBufferLike>,
     closeTimeStampToken: Uint8Array<ArrayBufferLike>,
+    closeTsaName: string,
     closedAt: Date,
   ): Promise<{
     success: boolean;
@@ -2125,6 +2127,7 @@ export class WebappDatabase {
           closeCommitment,
           closeTimestampQuery: new Uint8Array(closeTimestampQuery),
           closeTimestampToken: new Uint8Array(closeTimeStampToken),
+          closeTsaName,
           closedAt,
         },
       });
@@ -2149,7 +2152,7 @@ export class WebappDatabase {
     return new Map(row.map((r) => [r.id, r.username] as const));
   }
 
-  public async getPollStatus(pollId: number): Promise<string | null> {
+  public async getPollPrivacyLabel(pollId: number): Promise<string | null> {
     try {
       const result = await this.prisma.poll.findUnique({
         where: { id: pollId },

@@ -46,10 +46,13 @@ model Poll {
   blindRsaPrivateKey String?
   blindRsaKeyBits    Int     @default(2048)
 
-  // Tamper-evidence at poll-close: commitment over finalChainHash + tally + meta get signed by FreeTSA.
+  // Tamper-evidence at poll-close: commitment over finalChainHash + tally + meta
+  // is signed by an RFC 3161 TSA. `closeTsaName` records which TSA in the
+  // fallback chain actually signed, so verification can pin the matching root.
   closeCommitment     String?
   closeTimestampQuery Bytes?
   closeTimestampToken Bytes?
+  closeTsaName        String?
   closedAt            DateTime?
 
   options        PollOption[]
