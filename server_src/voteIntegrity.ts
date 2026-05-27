@@ -96,6 +96,6 @@ export function buildCloseCommitment(
   const metadataHash = sha256Hex(pollMetadata);
 
   return sha256Hex(
-    `${finalChainHash}${countsHash}${metadataHash}${closedAt.toISOString()}`,
+    `${finalChainHash}|${countsHash}|${metadataHash}|${closedAt.toISOString()}`,
   );
 }
