@@ -137,8 +137,8 @@ export function startServer(
     });
   });
 
-  // GET /api/polls — returnerer liste af alle afstemninger til oversigts-siden.
-  // Kræver gyldigt JWT så vi ved hvem der spørger (bruges til hasVoted og isEligible).
+  // GET /api/polls — returns a list of all polls for the overview page.
+  // Requires a valid JWT so we know who is asking (used for hasVoted and isEligible).
   router.get("/api/polls", async (c) => {
     return await hasValidJWT(DB, c, async (payload) => {
       await pollManager.tickPollStatuses();
@@ -152,7 +152,7 @@ export function startServer(
     });
   });
 
-  // GET /admin — sender index.html så React kan håndtere admin-siden client-side
+  // GET /admin — serves index.html so React can handle the admin page client-side
   router.get("/admin", async (c) => {
     try {
       const file = await Deno.readFile("./dist/index.html");
@@ -696,9 +696,9 @@ export function startServer(
     }
   });
 
-  // POST /api/polls — opret ny afstemning (KLADDE, ALTSÅ DET VIL ALTID VÆRE DRAFT) fra CreatePollPage.
+  // POST /api/polls — create a new poll (a DRAFT — it is ALWAYS a draft) from CreatePollPage.
   // Body: { poll: Poll, voters: Array<{username, votesAllowed}>, choices: string[] }
-  // createdBy hentes fra JWT, ikke fra request body.
+  // createdBy is taken from the JWT, not from the request body.
   router.post("/api/polls", async (c) => {
     return await hasValidJWT(DB, c, async (payload) => {
       let body = undefined;

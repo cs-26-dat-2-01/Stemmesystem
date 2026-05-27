@@ -26,13 +26,13 @@ function calculateTimeLeft(p: FrontEndPoll) {
   let timeLeft: string;
 
   if (p.poll.status === "not started" && p.poll.startsAt) {
-    // Afstemning der ikke er startet endnu — vis tid til start
+    // Poll that hasn't started yet — show time until start
     const diffMs = new Date(p.poll.startsAt).getTime() - Date.now();
     timeLeft = diffMs > 0
       ? `Starter om: ${formatTime(diffMs)}`
       : "Starter snart";
   } else {
-    // Aktiv afstemning — vis tid til afslutning
+    // Active poll — show time until it closes
     timeLeft = calculateTimeRemaining(p.poll.endsAt);
   }
   return timeLeft;
@@ -67,8 +67,8 @@ function useIsMobile(breakpoint: number) {
   return isMobile;
 }
 
-// ─── Sidebar-komponent ────────────────────────────────────────────────────────
-// Sidebar has two things: button for creating poll and buttons for filtering. 
+// ─── Sidebar component ────────────────────────────────────────────────────────
+// Sidebar has two things: button for creating poll and buttons for filtering.
 interface SidebarProps {
   activeFilter: FilterType;
   onFilterChange: (f: FilterType) => void;
@@ -93,9 +93,7 @@ function Sidebar({
         <button
           type="button"
           className={`ov-filter-btn ${
-            activeFilter === "all"
-              ? "ov-filter-btn--active"
-              : ""
+            activeFilter === "all" ? "ov-filter-btn--active" : ""
           }`}
           onClick={() => {
             onFilterChange("all");
@@ -106,9 +104,7 @@ function Sidebar({
         <button
           type="button"
           className={`ov-filter-btn ${
-            activeFilter === "eligible"
-              ? "ov-filter-btn--active"
-              : ""
+            activeFilter === "eligible" ? "ov-filter-btn--active" : ""
           }`}
           onClick={() => {
             onFilterChange("eligible");
@@ -119,9 +115,7 @@ function Sidebar({
         <button
           type="button"
           className={`ov-filter-btn ${
-            activeFilter === "drafts"
-              ? "ov-filter-btn--active"
-              : ""
+            activeFilter === "drafts" ? "ov-filter-btn--active" : ""
           }`}
           onClick={() => {
             onFilterChange("drafts");
@@ -134,7 +128,7 @@ function Sidebar({
   );
 }
 
-// ─── PollTable-komponent ──────────────────────────────────────────────────────
+// ─── PollTable component ──────────────────────────────────────────────────────
 function PollTable(
   { polls, currentUsername }: {
     polls: FrontEndPoll[];
@@ -352,7 +346,7 @@ function PollTable(
 }
 
 // ─── OverviewPage ─────────────────────────────────────────────────────────────
-// Main component for overviewpage (wireframe figure 4.2). 
+// Main component for overviewpage (wireframe figure 4.2).
 function OverviewPage() {
   const [polls, setPolls] = useState<FrontEndPoll[]>([]);
   const [loading, setLoading] = useState(true);

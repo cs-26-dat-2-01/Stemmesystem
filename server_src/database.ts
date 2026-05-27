@@ -800,7 +800,7 @@ export class WebappDatabase {
       });
 
       if (!sqlResult) {
-        // Ingen stemmer endnu → "genesis" — første stemme i kæden
+        // No votes yet → "genesis" — the first vote in the chain
         return { hash: null, chainposition: null, httpStatusCode: 200 };
       }
 
@@ -1765,7 +1765,7 @@ export class WebappDatabase {
    * from the projection.
    *
    * @returns ' {users, httpStatuscode: 200}' on success. If the table is empty
-   * 	'usersø is '[]' and errorMsg is set to a descriptive message - the status
+   * 	'users' is '[]' and errorMsg is set to a descriptive message - the status
    * 	is still 200 because an empty user list is not an error. On a qury failure, 'users'
    * 	is '[]', and errorMsg is set and the status is now 500.
    */
@@ -1970,7 +1970,6 @@ export class WebappDatabase {
     }
   }
 
-  // tjek om vi får brug for denne!!!!!!
   /**
    * Returns the number of votes a given user has already cast in a given poll, by counting the user's entries in the `voteToken` table.
    * Used together with `getVotesAllowed` to determine how many votes the user has remaining before reaching their quota.

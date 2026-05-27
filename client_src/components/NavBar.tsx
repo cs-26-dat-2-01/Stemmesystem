@@ -44,7 +44,7 @@ function NavBar() {
   // Nav title:
   const location = useLocation();
   const locationMap = [
-    { path: "/", title: "UNF - Stemmesystem" },
+    { path: "/", title: "Stemmesystem" },
     { path: "/admin/*", title: "Admin panel" },
     { path: "/auditlog/*", title: "Audit log" },
     { path: "/createpoll/*", title: "Opret afstemning" },
