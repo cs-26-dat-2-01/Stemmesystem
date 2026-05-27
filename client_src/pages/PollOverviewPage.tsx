@@ -9,6 +9,7 @@ function PollOverviewPage({ pollId }: { pollId: number }) {
     Array<{ username: string; votesAllowed: number }>
   >([]);
   const [choices, setChoices] = useState<string[]>([]);
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -18,6 +19,10 @@ function PollOverviewPage({ pollId }: { pollId: number }) {
       if (res.status === 401) {
         await fetch("/logout", { method: "POST", credentials: "include" });
         globalThis.location.href = "/";
+        return;
+      }
+      if (res.status === 403) {
+        setForbidden(true);
         return;
       }
       if (!res.ok) return;
@@ -34,6 +39,15 @@ function PollOverviewPage({ pollId }: { pollId: number }) {
       );
     })();
   }, [pollId]);
+
+  if (forbidden) {
+    return (
+      <div className="create-poll-page">
+        <NavBar />
+        <p>Not allowed to open</p>
+      </div>
+    );
+  }
 
   return (
     <div className="create-poll-page">
