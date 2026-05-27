@@ -297,7 +297,7 @@ function PollResults({ pollId }: PollResultsProps) {
 
     let _openPollNonVoters = 0;
     if (data.ballotPrivacy === "open") {
-      _openPollNonVoters = data.nonVoters.length + 1;
+      _openPollNonVoters = data.nonVoters.length;
     }
     return (
       <>
@@ -318,7 +318,7 @@ function PollResults({ pollId }: PollResultsProps) {
           ? (
             <>
               <div>Ikke afgivet stemmer</div>
-              <div className="rs-meta">{_openPollNonVoters + 1} stemmer</div>
+              <div className="rs-meta">{_openPollNonVoters} stemmer</div>
             </>
           )
           : (
