@@ -8,6 +8,7 @@ import {
   type pollVisibility,
 } from "../WebLib.ts";
 import NavBar from "../components/NavBar.tsx";
+import { Link } from "react-router/internal/react-server-client";
 
 /**
  * React hook that determines whether the viewport width is below a given breakpoint.
@@ -229,11 +230,11 @@ function CreatePollPage({
   function buildPollData(): Partial<Poll> {
     const startsAtValue = startNow
       ? new Date(
-        Date.now() + (useBuffer === 1 ? 5 * 60 * 1000 : 0),
-      ).toISOString()
+          Date.now() + (useBuffer === 1 ? 5 * 60 * 1000 : 0),
+        ).toISOString()
       : startDate && startsAt
-      ? `${startDate}T${startsAt}`
-      : undefined;
+        ? `${startDate}T${startsAt}`
+        : undefined;
     const endsAtValue = endDate && endsAt ? `${endDate}T${endsAt}` : undefined;
     return {
       title,
@@ -343,9 +344,10 @@ function CreatePollPage({
 
   // Banner shown while editing an already-published poll: counts down to
   // the start time, after which the server refuses further edits.
-  const editDeadlineMs = wasPublished && startDate && startsAt
-    ? new Date(`${startDate}T${startsAt}`).getTime()
-    : null;
+  const editDeadlineMs =
+    wasPublished && startDate && startsAt
+      ? new Date(`${startDate}T${startsAt}`).getTime()
+      : null;
   const editTimeLeftMs =
     editDeadlineMs !== null && !Number.isNaN(editDeadlineMs)
       ? editDeadlineMs - nowMs
@@ -362,15 +364,15 @@ function CreatePollPage({
             editTimeLeftMs <= 0
               ? "edit-deadline-banner--expired"
               : editTimeLeftMs < 5 * 60 * 1000
-              ? "edit-deadline-banner--warning"
-              : ""
+                ? "edit-deadline-banner--warning"
+                : ""
           }`}
         >
           {editTimeLeftMs <= 0
             ? "Afstemningen er startet — yderligere redigeringer vil blive afvist."
-            : `Afstemningen starter om ${
-              formatTime(editTimeLeftMs)
-            } — husk at gemme dine ændringer inden.`}
+            : `Afstemningen starter om ${formatTime(
+                editTimeLeftMs,
+              )} — husk at gemme dine ændringer inden.`}
         </div>
       )}
 
@@ -458,32 +460,32 @@ function CreatePollPage({
           >
             «
           </button>
-          {isMobile
-            ? (
-              <span className="step-indicator">
-                {step + 1}/{steps.length}
-                <div className="step-label">{steps[step]}</div>
-              </span>
-            )
-            : (
-              steps.map((s, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={i === step
+          {isMobile ? (
+            <span className="step-indicator">
+              {step + 1}/{steps.length}
+              <div className="step-label">{steps[step]}</div>
+            </span>
+          ) : (
+            steps.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                className={
+                  i === step
                     ? "button-secondary create-poll-button"
-                    : "create-poll-button"}
-                  onClick={async () => {
-                    setStep1Attempted(true);
-                    await handleSave();
-                    setStep(i);
-                  }}
-                  disabled={i === step}
-                >
-                  {s}
-                </button>
-              ))
-            )}
+                    : "create-poll-button"
+                }
+                onClick={async () => {
+                  setStep1Attempted(true);
+                  await handleSave();
+                  setStep(i);
+                }}
+                disabled={i === step}
+              >
+                {s}
+              </button>
+            ))
+          )}
           <button
             type="button"
             className="button-secondary create-poll-button"
@@ -496,17 +498,18 @@ function CreatePollPage({
             »
           </button>
         </div>
-
-        <button
-          type="button"
-          className="create-poll-button"
-          onClick={async () => {
-            setStep1Attempted(true);
-            await handleSave();
-          }}
-        >
-          Gem ændringer
-        </button>
+        <Link to="/">
+          <button
+            type="button"
+            className="create-poll-button"
+            onClick={async () => {
+              setStep1Attempted(true);
+              await handleSave();
+            }}
+          >
+            Gem ændringer
+          </button>
+        </Link>
       </div>
     </div>
   );
@@ -605,12 +608,12 @@ function CreatePollStep1({
   const startDateTime = startNow
     ? now
     : startDate && startsAt
-    ? new Date(`${startDate}T${startsAt}`)
-    : null;
-  const endDateTime = endDate && endsAt
-    ? new Date(`${endDate}T${endsAt}`)
-    : null;
-  const datesValid = !!startDateTime &&
+      ? new Date(`${startDate}T${startsAt}`)
+      : null;
+  const endDateTime =
+    endDate && endsAt ? new Date(`${endDate}T${endsAt}`) : null;
+  const datesValid =
+    !!startDateTime &&
     !!endDateTime &&
     startDateTime >= now &&
     endDateTime > startDateTime;
@@ -660,7 +663,8 @@ function CreatePollStep1({
                 value={visibility}
                 className="input-createPoll"
                 onChange={(e) =>
-                  setVisibility(e.target.value as pollVisibility)}
+                  setVisibility(e.target.value as pollVisibility)
+                }
               >
                 <option value="" disabled>
                   Vælg...
@@ -876,10 +880,10 @@ function CreatePollStep1({
         startDateTime &&
         endDateTime &&
         endDateTime <= startDateTime && (
-        <p style={{ color: "red" }}>
-          Sluttidspunktet skal være efter starttidspunktet.
-        </p>
-      )}
+          <p style={{ color: "red" }}>
+            Sluttidspunktet skal være efter starttidspunktet.
+          </p>
+        )}
 
       <button
         type="button"
@@ -1021,19 +1025,19 @@ function CreatePollStep2({
 
           {showDropdown && searchQuery.trim() && (
             <div className="search-dropdown">
-              {filteredUsers.length === 0
-                ? <div className="search-no-results">Ingen brugere fundet</div>
-                : (
-                  filteredUsers.map((user) => (
-                    <div
-                      key={user.id}
-                      className="search-result-item"
-                      onClick={() => handleAdd(user.username)}
-                    >
-                      {user.username}
-                    </div>
-                  ))
-                )}
+              {filteredUsers.length === 0 ? (
+                <div className="search-no-results">Ingen brugere fundet</div>
+              ) : (
+                filteredUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="search-result-item"
+                    onClick={() => handleAdd(user.username)}
+                  >
+                    {user.username}
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -1042,33 +1046,28 @@ function CreatePollStep2({
       {/* List of added voters */}
       <h2 style={{ marginTop: "1.5rem" }}>Tilføjede stemmeberettigede</h2>
       <div className="voter-list">
-        {voters.length === 0
-          ? (
-            <p className="voter-empty">
-              Ingen stemmeberettigede tilføjet endnu.
-            </p>
-          )
-          : (
-            voters.map((voter, i) => (
-              <div key={i} className="voter-row">
-                <span>{voter.username}</span>
-                <label className="voter-votes">
-                  Stemmer:
-                  <input
-                    type="number"
-                    min={1}
-                    max={ballotLimit}
-                    value={voter.votesAllowed}
-                    onChange={(e) =>
-                      handleVotesChange(i, Number(e.target.value))}
-                  />
-                </label>
-                <button type="button" onClick={() => handleRemove(i)}>
-                  Fjern
-                </button>
-              </div>
-            ))
-          )}
+        {voters.length === 0 ? (
+          <p className="voter-empty">Ingen stemmeberettigede tilføjet endnu.</p>
+        ) : (
+          voters.map((voter, i) => (
+            <div key={i} className="voter-row">
+              <span>{voter.username}</span>
+              <label className="voter-votes">
+                Stemmer:
+                <input
+                  type="number"
+                  min={1}
+                  max={ballotLimit}
+                  value={voter.votesAllowed}
+                  onChange={(e) => handleVotesChange(i, Number(e.target.value))}
+                />
+              </label>
+              <button type="button" onClick={() => handleRemove(i)}>
+                Fjern
+              </button>
+            </div>
+          ))
+        )}
       </div>
 
       <br />
@@ -1126,10 +1125,7 @@ function CreatePollStep3({
           />
           {/* Only show remove if more than one choice */}
           {choices.length > 1 && (
-            <button
-              type="button"
-              onClick={() => handleRemoveChoice(i)}
-            >
+            <button type="button" onClick={() => handleRemoveChoice(i)}>
               Fjern
             </button>
           )}
@@ -1188,15 +1184,17 @@ export function CreatePollStep4({
   const now = new Date();
   const startDateTime = pollData.startsAt ? new Date(pollData.startsAt) : null;
   const endDateTime = pollData.endsAt ? new Date(pollData.endsAt) : null;
-  const startInPast = !hideAction && !startNow && !!startDateTime &&
-    startDateTime < now;
-  const endBeforeStart = !hideAction &&
+  const startInPast =
+    !hideAction && !startNow && !!startDateTime && startDateTime < now;
+  const endBeforeStart =
+    !hideAction &&
     !!startDateTime &&
     !!endDateTime &&
     endDateTime <= startDateTime;
 
   //validate the poll is complete
-  const isComplete = !!pollData.title?.trim() &&
+  const isComplete =
+    !!pollData.title?.trim() &&
     pollId !== null &&
     !!pollData.pollVisibility &&
     !!pollData.ballotPrivacy &&
@@ -1281,51 +1279,49 @@ export function CreatePollStep4({
           {invalidVoters.length > 0 && (
             <p className="field-hint" style={{ color: "#e74c3c" }}>
               Følgende stemmeberettigede har flere stemmer end max (
-              {ballotLimit}): {invalidVoters.map((v) =>
-                v.username
-              ).join(", ")}. Ret det inden afstemningen kan oprettes.
+              {ballotLimit}): {invalidVoters.map((v) => v.username).join(", ")}.
+              Ret det inden afstemningen kan oprettes.
             </p>
           )}
           <div className="voter-list">
-            {voters.length === 0
-              ? <p className="voter-empty">Ingen tilføjet.</p>
-              : (
-                voters.map((voter, i) => {
-                  const exceeds = voter.votesAllowed !== undefined &&
-                    ballotLimit > 0 &&
-                    voter.votesAllowed > ballotLimit;
-                  return (
-                    <div key={i} className="voter-row">
-                      <span>{voter.username}</span>
-                      {voter.votesAllowed !== undefined && (
-                        <span
-                          style={exceeds ? { color: "#e74c3c" } : undefined}
-                        >
-                          Stemmer: {voter.votesAllowed}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })
-              )}
+            {voters.length === 0 ? (
+              <p className="voter-empty">Ingen tilføjet.</p>
+            ) : (
+              voters.map((voter, i) => {
+                const exceeds =
+                  voter.votesAllowed !== undefined &&
+                  ballotLimit > 0 &&
+                  voter.votesAllowed > ballotLimit;
+                return (
+                  <div key={i} className="voter-row">
+                    <span>{voter.username}</span>
+                    {voter.votesAllowed !== undefined && (
+                      <span style={exceeds ? { color: "#e74c3c" } : undefined}>
+                        Stemmer: {voter.votesAllowed}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
         {/* Right: choices */}
         <div>
           <h2>Valgmuligheder</h2>
-          {choices.filter((c) => c.trim() !== "").length === 0
-            ? <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
-            : (
-              choices
-                .filter((c) => c.trim() !== "")
-                .map((choice, i) => (
-                  <div key={i} className="overview-field">
-                    <label>Valgmulighed {i + 1}:</label>
-                    <span>{choice}</span>
-                  </div>
-                ))
-            )}
+          {choices.filter((c) => c.trim() !== "").length === 0 ? (
+            <p className="field-hint">Ingen valgmuligheder tilføjet.</p>
+          ) : (
+            choices
+              .filter((c) => c.trim() !== "")
+              .map((choice, i) => (
+                <div key={i} className="overview-field">
+                  <label>Valgmulighed {i + 1}:</label>
+                  <span>{choice}</span>
+                </div>
+              ))
+          )}
         </div>
       </div>
 
