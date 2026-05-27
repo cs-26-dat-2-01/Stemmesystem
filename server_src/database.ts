@@ -1996,7 +1996,7 @@ export class WebappDatabase {
   }
 
   /**
-   * returns the total amount of casted vote for a given poll. 
+   * returns the total amount of casted vote for a given poll.
    * @param pollId the ID of the poll to count cast votes for.
    * @returns Promise<number> a promise that resolves to the number of votes the user has already cast for the poll. Returns 0 if an error occurs during fetching.
    */

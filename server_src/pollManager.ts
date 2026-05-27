@@ -1076,13 +1076,15 @@ export class PollManager {
       };
     }
 
-    const isCreator = poll.createdBy === userId;
-    const isEligible = isCreator
-      ? true
-      : await this.DB.isUserEligible(pollId, userId);
+    if (poll.pollVisibility === "private") {
+      const isCreator = poll.createdBy === userId;
+      const isEligible = isCreator
+        ? true
+        : await this.DB.isUserEligible(pollId, userId);
 
-    if (!isCreator && !isEligible) {
-      return { errorMsg: "Forbidden", httpStatusCode: 403 };
+      if (!isCreator && !isEligible) {
+        return { errorMsg: "Forbidden", httpStatusCode: 403 };
+      }
     }
 
     const options = await this.DB.getPollOptionsFromDB(pollId);
