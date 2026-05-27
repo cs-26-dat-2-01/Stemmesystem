@@ -87,21 +87,24 @@
   margin-top: 1.5rem;
 }
 .alog-buttons button {
-  display: flex;
+  text-transform: uppercase;
+  outline: 0;
+  background: var(--blue-button-color);
+  border: 0;
+  padding: 9px 18px;
+  color: var(--primary-background-color);
+  font-size: 0.8rem;
+  font-family: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
   align-items: center;
-  height: 34px;
-  box-sizing: border-box;
-  padding: 5px 18px;
-  background: #1d4ed8;
-  color: #fff;
-  border-radius: 5px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-decoration: none;
-  transition: background 0.15s;
+  gap: 10px;
 }
 .alog-buttons button:hover {
-  background: #1e40af;
+  background: var(--blue-button-hover);
+  opacity: 0.85;
 }
 .alog-buttons button:disabled {
   background: #374151;
