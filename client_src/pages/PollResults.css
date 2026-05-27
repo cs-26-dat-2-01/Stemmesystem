@@ -178,7 +178,7 @@
 }
 
 .rs-verify-btn {
-  margin-top: 8px;
+  margin: 0.5rem;
   padding: 8px 16px;
   border-radius: 6px;
   border: none;
@@ -262,4 +262,17 @@
   font-family: monospace;
   opacity: 0.7;
   margin-top: 2px;
+}
+@media (max-width: 1366px) {
+  .rs-layout {
+    grid-template-columns: 1fr;
+  }
+  .rs-sidebar {
+    display: flex;
+    justify-content: center;
+  }
+  .rs-top-box {
+    width: 100%;
+    max-width: 260px;
+  }
 }
