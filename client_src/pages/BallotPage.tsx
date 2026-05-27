@@ -129,8 +129,10 @@ function BallotPage({ pollId }: BallotPageProps) {
                   <label key={option.id} className="ballot-option">
                     <span>{option.optionText}</span>
                     <input
-                      type="text"
+                      type="number"
                       inputMode="numeric"
+                      step={1}
+                      min={0}
                       value={voteAllocations[option.id] ?? ""}
                       onChange={(e) => {
                         // Sanitize input to only allow integers
