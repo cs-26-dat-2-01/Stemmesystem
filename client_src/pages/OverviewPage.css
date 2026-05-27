@@ -234,6 +234,10 @@
 }
 
 /* Column-specific */
+.ov-col-title {
+  max-width: 300px;
+  overflow-x: hidden;
+}
 .ov-col-title a {
   color: var(--color-text);
   text-decoration: none;
@@ -327,6 +331,10 @@
 
 /* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 900px) {
+  .ov-col-title {
+    max-width: 100%;
+    margin-right: 8px;
+  }
   .ov-layout {
     grid-template-columns: 1fr;
   }
