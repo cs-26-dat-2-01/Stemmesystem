@@ -1075,6 +1075,18 @@ export class PollManager {
         httpStatusCode: httpStatusCode === 500 ? 500 : 404,
       };
     }
+
+    if (poll.pollVisibility === "private"){
+    const isCreator = poll.createdBy === userId;
+    const isEligible = isCreator
+      ? true
+      : await this.DB.isUserEligible(pollId, userId);
+
+    if (!isCreator && !isEligible) {
+      return { errorMsg: "Forbidden", httpStatusCode: 403 };
+    }
+    }
+
     const options = await this.DB.getPollOptionsFromDB(pollId);
     const voters = await this.DB.getEligibleVoters(pollId);
     return { result: { poll, options, voters }, httpStatusCode: 200 };
