@@ -15,7 +15,7 @@ To work on the project the
 [Deno CLI](https://docs.deno.com/runtime/getting_started/installation/) tool
 will need to be installed, this can be done as shown below.
 
-The system has been tested on deno 2.7.9. 
+The system has been tested on deno 2.7.9.
 
 **Linux/macOS:**
 
