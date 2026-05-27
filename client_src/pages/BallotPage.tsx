@@ -66,14 +66,15 @@ function BallotPage({ pollId }: BallotPageProps) {
     openPoll();
   }, [pollId]); // Useeffect runs openPoll again if pollid changes.
 
-  useEffect(() => {
+  (useEffect(() => {
     if (!poll?.endsAt) return;
     const interval = setInterval(() => {
       const timeleft: string = calculateTimeRemaining(poll?.endsAt);
       setTimeleft(timeleft);
     }, 1000);
     return () => clearInterval(interval);
-  }), [poll?.endsAt];
+  }),
+    [poll?.endsAt]);
 
   let allocatedVotes = 0;
   for (const count of Object.values(voteAllocations)) {
@@ -121,46 +122,45 @@ function BallotPage({ pollId }: BallotPageProps) {
             </div>
 
             <div className="ballot-options">
-              {votesRemaining <= 0
-                ? <p>Du har allerede brugt alle dine stemmer.</p>
-                : hasMultipleVotes
-                ? (
-                  options.map((option) => (
-                    <label key={option.id} className="ballot-option">
-                      <span>{option.optionText}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={votesRemaining - allocatedVotes +
-                          (voteAllocations[option.id] ?? 0)}
-                        value={voteAllocations[option.id] ?? 0}
-                        onChange={(e) => {
-                          const nextValue = Number(e.target.value);
+              {votesRemaining <= 0 ? (
+                <p>Du har allerede brugt alle dine stemmer.</p>
+              ) : hasMultipleVotes ? (
+                options.map((option) => (
+                  <label key={option.id} className="ballot-option">
+                    <span>{option.optionText}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={voteAllocations[option.id] ?? ""}
+                      onChange={(e) => {
+                        // Sanitize input to only allow integers
+                        const cleanedValue = e.target.value.replace(/\D/g, "");
 
-                          setVoteAllocations((prev) => ({
-                            ...prev,
-                            [option.id]: nextValue,
-                          }));
-                        }}
-                      />
-                    </label>
-                  ))
-                )
-                : (
-                  options.map((option) => (
-                    <label key={option.id} className="ballot-option">
-                      <input
-                        type="radio"
-                        name="pollOption"
-                        value={option.id}
-                        checked={selectedOption === option.id}
-                        onChange={() =>
-                          setSelectedOption(option.id)}
-                      />
-                      {option.optionText}
-                    </label>
-                  ))
-                )}
+                        setVoteAllocations((prev) => ({
+                          ...prev,
+                          [option.id]:
+                            cleanedValue === ""
+                              ? 0
+                              : parseInt(cleanedValue, 10),
+                        }));
+                      }}
+                    />
+                  </label>
+                ))
+              ) : (
+                options.map((option) => (
+                  <label key={option.id} className="ballot-option">
+                    <input
+                      type="radio"
+                      name="pollOption"
+                      value={option.id}
+                      checked={selectedOption === option.id}
+                      onChange={() => setSelectedOption(option.id)}
+                    />
+                    {option.optionText}
+                  </label>
+                ))
+              )}
             </div>
 
             <button
@@ -194,24 +194,22 @@ function BallotPage({ pollId }: BallotPageProps) {
         <NavBar />
         <div className="ballot-container">
           <div className="ballot-confirm-card">
-            {hasMultipleVotes
-              ? (
-                <>
-                  <p>Du er ved at afgive følgende stemmer:</p>
-                  <ul>
-                    {selectedAllocations.map(({ option, count }) => (
-                      <li key={option.id}>
-                        {option.optionText}: {count}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )
-              : (
-                <p>
-                  Du er ved at stemme på <strong>{selectedText}</strong>
-                </p>
-              )}
+            {hasMultipleVotes ? (
+              <>
+                <p>Du er ved at afgive følgende stemmer:</p>
+                <ul>
+                  {selectedAllocations.map(({ option, count }) => (
+                    <li key={option.id}>
+                      {option.optionText}: {count}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p>
+                Du er ved at stemme på <strong>{selectedText}</strong>
+              </p>
+            )}
 
             <p>Vil du bekræfte?</p>
 
@@ -284,17 +282,18 @@ function BallotPage({ pollId }: BallotPageProps) {
 
     const optionIds: number[] = hasMultipleVotes
       ? Object.entries(voteAllocations).flatMap(([optionId, count]) =>
-        Array.from({ length: count }, () => Number(optionId))
-      )
+          Array.from({ length: count }, () => Number(optionId)),
+        )
       : selectedOption === null
-      ? []
-      : [selectedOption];
+        ? []
+        : [selectedOption];
 
-    // Branch on the poll's stored privacy: open = identified batch cast in one cast 
+    // Branch on the poll's stored privacy: open = identified batch cast in one cast
     try {
-      const newReceipts = poll?.ballotPrivacy === "open"
-        ? await castOpen(optionIds)
-        : await castSecret(optionIds);
+      const newReceipts =
+        poll?.ballotPrivacy === "open"
+          ? await castOpen(optionIds)
+          : await castSecret(optionIds);
       saveReceipts(newReceipts);
       setViewState("done");
     } catch (err) {
