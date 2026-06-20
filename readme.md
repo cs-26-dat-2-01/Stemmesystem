@@ -1,4 +1,4 @@
-# Stemmesystem udviklet til brug i Ungdommens Naturfaglige Forening
+# Stemmesystem udviklet til brug i ungdoms foreninger
 
 ## Versioning
 
